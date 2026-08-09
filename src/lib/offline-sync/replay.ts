@@ -4,14 +4,20 @@ import { withKeyedLock } from "@/lib/keyed-lock";
 import { runBounded } from "@/lib/run-bounded";
 
 import { database, type QueuedMutation, type SyncDb } from "./db";
-import { withProgressMutationLock } from "./queue";
+import { newMutationId, withProgressMutationLock } from "./queue";
 import {
   awaitsRegistration,
+  duplicateProgressRetryFloor,
   reattachDuplicateImport,
+  reconcileAcceptedProgressWithStatus,
   reconcileProgressConflict,
   toQueuedProgress,
 } from "./reconcile";
-import { nextDeviceSequence } from "./sequences";
+import {
+  currentDeviceSequence,
+  reserveDeviceSequenceAbove,
+  reserveDeviceSequenceAboveInStore,
+} from "./sequences";
 
 export const REPLAY_PAGE_SIZE = 100;
 export const REPLAY_CONCURRENCY = 4;
@@ -196,32 +202,35 @@ function replayFingerprint(mutation: QueuedMutation): string | null {
  */
 async function supersedeStaleProgress(task: QueuedMutation): Promise<QueuedMutation> {
   if (task.kind !== "progress") return task;
-  const queuedOccurredAt = Date.parse(String(task.payload.eventOccurredAt ?? ""));
+  const issuedSequence = await currentDeviceSequence(task.entityId, task.userId);
+  const sequenceIsStale = issuedSequence > task.deviceSequence;
   const local = readLocalProgress(task.userId, task.entityId);
-  // `occurredAt: 0` is a pre-v2 record that claims no moment at all, so it
-  // cannot claim a later one — the same rule `localWinsOver` applies.
-  if (!local || !local.occurredAt || !Number.isFinite(queuedOccurredAt)) return task;
 
-  const localPosition = Math.round(local.positionMs);
-  const queuedPosition = Number(task.payload.positionMs);
-  const positionChanged = localPosition !== queuedPosition;
-  const rateChanged =
-    typeof local.playbackRate === "number" &&
-    local.playbackRate !== Number(task.payload.playbackRate);
-  const completionChanged =
-    typeof local.completed === "boolean" && local.completed !== task.payload.completed;
-  if (!positionChanged && !rateChanged && !completionChanged) return task;
+  const queuedPositionClock = clockFrom(task.payload.eventOccurredAt);
+  const queuedLegacyClock = clockFrom(task.payload.stateOccurredAt ?? task.payload.eventOccurredAt);
+  const queuedRateClock = clockFrom(task.payload.playbackRateOccurredAt) ?? queuedLegacyClock;
+  const queuedCompletedClock = clockFrom(task.payload.completedOccurredAt) ?? queuedLegacyClock;
+  const localRateClock = local
+    ? (local.playbackRateOccurredAt ?? local.writtenAt ?? local.occurredAt)
+    : -1;
+  const localCompletedClock = local
+    ? (local.completedOccurredAt ?? local.writtenAt ?? local.occurredAt)
+    : -1;
 
-  // A later write of a DIFFERENT position may be a stale tab flushing an old
-  // place. Only the moment that position was actually reached can outrank the
-  // queued one. At the SAME position, rate and completion have their own clock:
-  // promoting `writtenAt` to the POSITION clock rewound a newer device.
-  if (positionChanged) {
-    if (local.occurredAt <= queuedOccurredAt) return task;
-  } else {
-    const newestQueuedMoment = Math.max(task.queuedAt, queuedOccurredAt);
-    if (!local.writtenAt || local.writtenAt <= newestQueuedMoment) return task;
-  }
+  const positionIsNewer =
+    !!local &&
+    local.occurredAt > 0 &&
+    queuedPositionClock !== null &&
+    local.occurredAt > queuedPositionClock;
+  const rateIsNewer =
+    typeof local?.playbackRate === "number" &&
+    queuedRateClock !== null &&
+    localRateClock > queuedRateClock;
+  const completionIsNewer =
+    typeof local?.completed === "boolean" &&
+    queuedCompletedClock !== null &&
+    localCompletedClock > queuedCompletedClock;
+  if (!positionIsNewer && !rateIsNewer && !completionIsNewer && !sequenceIsStale) return task;
 
   // Raised past the row being replaced, not merely minted. `nextDeviceSequence`
   // counts what THIS device has issued, and a queued row can outrank that
@@ -231,24 +240,47 @@ async function supersedeStaleProgress(task: QueuedMutation): Promise<QueuedMutat
   // the one it may already have recorded for this row is a write it answers 200
   // to and discards, which is the exact failure this whole function exists to
   // stop, arrived at from the other side.
-  const deviceSequence = Math.max(
-    await nextDeviceSequence(task.entityId, task.userId),
-    task.deviceSequence + 1,
+  const deviceSequence = await reserveDeviceSequenceAbove(
+    task.entityId,
+    task.deviceSequence,
+    task.userId,
   );
   const superseded: QueuedMutation = {
     ...task,
     deviceSequence,
     payload: {
       ...task.payload,
-      positionMs: localPosition,
-      ...(typeof local.playbackRate === "number" ? { playbackRate: local.playbackRate } : {}),
-      ...(typeof local.completed === "boolean" ? { completed: local.completed } : {}),
-      eventOccurredAt: positionChanged
-        ? new Date(local.occurredAt).toISOString()
-        : task.payload.eventOccurredAt,
-      stateOccurredAt: new Date(local.writtenAt ?? local.occurredAt).toISOString(),
+      ...(positionIsNewer
+        ? {
+            positionMs: Math.round(local!.positionMs),
+            eventOccurredAt: new Date(local!.occurredAt).toISOString(),
+          }
+        : {}),
+      ...(rateIsNewer
+        ? {
+            playbackRate: local!.playbackRate,
+            playbackRateOccurredAt: new Date(localRateClock).toISOString(),
+          }
+        : {}),
+      ...(completionIsNewer
+        ? {
+            completed: local!.completed,
+            completedOccurredAt: new Date(localCompletedClock).toISOString(),
+          }
+        : {}),
     },
   };
+  const rateClock = String(
+    superseded.payload.playbackRateOccurredAt ??
+      superseded.payload.stateOccurredAt ??
+      superseded.payload.eventOccurredAt,
+  );
+  const completedClock = String(
+    superseded.payload.completedOccurredAt ??
+      superseded.payload.stateOccurredAt ??
+      superseded.payload.eventOccurredAt,
+  );
+  superseded.payload.stateOccurredAt = laterClock(rateClock, completedClock);
 
   const db = await database();
   const transaction = db.transaction("mutations", "readwrite");
@@ -264,6 +296,40 @@ async function supersedeStaleProgress(task: QueuedMutation): Promise<QueuedMutat
   return superseded;
 }
 
+function clockFrom(value: unknown): number | null {
+  const parsed = Date.parse(String(value ?? ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function laterClock(left: string, right: string): string {
+  return Date.parse(left) >= Date.parse(right) ? left : right;
+}
+
+async function refreshDuplicateProgress(
+  task: QueuedMutation,
+  serverSequenceFloor: number,
+): Promise<void> {
+  const db = await database();
+  const transaction = db.transaction(["mutations", "sequences"], "readwrite");
+  const mutations = transaction.objectStore("mutations");
+  const current = await mutations.get(task.key);
+  if (current?.mutationId === task.mutationId) {
+    const deviceSequence = await reserveDeviceSequenceAboveInStore(
+      transaction.objectStore("sequences"),
+      task.entityId,
+      Math.max(task.deviceSequence, serverSequenceFloor),
+      task.userId,
+    );
+    await mutations.put({
+      ...task,
+      mutationId: newMutationId(),
+      deviceSequence,
+      attempts: task.attempts + 1,
+    });
+  }
+  await transaction.done;
+}
+
 async function replayMutation(snapshot: QueuedMutation, fetchFn: typeof fetch): Promise<void> {
   await withMutationLock(snapshot, async () => {
     const task = await supersedeStaleProgress(snapshot);
@@ -277,6 +343,17 @@ async function replayMutation(snapshot: QueuedMutation, fetchFn: typeof fetch): 
     }
     const { url, init } = toReplayRequest(task);
     const response = await fetchFn(url, init);
+    if (
+      response.status === 400 &&
+      task.kind === "progress" &&
+      ("playbackRateOccurredAt" in task.payload || "completedOccurredAt" in task.payload)
+    ) {
+      // A predecessor server's strict schema rejects the v2 clock keys. Keep
+      // the exact event until a v2 instance can accept it; downgrading to the
+      // legacy combined tuple can overwrite a newer independent field.
+      await recordAttempt(task);
+      return;
+    }
     if (shouldRetainMutation(response.status)) {
       await recordAttempt(task);
       return;
@@ -312,6 +389,19 @@ async function replayMutation(snapshot: QueuedMutation, fetchFn: typeof fetch): 
         // Settling here would delete the only record of it, so the row stays
         // and the next drain asks again — the fingerprint is still taken, so
         // the answer, and the canonical id in it, are the same.
+        await recordAttempt(task);
+        return;
+      }
+    }
+    if (response.ok && task.kind === "progress") {
+      const entry = toQueuedProgress(task);
+      const duplicateFloor = await duplicateProgressRetryFloor(entry, response);
+      if (duplicateFloor !== null) {
+        await refreshDuplicateProgress(task, duplicateFloor);
+        return;
+      }
+      const reconciled = await reconcileAcceptedProgressWithStatus(entry, response);
+      if (!reconciled.persisted) {
         await recordAttempt(task);
         return;
       }

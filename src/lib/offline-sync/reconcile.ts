@@ -1,7 +1,8 @@
 import { PROGRESS_CONFLICT_EVENT } from "@/lib/app-keys";
-import { saveLocalPlaybackState } from "@/lib/playback-core";
+import { applyAuthoritativePlaybackStateWithStatus, readLocalProgress } from "@/lib/playback-core";
 
 import { database, type QueuedMutation, type QueuedProgress } from "./db";
+import { persistProgressNormalization } from "./normalizations";
 import {
   archiveMutationKey,
   collectionMutationKey,
@@ -10,8 +11,14 @@ import {
   progressMutationKey,
   tagMutationKey,
 } from "./keys";
-import { MUTATION_COALESCING, resolveCoalescing } from "./queue";
-import { currentDeviceSequence, nextDeviceSequence } from "./sequences";
+import {
+  mergeProgressMutations,
+  MUTATION_COALESCING,
+  newMutationId,
+  resolveCoalescing,
+  withProgressMutationLock,
+} from "./queue";
+import { currentDeviceSequence, reserveDeviceSequenceAboveInStore } from "./sequences";
 
 // ---------------------------------------------------------------------------
 // Registration hooks
@@ -48,6 +55,9 @@ type ProgressConflictHandler = (
     completed: boolean;
     playbackRate: number;
     eventOccurredAt: string | null;
+    playbackRateOccurredAt: string | null;
+    completedOccurredAt: string | null;
+    stateOccurredAt: string | null;
   },
 ) => Promise<void>;
 
@@ -220,53 +230,70 @@ async function repointQueuedMutations(
   toBookId: string,
 ): Promise<number> {
   if (!fromBookId || !toBookId || fromBookId === toBookId) return 0;
-  const db = await database();
-  const affected = (await db.getAllFromIndex("mutations", "by-user", userId)).filter(
-    (row) => queuedBookId(row) === fromBookId,
-  );
-  if (!affected.length) return 0;
-  // Minted before the transaction opens, because `nextDeviceSequence` owns the
-  // `sequences` store and its own transaction. Burning a number costs nothing —
-  // the server only requires the next one to be higher — while re-implementing
-  // its floor arithmetic here would be exactly the hand-rolled duplicate the
-  // rest of this module refuses.
-  const sequence = affected.some((row) => row.kind === "progress")
-    ? await nextDeviceSequence(toBookId, userId)
-    : 0;
-
-  const transaction = db.transaction("mutations", "readwrite");
-  const store = transaction.store;
-  let moved = 0;
-  for (const snapshot of affected) {
-    const current = await store.get(snapshot.key);
-    // Settled or replaced while this was being read. `settleMutation` compares
-    // the same id for the same reason: an acknowledgement of an older intent
-    // must not carry a newer one along with it.
-    if (!current || current.mutationId !== snapshot.mutationId) continue;
-    const candidate = addressedTo(current, toBookId);
-    // `never` kinds cannot collide: their key embeds a mutationId no other row
-    // has. Everything else can, and is resolved rather than overwritten.
-    const existing = await store.get(candidate.key);
-    const winner = existing ? pickRepointWinner(existing, candidate) : candidate;
-    await store.delete(current.key);
-    await store.put(
-      winner === candidate && winner.kind === "progress"
-        ? { ...winner, key: candidate.key, deviceSequence: sequence }
-        : { ...winner, key: candidate.key },
+  return withProgressMutationLock(toBookId, async () => {
+    const db = await database();
+    const transaction = db.transaction(["mutations", "sequences"], "readwrite");
+    const store = transaction.objectStore("mutations");
+    const all = await store.index("by-user").getAll(userId);
+    const affected = all.filter((row) => queuedBookId(row) === fromBookId);
+    if (!affected.length) {
+      await transaction.done;
+      return 0;
+    }
+    const progressFloor = all.reduce(
+      (highest, row) =>
+        row.kind === "progress" && (row.entityId === fromBookId || row.entityId === toBookId)
+          ? Math.max(highest, row.deviceSequence)
+          : highest,
+      0,
     );
-    moved += 1;
-  }
-  await transaction.done;
-  return moved;
+    const sequence = affected.some((row) => row.kind === "progress")
+      ? await reserveDeviceSequenceAboveInStore(
+          transaction.objectStore("sequences"),
+          toBookId,
+          progressFloor,
+          userId,
+        )
+      : 0;
+
+    let moved = 0;
+    for (const snapshot of affected) {
+      const current = await store.get(snapshot.key);
+      // Settled or replaced while this was being read. `settleMutation` compares
+      // the same id for the same reason: an acknowledgement of an older intent
+      // must not carry a newer one along with it.
+      if (!current || current.mutationId !== snapshot.mutationId) continue;
+      const candidate = addressedTo(current, toBookId);
+      // `never` kinds cannot collide: their key embeds a mutationId no other row
+      // has. Everything else can, and is resolved rather than overwritten.
+      const existing = await store.get(candidate.key);
+      const winner = existing ? pickRepointWinner(existing, candidate) : candidate;
+      await store.delete(current.key);
+      const progressRevision = winner.kind === "progress" && winner !== existing;
+      await store.put({
+        ...winner,
+        key: candidate.key,
+        ...(progressRevision
+          ? {
+              deviceSequence: sequence,
+              ...(winner !== candidate ? { mutationId: newMutationId() } : {}),
+            }
+          : {}),
+      });
+      moved += 1;
+    }
+    await transaction.done;
+    return moved;
+  });
 }
 
 function pickRepointWinner(existing: QueuedMutation, candidate: QueuedMutation): QueuedMutation {
   const candidateIsNewer = candidate.queuedAt > existing.queuedAt;
   // Highest-sequence-wins is meaningless across two books' counters, so for
-  // progress the later intent is simply the one that stands — which is what
-  // "sequence" coalescing means for two events from one device on one book.
+  // progress queuedAt selects only the deterministic tie/envelope. Its three
+  // field registers are still merged independently by their clocks.
   if (MUTATION_COALESCING[candidate.kind] === "sequence") {
-    return candidateIsNewer ? candidate : existing;
+    return mergeProgressMutations(existing, candidate, candidateIsNewer ? candidate : existing);
   }
   return candidateIsNewer
     ? resolveCoalescing(existing, candidate)
@@ -283,8 +310,227 @@ export function toQueuedProgress(mutation: QueuedMutation): QueuedProgress {
     bookId: mutation.entityId,
     deviceId: mutation.deviceId,
     deviceSequence: mutation.deviceSequence,
+    ...(mutation.progressPredecessor ? { predecessor: mutation.progressPredecessor } : {}),
     ...payload,
   };
+}
+
+type ServerProgressState = {
+  positionMs: number;
+  completed: boolean;
+  playbackRate: number;
+  eventOccurredAt: string;
+  playbackRateOccurredAt: string;
+  completedOccurredAt: string;
+  stateOccurredAt: string;
+};
+
+async function readServerProgressState(response: Response): Promise<ServerProgressState | null> {
+  const payload = (await response
+    .clone()
+    .json()
+    .catch(() => null)) as { state?: Record<string, unknown> } | null;
+  const state = payload?.state;
+  const positionMs = state?.positionMs;
+  const completed = state?.completed;
+  const playbackRate = Number(state?.playbackRate);
+  const eventOccurredAt = typeof state?.eventOccurredAt === "string" ? state.eventOccurredAt : null;
+  const stateOccurredAt =
+    typeof state?.stateOccurredAt === "string" ? state.stateOccurredAt : eventOccurredAt;
+  const playbackRateOccurredAt =
+    typeof state?.playbackRateOccurredAt === "string"
+      ? state.playbackRateOccurredAt
+      : stateOccurredAt;
+  const completedOccurredAt =
+    typeof state?.completedOccurredAt === "string" ? state.completedOccurredAt : stateOccurredAt;
+  const clocks = [eventOccurredAt, playbackRateOccurredAt, completedOccurredAt];
+  if (
+    typeof positionMs !== "number" ||
+    typeof completed !== "boolean" ||
+    !Number.isFinite(playbackRate) ||
+    clocks.some((clock) => !clock || !Number.isFinite(Date.parse(clock)))
+  ) {
+    return null;
+  }
+  return {
+    positionMs,
+    completed,
+    playbackRate,
+    eventOccurredAt: eventOccurredAt!,
+    playbackRateOccurredAt: playbackRateOccurredAt!,
+    completedOccurredAt: completedOccurredAt!,
+    stateOccurredAt: stateOccurredAt!,
+  };
+}
+
+/**
+ * A 200 duplicate is only an acknowledgement when the server state proves the
+ * submitted values already landed. If its per-device high-water skipped this
+ * row instead, preserve the intent and tell the caller which sequence it must
+ * outrank on the next attempt.
+ */
+export async function duplicateProgressRetryFloor(
+  entry: QueuedProgress,
+  response: Response,
+): Promise<number | null> {
+  const payload = (await response
+    .clone()
+    .json()
+    .catch(() => null)) as {
+    kind?: unknown;
+    lastSequence?: unknown;
+    state?: Record<string, unknown> | null;
+  } | null;
+  if (payload?.kind !== "duplicate") return null;
+
+  const state = payload.state;
+  const stateDeviceId = typeof state?.deviceId === "string" ? state.deviceId : null;
+  const stateSequence = Number(state?.deviceSequence);
+  if (
+    stateDeviceId === entry.deviceId &&
+    Number.isSafeInteger(stateSequence) &&
+    stateSequence === entry.deviceSequence
+  ) {
+    return null;
+  }
+
+  const statePositionClock = parseClock(state?.eventOccurredAt);
+  const stateLegacyClock = parseClock(state?.stateOccurredAt) ?? statePositionClock;
+  const stateRateClock = parseClock(state?.playbackRateOccurredAt) ?? stateLegacyClock;
+  const stateCompletedClock = parseClock(state?.completedOccurredAt) ?? stateLegacyClock;
+  const submittedPositionClock = parseClock(entry.eventOccurredAt);
+  const submittedLegacyClock = parseClock(entry.stateOccurredAt) ?? submittedPositionClock;
+  const submittedRateClock = parseClock(entry.playbackRateOccurredAt) ?? submittedLegacyClock;
+  const submittedCompletedClock = parseClock(entry.completedOccurredAt) ?? submittedLegacyClock;
+  const serverRate = Number(state?.playbackRate);
+  const lostField =
+    fieldWasSkipped(
+      entry.positionMs,
+      submittedPositionClock,
+      state?.positionMs,
+      statePositionClock,
+    ) ||
+    fieldWasSkipped(entry.playbackRate, submittedRateClock, serverRate, stateRateClock) ||
+    fieldWasSkipped(
+      entry.completed,
+      submittedCompletedClock,
+      state?.completed,
+      stateCompletedClock,
+    );
+  if (!lostField) return null;
+
+  const reportedHighWater = Number(payload.lastSequence);
+  return Math.max(
+    entry.deviceSequence,
+    Number.isSafeInteger(reportedHighWater) ? reportedHighWater : 0,
+    stateDeviceId === entry.deviceId && Number.isSafeInteger(stateSequence) ? stateSequence : 0,
+  );
+}
+
+function parseClock(value: unknown): number | null {
+  const parsed = typeof value === "string" ? Date.parse(value) : NaN;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function fieldWasSkipped(
+  submittedValue: unknown,
+  submittedClock: number | null,
+  serverValue: unknown,
+  serverClock: number | null,
+): boolean {
+  return (
+    submittedClock !== null &&
+    (serverClock === null ||
+      submittedClock > serverClock ||
+      (submittedClock === serverClock && submittedValue !== serverValue))
+  );
+}
+
+/** Applies the bounded state returned for a successful progress request. */
+export async function reconcileAcceptedProgress(
+  entry: QueuedProgress,
+  response: Response,
+): Promise<QueuedProgress | null> {
+  return (await reconcileAcceptedProgressWithStatus(entry, response)).progress;
+}
+
+export type AcceptedProgressReconciliation = {
+  progress: QueuedProgress | null;
+  persisted: boolean;
+};
+
+export async function reconcileAcceptedProgressWithStatus(
+  entry: QueuedProgress,
+  response: Response,
+): Promise<AcceptedProgressReconciliation> {
+  const server = await readServerProgressState(response);
+  if (!server) return { progress: null, persisted: true };
+  const submittedRateClock =
+    entry.playbackRateOccurredAt ?? entry.stateOccurredAt ?? entry.eventOccurredAt;
+  const submittedCompletedClock =
+    entry.completedOccurredAt ?? entry.stateOccurredAt ?? entry.eventOccurredAt;
+  const applied = applyAuthoritativePlaybackStateWithStatus(
+    entry.userId,
+    entry.bookId,
+    {
+      positionMs: server.positionMs,
+      occurredAt: Date.parse(server.eventOccurredAt),
+      playbackRate: server.playbackRate,
+      playbackRateOccurredAt: Date.parse(server.playbackRateOccurredAt),
+      completed: server.completed,
+      completedOccurredAt: Date.parse(server.completedOccurredAt),
+    },
+    {
+      positionMs: entry.positionMs,
+      occurredAt: Date.parse(entry.eventOccurredAt),
+      playbackRate: entry.playbackRate,
+      playbackRateOccurredAt: Date.parse(submittedRateClock),
+      completed: entry.completed,
+      completedOccurredAt: Date.parse(submittedCompletedClock),
+      predecessor: entry.predecessor,
+    },
+  );
+  let durable = applied.persisted;
+  if (!durable && applied.normalization) {
+    try {
+      await persistProgressNormalization(entry.userId, entry.bookId, applied.normalization);
+      durable = true;
+    } catch {
+      // The network row remains the durable retry if both local stores fail.
+    }
+  }
+  // A failed write for one register must not discard a newer independent field
+  // that was already durable. The receipt is installed synchronously after its
+  // IDB commit, so this read projects only the exact failed source tuple and
+  // keeps every held position/rate/completion register fieldwise.
+  const local = durable ? readLocalProgress(entry.userId, entry.bookId) : applied.state;
+  const effectivePositionClock = local?.occurredAt ?? Date.parse(server.eventOccurredAt);
+  const effectiveRateClock =
+    local?.playbackRateOccurredAt ?? Date.parse(server.playbackRateOccurredAt);
+  const effectiveCompletedClock =
+    local?.completedOccurredAt ?? Date.parse(server.completedOccurredAt);
+  const effective: QueuedProgress = {
+    ...entry,
+    positionMs: local?.positionMs ?? server.positionMs,
+    playbackRate: local?.playbackRate ?? server.playbackRate,
+    completed: local?.completed ?? server.completed,
+    eventOccurredAt: new Date(effectivePositionClock).toISOString(),
+    playbackRateOccurredAt: new Date(effectiveRateClock).toISOString(),
+    completedOccurredAt: new Date(effectiveCompletedClock).toISOString(),
+    stateOccurredAt: new Date(Math.max(effectiveRateClock, effectiveCompletedClock)).toISOString(),
+  };
+  if (progressConflictHandler && durable) {
+    await progressConflictHandler(entry.userId, entry.bookId, {
+      positionMs: effective.positionMs,
+      completed: effective.completed,
+      playbackRate: effective.playbackRate,
+      eventOccurredAt: effective.eventOccurredAt,
+      playbackRateOccurredAt: effective.playbackRateOccurredAt ?? null,
+      completedOccurredAt: effective.completedOccurredAt ?? null,
+      stateOccurredAt: effective.stateOccurredAt ?? null,
+    });
+  }
+  return { progress: effective, persisted: durable };
 }
 
 /**
@@ -297,42 +543,29 @@ export async function reconcileProgressConflict(
   entry: QueuedProgress,
   response: Response,
 ): Promise<boolean> {
-  const payload = (await response
-    .clone()
-    .json()
-    .catch(() => null)) as { state?: Record<string, unknown> } | null;
-  const state = payload?.state;
-  const positionMs = state?.positionMs;
-  const completed = state?.completed;
-  const playbackRate = Number(state?.playbackRate);
-  const eventOccurredAt = typeof state?.eventOccurredAt === "string" ? state.eventOccurredAt : null;
-  if (
-    typeof positionMs !== "number" ||
-    typeof completed !== "boolean" ||
-    !Number.isFinite(playbackRate)
-  ) {
-    return true;
-  }
-  if ((await currentDeviceSequence(entry.bookId)) > entry.deviceSequence) return true;
+  const server = await readServerProgressState(response);
+  if (!server) return true;
+  if ((await currentDeviceSequence(entry.bookId, entry.userId)) > entry.deviceSequence) return true;
   // No subscriber means the library layer has not loaded, so the server's state
   // cannot be projected onto the download record yet; unreconciled, try later.
   if (!progressConflictHandler) return false;
-  await progressConflictHandler(entry.userId, entry.bookId, {
-    positionMs,
-    completed,
-    playbackRate,
-    eventOccurredAt,
-  });
-  saveLocalPlaybackState(entry.userId, entry.bookId, {
-    positionMs,
-    playbackRate,
-    completed,
-    occurredAt: eventOccurredAt ? Date.parse(eventOccurredAt) : Date.now(),
-  });
+  const reconciled = await reconcileAcceptedProgressWithStatus(entry, response);
+  if (!reconciled.persisted) return false;
+  const effective = reconciled.progress;
+  if (!effective) return true;
   if (typeof window !== "undefined") {
     window.dispatchEvent(
       new CustomEvent(PROGRESS_CONFLICT_EVENT, {
-        detail: { userId: entry.userId, bookId: entry.bookId, positionMs, completed, playbackRate },
+        detail: {
+          userId: entry.userId,
+          bookId: entry.bookId,
+          positionMs: effective.positionMs,
+          completed: effective.completed,
+          playbackRate: effective.playbackRate,
+          eventOccurredAt: effective.eventOccurredAt,
+          playbackRateOccurredAt: effective.playbackRateOccurredAt,
+          completedOccurredAt: effective.completedOccurredAt,
+        },
       }),
     );
   }

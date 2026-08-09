@@ -19,7 +19,11 @@ export type PlayerBook = {
   initialPositionMs: number;
   initialProgressOccurredAt: string | null;
   initialPlaybackRate: number;
+  /** Absent on stored books created before playback fields had separate clocks. */
+  initialPlaybackRateOccurredAt?: string | null;
   completed: boolean;
+  /** Absent on stored books created before playback fields had separate clocks. */
+  initialCompletedOccurredAt?: string | null;
 };
 
 export type NextInCollection = {

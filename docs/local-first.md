@@ -272,18 +272,41 @@ The repo already has a working model and this design adds no second one:
 - `src/server/playback/progress-policy.ts` and `listening-session-policy.ts`
   hold the rules. `PROGRESS_CONFLICT_EVENT` already surfaces conflicts to the UI.
 - Immediately before replay, a progress row is compared with the complete
-  durable local tuple. A different position may replace it only when that
-  position's `occurredAt` is newer, so a late stale-tab flush cannot move the
-  user backwards. At the same position, a changed playback rate or completion
-  flag may replace it only when `writtenAt` is newer than the queued row; the
-  replacement receives a fresh device sequence and uses that write time as its
-  event time.
+  durable local tuple. Position, playback rate, and completion are separate
+  last-writer-wins registers: `eventOccurredAt` clocks the position,
+  `playbackRateOccurredAt` clocks the rate, and `completedOccurredAt` clocks the
+  completion flag. Replay folds in only the fields whose local clocks are
+  newer, then gives the replacement a fresh device sequence. A late stale-tab
+  flush can therefore carry a real rate change without moving the position or
+  changing completion.
+- `stateOccurredAt` remains a combined rate/completion clock for rows and
+  clients from before the split. Nullable per-field database columns fall back
+  to it during migration. A legacy input that supplies only this one clock is
+  necessarily still a tuple: the server cannot distinguish a rate-only write
+  from an intentional restart, so guessing would silently discard one of those
+  valid legacy operations. New clients always send both independent clocks.
+- Player bootstrap chooses the freshest local/server value for each register
+  independently and hydrates the selected tuple with its original clocks.
+  Position cadence therefore advances only the position clock; merely carrying
+  an unchanged rate or completion value never claims that it changed now.
+- In `localStorage`, each document writes per-field registers under its own
+  writer id and reads the newest clock across writers. A rate-only tab therefore
+  never replaces another tab's position key, even if their reads and writes
+  interleave. The joined `chapterline:position:*` tuple remains for older builds
+  and diagnostics, but is no longer the sole durable authority.
+- The one queued progress row per book/device field-merges before replacement;
+  the highest device sequence is only its replay envelope. Any merged payload
+  receives a new mutation id so an acknowledgement already in flight cannot
+  settle a field that arrived after the request began.
+- During a rolling deploy, a `400` from a predecessor server that does not know
+  the per-field keys retains the v2 event unchanged. It is retried after rollout
+  instead of being downgraded to the ambiguous legacy combined tuple.
 
 Per entity:
 
 | Entity                                  | Rule                                                                                                                          |
 | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| playback state                          | existing device-sequence policy, unchanged                                                                                    |
+| playback state                          | per-device sequence idempotency plus independent LWW clocks for position, rate, and completion                                |
 | listening sessions                      | append-only, dedupe by id; existing session policy                                                                            |
 | book metadata (title, author, archived) | last-writer-wins on `updatedAt`, ties broken by `deviceId`                                                                    |
 | tag / collection edges                  | add-wins; an explicit remove carries a tombstone that outranks a concurrent add only when its `updatedAt` is newer            |

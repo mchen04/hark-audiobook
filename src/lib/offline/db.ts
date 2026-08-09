@@ -125,6 +125,9 @@ export type MirrorPlaybackState = {
   deviceId: string;
   deviceSequence: number;
   eventOccurredAt: string;
+  playbackRateOccurredAt?: string;
+  completedOccurredAt?: string;
+  /** Combined legacy clock retained while older mirror rows drain. */
   stateOccurredAt?: string;
   updatedAt: string;
 };

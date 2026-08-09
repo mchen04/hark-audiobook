@@ -143,6 +143,35 @@ describe("outbox coalescing", () => {
     expect((await mirroredState())?.positionMs).toBe(3_231);
   });
 
+  it("projects a newer rate without overwriting newer position or completion fields", async () => {
+    await mirrorProgress({
+      ...progress(1, 600_000),
+      deviceId: "device-2",
+      completed: true,
+      eventOccurredAt: "2026-07-05T00:05:00.000Z",
+      playbackRateOccurredAt: "2026-07-05T00:04:00.000Z",
+      completedOccurredAt: "2026-07-05T00:05:00.000Z",
+    });
+    await mirrorProgress({
+      ...progress(1, 15_000),
+      deviceId: "device-1",
+      playbackRate: 2,
+      completed: false,
+      eventOccurredAt: "2026-07-05T00:01:00.000Z",
+      playbackRateOccurredAt: "2026-07-05T00:06:00.000Z",
+      completedOccurredAt: "2026-07-05T00:01:00.000Z",
+    });
+
+    expect(await mirroredState()).toMatchObject({
+      positionMs: 600_000,
+      playbackRate: 2,
+      completed: true,
+      eventOccurredAt: "2026-07-05T00:05:00.000Z",
+      playbackRateOccurredAt: "2026-07-05T00:06:00.000Z",
+      completedOccurredAt: "2026-07-05T00:05:00.000Z",
+    });
+  });
+
   it("still orders one device's own events by its sequence", async () => {
     await mirrorProgress(progress(3, 3_000));
     // Same device, lower sequence: out of order, and the clock is not consulted.

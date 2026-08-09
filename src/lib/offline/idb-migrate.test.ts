@@ -820,7 +820,10 @@ function syncFixture(version: number): LegacyVersion {
   }
   return {
     version,
-    schema: { mutations, sequences: { keyPath: "key", indexes: {} } },
+    schema: {
+      mutations,
+      sequences: { keyPath: "key", indexes: {} },
+    },
     rows,
   };
 }

@@ -4,18 +4,23 @@ import { IDBFactory as FakeIDBFactory } from "fake-indexeddb";
 
 import { database, mirrorKey, offlineBookKey } from "./offline/db";
 import { listStoredOfflineBooks } from "./offline/library";
+import { applyPullBatch, healMirrorPlaybackFromLocal } from "./offline/mirror";
 import {
   commitBookDeletion,
   commitCollectionEdge,
   commitHistoryEvent,
   commitImport,
   commitMetadataEdit,
+  commitProgress,
   commitTagEdge,
 } from "./offline/outbox";
+import { bootstrapPlaybackState, readLocalProgress, saveLocalPlaybackState } from "./playback-core";
 import {
+  applyPendingProgressNormalizations,
   clearQueuedMutationsForUser,
   currentDeviceSequence,
   listQueuedMutations,
+  listProgressNormalizations,
   nextDeviceSequence,
   queueProgress,
   replayQueuedMutations,
@@ -81,11 +86,387 @@ describe("offline progress queue", () => {
     expect(JSON.parse(fetchFn.mock.calls[0]?.[1]?.body as string).deviceSequence).toBe(3);
   });
 
+  it("field-merges cross-tab progress before the single outbox row replays", async () => {
+    await queueProgress(
+      progressEntry({
+        deviceSequence: 1,
+        positionMs: 100_000,
+        playbackRate: 1,
+        completed: true,
+        eventOccurredAt: "2026-07-09T00:00:20.000Z",
+        playbackRateOccurredAt: "2026-07-09T00:00:05.000Z",
+        completedOccurredAt: "2026-07-09T00:00:20.000Z",
+      }),
+    );
+    await queueProgress(
+      progressEntry({
+        deviceSequence: 2,
+        positionMs: 0,
+        playbackRate: 2,
+        completed: false,
+        eventOccurredAt: "2026-07-09T00:00:05.000Z",
+        playbackRateOccurredAt: "2026-07-09T00:00:30.000Z",
+        completedOccurredAt: "2026-07-09T00:00:05.000Z",
+      }),
+    );
+    const fetchFn = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+
+    await replayQueuedMutations("user-a", fetchFn as typeof fetch);
+
+    const replayed = JSON.parse(fetchFn.mock.calls[0]?.[1]?.body as string);
+    expect(replayed.deviceSequence).toBeGreaterThan(2);
+    expect(replayed).toMatchObject({
+      positionMs: 100_000,
+      eventOccurredAt: "2026-07-09T00:00:20.000Z",
+      playbackRate: 2,
+      playbackRateOccurredAt: "2026-07-09T00:00:30.000Z",
+      completed: true,
+      completedOccurredAt: "2026-07-09T00:00:20.000Z",
+    });
+  });
+
+  it("keeps a lower-sequence field merge safe from an in-flight acknowledgement", async () => {
+    await queueProgress(
+      progressEntry({
+        deviceSequence: 5,
+        playbackRate: 1,
+        playbackRateOccurredAt: "2026-07-09T00:00:10.000Z",
+      }),
+    );
+    let release!: (response: Response) => void;
+    let requestStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      requestStarted = resolve;
+    });
+    let serverSequence = 0;
+    let serverRate = 0;
+    const fetchFn = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      if (body.deviceSequence > serverSequence) {
+        serverSequence = body.deviceSequence;
+        serverRate = body.playbackRate;
+      }
+      if (fetchFn.mock.calls.length > 1)
+        return Promise.resolve(new Response(null, { status: 200 }));
+      requestStarted();
+      return new Promise<Response>((resolve) => {
+        release = resolve;
+      });
+    });
+    const replay = replayQueuedMutations("user-a", fetchFn as typeof fetch);
+    await started;
+
+    await queueProgress(
+      progressEntry({
+        deviceSequence: 4,
+        playbackRate: 2,
+        playbackRateOccurredAt: "2026-07-09T00:00:30.000Z",
+      }),
+    );
+    release(new Response(null, { status: 200 }));
+    await replay;
+
+    const [queued] = await listQueuedMutations("user-a");
+    expect(queued?.deviceSequence).toBeGreaterThan(5);
+    expect(queued).toMatchObject({ payload: { playbackRate: 2 } });
+    expect(queued?.payload.playbackRateOccurredAt).toBe("2026-07-09T00:00:30.000Z");
+
+    await replayQueuedMutations("user-a", fetchFn as typeof fetch);
+    expect(serverSequence).toBe(queued?.deviceSequence);
+    expect(serverRate).toBe(2);
+    expect(await listQueuedMutations("user-a")).toHaveLength(0);
+  });
+
+  it("retains v2 clocks across a predecessor 400 until a v2 server accepts them", async () => {
+    await queueProgress(
+      progressEntry({
+        playbackRate: 2,
+        completed: false,
+        playbackRateOccurredAt: "2026-07-09T00:00:30.000Z",
+        completedOccurredAt: "2026-07-09T00:00:05.000Z",
+        stateOccurredAt: "2026-07-09T00:00:30.000Z",
+      }),
+    );
+    const predecessor = vi.fn().mockResolvedValue(new Response(null, { status: 400 }));
+
+    await replayQueuedMutations("user-a", predecessor as typeof fetch);
+
+    expect(predecessor).toHaveBeenCalledOnce();
+    expect(JSON.parse(predecessor.mock.calls[0]?.[1]?.body as string)).toMatchObject({
+      playbackRateOccurredAt: "2026-07-09T00:00:30.000Z",
+      completedOccurredAt: "2026-07-09T00:00:05.000Z",
+    });
+    expect(await listQueuedMutations("user-a")).toHaveLength(1);
+
+    const current = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    await replayQueuedMutations("user-a", current as typeof fetch);
+    expect(current).toHaveBeenCalledOnce();
+    expect(await listQueuedMutations("user-a")).toHaveLength(0);
+  });
+
+  it("converges future-skewed local clocks to the server's bounded acknowledgement", async () => {
+    const userId = "skew-user";
+    const bookId = "skew-book";
+    const future = "2026-08-10T12:00:00.000Z";
+    const bounded = "2026-08-09T12:05:00.000Z";
+    const values = new Map<string, string>();
+    let blockAuthoritativeRegisters = false;
+    vi.stubGlobal("localStorage", {
+      get length() {
+        return values.size;
+      },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (blockAuthoritativeRegisters && key.startsWith("chapterline:playback-")) {
+          throw new DOMException("Full", "QuotaExceededError");
+        }
+        values.set(key, value);
+      },
+      removeItem: (key: string) => void values.delete(key),
+    } as Storage);
+
+    try {
+      saveLocalPlaybackState(userId, bookId, {
+        positionMs: 100_000,
+        occurredAt: Date.parse(future),
+        playbackRate: 2,
+        playbackRateOccurredAt: Date.parse(future),
+        completed: true,
+        completedOccurredAt: Date.parse(future),
+        positionChanged: true,
+        playbackRateChanged: true,
+        completedChanged: true,
+      });
+      const event: QueuedProgress = {
+        userId,
+        bookId,
+        deviceId: "device-skew",
+        deviceSequence: 1,
+        positionMs: 100_000,
+        playbackRate: 2,
+        completed: true,
+        eventOccurredAt: future,
+        playbackRateOccurredAt: future,
+        completedOccurredAt: future,
+        stateOccurredAt: future,
+      };
+      await commitProgress(event);
+      const server = vi.fn().mockImplementation(() =>
+        Promise.resolve(
+          Response.json({
+            kind: server.mock.calls.length === 1 ? "saved" : "duplicate",
+            lastSequence: 1,
+            state: {
+              positionMs: 100_000,
+              playbackRate: "2.00",
+              completed: true,
+              deviceId: "device-skew",
+              deviceSequence: 1,
+              eventOccurredAt: bounded,
+              playbackRateOccurredAt: bounded,
+              completedOccurredAt: bounded,
+              stateOccurredAt: bounded,
+            },
+          }),
+        ),
+      );
+
+      blockAuthoritativeRegisters = true;
+      await replayQueuedMutations(userId, server as typeof fetch);
+      expect(await listQueuedMutations(userId)).toStrictEqual([]);
+      expect(await listProgressNormalizations(userId)).toHaveLength(1);
+      expect(readLocalProgress(userId, bookId)?.occurredAt).toBe(Date.parse(bounded));
+
+      blockAuthoritativeRegisters = false;
+      await expect(applyPendingProgressNormalizations(userId, bookId)).resolves.toBe(0);
+      expect(await listProgressNormalizations(userId)).toStrictEqual([]);
+      expect(readLocalProgress(userId, bookId)).toMatchObject({
+        positionMs: 100_000,
+        occurredAt: Date.parse(bounded),
+        playbackRate: 2,
+        playbackRateOccurredAt: Date.parse(bounded),
+        completed: true,
+        completedOccurredAt: Date.parse(bounded),
+      });
+
+      await applyPullBatch(userId, {
+        since: "2026-08-09T12:00:00.000Z",
+        cursor: bounded,
+        complete: true,
+        books: [],
+        playbackStates: [
+          {
+            bookId,
+            positionMs: 100_000,
+            playbackRate: 2,
+            completed: true,
+            deviceId: "device-skew",
+            deviceSequence: 1,
+            eventOccurredAt: bounded,
+            playbackRateOccurredAt: bounded,
+            completedOccurredAt: bounded,
+            stateOccurredAt: bounded,
+            updatedAt: bounded,
+          },
+        ],
+        tags: [],
+        collections: [],
+        preferences: null,
+        listeningSessions: [],
+        liveBookIds: null,
+      });
+      await expect(healMirrorPlaybackFromLocal(userId)).resolves.toBe(0);
+      const mirrorDb = await database();
+      await expect(
+        mirrorDb.get("playbackStates", mirrorKey(userId, bookId)),
+      ).resolves.toMatchObject({
+        eventOccurredAt: bounded,
+        playbackRateOccurredAt: bounded,
+        completedOccurredAt: bounded,
+      });
+      mirrorDb.close();
+
+      const bootstrap = bootstrapPlaybackState(userId, {
+        id: bookId,
+        title: "Skewed",
+        author: "Author",
+        durationMs: 600_000,
+        mediaUrl: "/media/skew",
+        coverUrl: null,
+        chapters: [],
+        initialPositionMs: 100_000,
+        initialProgressOccurredAt: bounded,
+        initialPlaybackRate: 2,
+        initialPlaybackRateOccurredAt: bounded,
+        completed: true,
+        initialCompletedOccurredAt: bounded,
+      });
+      expect(bootstrap.book).toMatchObject({
+        initialProgressOccurredAt: bounded,
+        initialPlaybackRateOccurredAt: bounded,
+        initialCompletedOccurredAt: bounded,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("normalizes an accepted event whose local write never replaced its predecessor", async () => {
+    const userId = "missing-submit-user";
+    const bookId = "missing-submit-book";
+    const predecessorClock = "2026-08-09T12:00:10.000Z";
+    const submittedClock = "2026-08-09T12:00:20.000Z";
+    const canonicalClock = "2026-08-09T12:00:15.000Z";
+    const values = new Map<string, string>();
+    let blocked = false;
+    vi.stubGlobal("localStorage", {
+      get length() {
+        return values.size;
+      },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (blocked) throw new DOMException("Full", "QuotaExceededError");
+        values.set(key, value);
+      },
+      removeItem: (key: string) => void values.delete(key),
+    } as Storage);
+
+    try {
+      saveLocalPlaybackState(userId, bookId, {
+        positionMs: 10_000,
+        occurredAt: Date.parse(predecessorClock),
+        playbackRate: 1,
+        playbackRateOccurredAt: Date.parse(predecessorClock),
+        completed: false,
+        completedOccurredAt: Date.parse(predecessorClock),
+        positionChanged: true,
+        playbackRateChanged: true,
+        completedChanged: true,
+      });
+      blocked = true;
+      const event: QueuedProgress = {
+        userId,
+        bookId,
+        deviceId: "device-missing-submit",
+        deviceSequence: 1,
+        positionMs: 20_000,
+        playbackRate: 2,
+        completed: true,
+        eventOccurredAt: submittedClock,
+        playbackRateOccurredAt: submittedClock,
+        completedOccurredAt: submittedClock,
+        stateOccurredAt: submittedClock,
+        predecessor: {
+          position: { value: 10_000, occurredAt: Date.parse(predecessorClock) },
+          playbackRate: { value: 1, occurredAt: Date.parse(predecessorClock) },
+          completed: { value: false, occurredAt: Date.parse(predecessorClock) },
+        },
+      };
+      await commitProgress(event);
+      const server = vi.fn().mockResolvedValue(
+        Response.json({
+          kind: "saved",
+          state: {
+            positionMs: 20_000,
+            playbackRate: "2.00",
+            completed: true,
+            deviceId: event.deviceId,
+            deviceSequence: 1,
+            eventOccurredAt: canonicalClock,
+            playbackRateOccurredAt: canonicalClock,
+            completedOccurredAt: canonicalClock,
+            stateOccurredAt: canonicalClock,
+          },
+        }),
+      );
+
+      await replayQueuedMutations(userId, server as typeof fetch);
+
+      expect(JSON.parse(String(server.mock.calls[0]?.[1]?.body))).not.toHaveProperty("predecessor");
+      expect(await listQueuedMutations(userId)).toStrictEqual([]);
+      expect(await listProgressNormalizations(userId)).toHaveLength(1);
+      expect(readLocalProgress(userId, bookId)).toMatchObject({
+        positionMs: 20_000,
+        occurredAt: Date.parse(canonicalClock),
+        playbackRate: 2,
+        playbackRateOccurredAt: Date.parse(canonicalClock),
+        completed: true,
+        completedOccurredAt: Date.parse(canonicalClock),
+      });
+
+      blocked = false;
+      await expect(applyPendingProgressNormalizations(userId, bookId)).resolves.toBe(0);
+      expect(await listProgressNormalizations(userId)).toStrictEqual([]);
+      expect(readLocalProgress(userId, bookId)).toMatchObject({
+        positionMs: 20_000,
+        occurredAt: Date.parse(canonicalClock),
+        playbackRate: 2,
+        playbackRateOccurredAt: Date.parse(canonicalClock),
+        completed: true,
+        completedOccurredAt: Date.parse(canonicalClock),
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("does not erase progress queued while replay is in flight", async () => {
-    await queueProgress(progressEntry({ deviceSequence: 1 }));
+    const firstSequence = await nextDeviceSequence("in-flight-book", "user-a");
+    await queueProgress(progressEntry({ bookId: "in-flight-book", deviceSequence: firstSequence }));
     const fetchFn = vi.fn(async (...args: [RequestInfo | URL, RequestInit?]) => {
       void args;
-      await queueProgress(progressEntry({ deviceSequence: 2 }));
+      if (fetchFn.mock.calls.length === 1) {
+        await queueProgress(
+          progressEntry({
+            bookId: "in-flight-book",
+            deviceSequence: await nextDeviceSequence("in-flight-book", "user-a"),
+            positionMs: 10_000,
+            eventOccurredAt: "2026-07-09T00:00:10.000Z",
+          }),
+        );
+      }
       return new Response(null, { status: 200 });
     });
 
@@ -93,7 +474,203 @@ describe("offline progress queue", () => {
     await replayQueuedMutations("user-a", fetchFn as typeof fetch);
 
     expect(fetchFn).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(fetchFn.mock.calls[1]?.[1]?.body as string).deviceSequence).toBe(2);
+    expect(JSON.parse(fetchFn.mock.calls[1]?.[1]?.body as string).deviceSequence).toBeGreaterThan(
+      firstSequence,
+    );
+  });
+
+  it("refreshes a queued envelope below the persisted sequence high-water", async () => {
+    const bookId = "high-water-book";
+    const taskSequence = await nextDeviceSequence(bookId, "user-a");
+    await queueProgress(
+      progressEntry({
+        bookId,
+        deviceSequence: taskSequence,
+        playbackRate: 2,
+        playbackRateOccurredAt: "2026-07-09T00:00:30.000Z",
+      }),
+    );
+    const acceptedLaterSequence = await nextDeviceSequence(bookId, "user-a");
+    vi.stubGlobal("localStorage", {
+      getItem: () => {
+        throw new DOMException("Blocked", "SecurityError");
+      },
+    } as unknown as Storage);
+    const server = { sequence: acceptedLaterSequence, playbackRate: 1 };
+    const fetchFn = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      if (body.deviceSequence > server.sequence) {
+        server.sequence = body.deviceSequence;
+        server.playbackRate = body.playbackRate;
+      }
+      return new Response(null, { status: 200 });
+    });
+
+    try {
+      await replayQueuedMutations("user-a", fetchFn as unknown as typeof fetch);
+      expect(server.sequence).toBeGreaterThan(acceptedLaterSequence);
+      expect(server.playbackRate).toBe(2);
+      expect(await listQueuedMutations("user-a")).toStrictEqual([]);
+      expect(await nextDeviceSequence(bookId, "user-a")).toBeGreaterThan(server.sequence);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("retries a duplicate response that proves the server skipped a queued field", async () => {
+    const bookId = "lost-high-water-book";
+    await queueProgress(
+      progressEntry({
+        bookId,
+        deviceSequence: 5,
+        playbackRate: 2,
+        playbackRateOccurredAt: "2026-07-09T00:00:30.000Z",
+        completedOccurredAt: "2026-07-09T00:00:00.000Z",
+      }),
+    );
+    const original = (await listQueuedMutations("user-a"))[0]!;
+    const fetchFn = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      if (fetchFn.mock.calls.length === 1) {
+        return Response.json({
+          kind: "duplicate",
+          lastSequence: 6,
+          state: {
+            positionMs: 5_000,
+            playbackRate: "1.00",
+            completed: false,
+            deviceId: "device-1",
+            deviceSequence: 6,
+            eventOccurredAt: "2026-07-09T00:00:00.000Z",
+            playbackRateOccurredAt: "2026-07-09T00:00:30.000Z",
+            completedOccurredAt: "2026-07-09T00:00:00.000Z",
+            stateOccurredAt: "2026-07-09T00:00:10.000Z",
+          },
+        });
+      }
+      return Response.json({
+        kind: "saved",
+        state: {
+          ...body,
+          playbackRate: String(body.playbackRate),
+          stateOccurredAt: body.playbackRateOccurredAt,
+        },
+      });
+    });
+
+    await replayQueuedMutations("user-a", fetchFn as unknown as typeof fetch);
+
+    const [retried] = await listQueuedMutations("user-a");
+    expect(retried).toMatchObject({
+      deviceSequence: 7,
+      payload: { playbackRate: 2, playbackRateOccurredAt: "2026-07-09T00:00:30.000Z" },
+    });
+    expect(retried?.mutationId).not.toBe(original.mutationId);
+
+    await replayQueuedMutations("user-a", fetchFn as unknown as typeof fetch);
+
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetchFn.mock.calls[1]?.[1]?.body as string)).toMatchObject({
+      deviceSequence: 7,
+      playbackRate: 2,
+    });
+    expect(await listQueuedMutations("user-a")).toStrictEqual([]);
+    expect(await nextDeviceSequence(bookId, "user-a")).toBeGreaterThan(7);
+  });
+
+  it("keeps advancing a duplicate when a predecessor does not report its high-water", async () => {
+    const bookId = "unknown-high-water-book";
+    await queueProgress(
+      progressEntry({
+        bookId,
+        deviceSequence: 5,
+        playbackRate: 1,
+        playbackRateOccurredAt: "2026-07-09T00:00:30.000Z",
+      }),
+    );
+    let serverSequence = 6;
+    let serverRate = 1;
+    let serverRateClock = "2026-07-09T00:00:10.000Z";
+    const fetchFn = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      if (body.deviceSequence > serverSequence) {
+        serverSequence = body.deviceSequence;
+        serverRate = body.playbackRate;
+        serverRateClock = body.playbackRateOccurredAt;
+        return Response.json({
+          kind: "saved",
+          state: {
+            ...body,
+            playbackRate: String(body.playbackRate),
+            stateOccurredAt: body.playbackRateOccurredAt,
+          },
+        });
+      }
+      return Response.json({
+        kind: "duplicate",
+        state: {
+          positionMs: 5_000,
+          playbackRate: "1.00",
+          completed: false,
+          deviceId: "predecessor-device",
+          deviceSequence: 1,
+          eventOccurredAt: "2026-07-09T00:00:00.000Z",
+          playbackRateOccurredAt: "2026-07-09T00:00:10.000Z",
+          completedOccurredAt: "2026-07-09T00:00:00.000Z",
+          stateOccurredAt: "2026-07-09T00:00:10.000Z",
+        },
+      });
+    });
+
+    await replayQueuedMutations("user-a", fetchFn as unknown as typeof fetch);
+    await replayQueuedMutations("user-a", fetchFn as unknown as typeof fetch);
+    await replayQueuedMutations("user-a", fetchFn as unknown as typeof fetch);
+
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+    expect(serverSequence).toBe(7);
+    expect(serverRate).toBe(1);
+    expect(serverRateClock).toBe("2026-07-09T00:00:30.000Z");
+    expect(await listQueuedMutations("user-a")).toStrictEqual([]);
+  });
+
+  it("settles an exact duplicate whose accepted clocks were server-bounded", async () => {
+    const bookId = "bounded-duplicate-book";
+    const future = "2026-08-10T12:00:00.000Z";
+    const bounded = "2026-08-09T12:05:00.000Z";
+    await queueProgress(
+      progressEntry({
+        bookId,
+        deviceSequence: 5,
+        positionMs: 100_000,
+        playbackRate: 2,
+        completed: true,
+        eventOccurredAt: future,
+        playbackRateOccurredAt: future,
+        completedOccurredAt: future,
+      }),
+    );
+    const fetchFn = vi.fn().mockResolvedValue(
+      Response.json({
+        kind: "duplicate",
+        lastSequence: 5,
+        state: {
+          positionMs: 100_000,
+          playbackRate: "2.00",
+          completed: true,
+          deviceId: "device-1",
+          deviceSequence: 5,
+          eventOccurredAt: bounded,
+          playbackRateOccurredAt: bounded,
+          completedOccurredAt: bounded,
+          stateOccurredAt: bounded,
+        },
+      }),
+    );
+
+    await replayQueuedMutations("user-a", fetchFn as unknown as typeof fetch);
+
+    expect(fetchFn).toHaveBeenCalledOnce();
+    expect(await listQueuedMutations("user-a")).toStrictEqual([]);
   });
 
   /**
@@ -151,6 +728,7 @@ describe("offline progress queue", () => {
       // discards, so the superseding row has to claim a fresh one.
       expect(body.deviceSequence).toBeGreaterThan(4);
       expect(await listQueuedMutations("user-a")).toHaveLength(0);
+      expect(await nextDeviceSequence("book-1", "user-a")).toBeGreaterThan(body.deviceSequence);
     });
 
     it("leaves the queued row alone when the local record is older", async () => {
@@ -167,7 +745,7 @@ describe("offline progress queue", () => {
 
       const body = JSON.parse(fetchFn.mock.calls[0]?.[1]?.body as string);
       expect(body.positionMs).toBe(15_245);
-      expect(body.deviceSequence).toBe(4);
+      expect(body.deviceSequence).toBeGreaterThanOrEqual(4);
     });
 
     it("does not fold in a record that claims no moment at all", async () => {
@@ -205,6 +783,7 @@ describe("offline progress queue", () => {
       expect(body.positionMs).toBe(5_000);
       expect(body.playbackRate).toBe(2);
       expect(body.eventOccurredAt).toBe("2026-07-09T00:00:00.000Z");
+      expect(body.playbackRateOccurredAt).toBe("2026-07-09T00:00:02.000Z");
       expect(body.stateOccurredAt).toBe("2026-07-09T00:00:02.000Z");
       expect(body.deviceSequence).toBeGreaterThan(4);
     });
@@ -231,6 +810,7 @@ describe("offline progress queue", () => {
       const body = JSON.parse(fetchFn.mock.calls[0]?.[1]?.body as string);
       expect(body.completed).toBe(true);
       expect(body.eventOccurredAt).toBe("2026-07-09T00:00:00.000Z");
+      expect(body.completedOccurredAt).toBe("2026-07-09T00:00:02.000Z");
       expect(body.stateOccurredAt).toBe("2026-07-09T00:00:02.000Z");
       expect(body.deviceSequence).toBeGreaterThan(4);
     });
@@ -254,8 +834,40 @@ describe("offline progress queue", () => {
 
       const body = JSON.parse(fetchFn.mock.calls[0]?.[1]?.body as string);
       expect(body.positionMs).toBe(15_245);
-      expect(body.playbackRate).toBe(1.5);
-      expect(body.deviceSequence).toBe(4);
+      expect(body.playbackRate).toBe(2);
+      expect(body.eventOccurredAt).toBe("2026-07-09T00:00:00.000Z");
+      expect(body.deviceSequence).toBeGreaterThan(4);
+    });
+
+    it("folds a rate-only local write without advancing the completion clock", async () => {
+      await queueProgress(
+        progressEntry({
+          deviceSequence: 4,
+          playbackRateOccurredAt: "2026-07-09T00:00:00.000Z",
+          completedOccurredAt: "2026-07-09T00:00:00.000Z",
+        }),
+      );
+      withLocalStorage({
+        [KEY]: JSON.stringify({
+          positionMs: 5_000,
+          occurredAt: Date.parse("2026-07-09T00:00:00.000Z"),
+          writtenAt: Date.parse("2026-07-09T00:00:02.000Z"),
+          playbackRate: 2,
+          playbackRateOccurredAt: Date.parse("2026-07-09T00:00:02.000Z"),
+          completed: false,
+          completedOccurredAt: Date.parse("2026-07-09T00:00:00.000Z"),
+        }),
+      });
+      const fetchFn = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+
+      await replayQueuedMutations("user-a", fetchFn as typeof fetch);
+
+      const body = JSON.parse(fetchFn.mock.calls[0]?.[1]?.body as string);
+      expect(body.positionMs).toBe(5_000);
+      expect(body.playbackRate).toBe(2);
+      expect(body.playbackRateOccurredAt).toBe("2026-07-09T00:00:02.000Z");
+      expect(body.completed).toBe(false);
+      expect(body.completedOccurredAt).toBe("2026-07-09T00:00:00.000Z");
     });
   });
 
@@ -639,6 +1251,82 @@ describe("replaying an import the server merges by fingerprint", () => {
         "the re-addressed position carries a sequence minted from the OTHER book's counter, so " +
           "the server will discard it and answer 200",
       ).toBeGreaterThan(behind);
+    });
+
+    it("reserves above a target outbox row that outranks the stored counter", async () => {
+      await seedOfflineImport(MINTED, MEDIA_URL);
+      const counter = await currentDeviceSequence(CANONICAL, USER);
+      const targetOutboxSequence = counter + 100;
+      await queueProgress({
+        userId: USER,
+        bookId: CANONICAL,
+        deviceId: "device-1",
+        deviceSequence: targetOutboxSequence,
+        positionMs: 100_000,
+        playbackRate: 1,
+        completed: true,
+        eventOccurredAt: "2026-07-20T00:00:20.000Z",
+        playbackRateOccurredAt: "2026-07-20T00:00:05.000Z",
+        completedOccurredAt: "2026-07-20T00:00:20.000Z",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      await queueProgress({
+        userId: USER,
+        bookId: MINTED,
+        deviceId: "device-1",
+        deviceSequence: await nextDeviceSequence(MINTED, USER),
+        positionMs: 0,
+        playbackRate: 2,
+        completed: false,
+        eventOccurredAt: "2026-07-20T00:00:05.000Z",
+        playbackRateOccurredAt: "2026-07-20T00:00:30.000Z",
+        completedOccurredAt: "2026-07-20T00:00:05.000Z",
+      });
+      await queueRegistration(MINTED);
+
+      await replayQueuedMutations(USER, mergeThenHold() as unknown as typeof fetch);
+
+      const [progress] = (await listQueuedMutations(USER)).filter(
+        (row) => row.kind === "progress" && row.entityId === CANONICAL,
+      );
+      expect(progress).toMatchObject({
+        payload: {
+          positionMs: 100_000,
+          eventOccurredAt: "2026-07-20T00:00:20.000Z",
+          playbackRate: 2,
+          playbackRateOccurredAt: "2026-07-20T00:00:30.000Z",
+          completed: true,
+          completedOccurredAt: "2026-07-20T00:00:20.000Z",
+        },
+      });
+      expect(progress!.deviceSequence).toBeGreaterThan(targetOutboxSequence);
+      expect(await currentDeviceSequence(CANONICAL, USER)).toBe(progress!.deviceSequence);
+
+      const server = {
+        deviceSequence: targetOutboxSequence,
+        positionMs: 100_000,
+        playbackRate: 1,
+        completed: true,
+      };
+      const acceptingServer = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        if (body.deviceSequence > server.deviceSequence) {
+          server.deviceSequence = body.deviceSequence;
+          server.positionMs = body.positionMs;
+          server.playbackRate = body.playbackRate;
+          server.completed = body.completed;
+        }
+        return new Response(null, { status: 200 });
+      });
+      await replayQueuedMutations(USER, acceptingServer as unknown as typeof fetch);
+      expect(server).toStrictEqual({
+        deviceSequence: progress!.deviceSequence,
+        positionMs: 100_000,
+        playbackRate: 2,
+        completed: true,
+      });
+      expect(await listQueuedMutations(USER)).toStrictEqual([]);
+      expect(await nextDeviceSequence(CANONICAL, USER)).toBeGreaterThan(progress!.deviceSequence);
     });
 
     it("does not drop them when they reach the server BEFORE the registration", async () => {

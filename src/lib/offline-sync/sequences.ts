@@ -1,6 +1,14 @@
 import { assertAccountWritable } from "@/lib/account-deletion-fence";
 
-import { activeUserId, database, deviceSequenceKey, SEQUENCE_FLOOR_KEY } from "./db";
+import type { IDBPObjectStore } from "idb";
+
+import {
+  activeUserId,
+  database,
+  deviceSequenceKey,
+  SEQUENCE_FLOOR_KEY,
+  type SyncDatabase,
+} from "./db";
 
 /**
  * Issues the next sequence for a book, and never issues one that is not
@@ -13,11 +21,37 @@ import { activeUserId, database, deviceSequenceKey, SEQUENCE_FLOOR_KEY } from ".
  * both call this with the book alone; the active account is the fallback.
  */
 export async function nextDeviceSequence(bookId: string, userId?: string): Promise<number> {
+  return reserveDeviceSequenceAbove(bookId, 0, userId);
+}
+
+/** Reserves and persists a sequence strictly above an event the server may have seen. */
+export async function reserveDeviceSequenceAbove(
+  bookId: string,
+  floor: number,
+  userId?: string,
+): Promise<number> {
   const owner = userId || activeUserId();
   if (owner) assertAccountWritable(owner);
   const db = await database();
   const transaction = db.transaction("sequences", "readwrite");
-  const store = transaction.store;
+  const next = await reserveDeviceSequenceAboveInStore(transaction.store, bookId, floor, owner);
+  if (owner) assertAccountWritable(owner);
+  await transaction.done;
+  return next;
+}
+
+type SequenceStore = Pick<
+  IDBPObjectStore<SyncDatabase, ["sequences"], "sequences", "readwrite">,
+  "get" | "put" | "delete"
+>;
+
+/** Same reservation, for callers committing the sequence beside another store atomically. */
+export async function reserveDeviceSequenceAboveInStore(
+  store: SequenceStore,
+  bookId: string,
+  floor: number,
+  owner: string | null,
+): Promise<number> {
   const scoped = owner ? deviceSequenceKey(owner, bookId) : null;
 
   const [scopedRow, legacyRow, floorRow] = await Promise.all([
@@ -25,7 +59,8 @@ export async function nextDeviceSequence(bookId: string, userId?: string): Promi
     store.get(bookId),
     store.get(SEQUENCE_FLOOR_KEY),
   ]);
-  const next = Math.max(scopedRow?.value || 0, legacyRow?.value || 0, floorRow?.value || 0) + 1;
+  const next =
+    Math.max(scopedRow?.value || 0, legacyRow?.value || 0, floorRow?.value || 0, floor) + 1;
 
   if (scoped) {
     await store.put({ key: scoped, userId: owner!, bookId, value: next });
@@ -35,8 +70,6 @@ export async function nextDeviceSequence(bookId: string, userId?: string): Promi
   } else {
     await store.put({ key: bookId, value: next });
   }
-  if (owner) assertAccountWritable(owner);
-  await transaction.done;
   return next;
 }
 

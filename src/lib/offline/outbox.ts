@@ -9,7 +9,7 @@ import {
   eventMutationKey,
   metadataMutationKey,
   newMutationId,
-  queueMutation,
+  queueMutationWithOutcome,
   tagMutationKey,
   type MutationDraft,
   type QueuedMutation,
@@ -84,12 +84,15 @@ export async function commitMutation(
   patch: MirrorPatch | null = mirrorPatchFor(mutation),
 ): Promise<CommitResult> {
   assertAccountWritable(mutation.userId);
-  const queued = await queueMutation(mutation);
+  const { queued, changed } = await queueMutationWithOutcome(mutation);
   assertAccountWritable(mutation.userId);
-  // Coalescing kept an existing row instead: the intent this call carried is
-  // already superseded, so projecting it would move the mirror backwards.
-  if (queued !== mutation || !patch) return { queued, mirrored: false };
-  await applyMirrorPatch(mutation.userId, patch);
+  // A fully superseded event changes neither durable row. Progress can instead
+  // contribute one independently newer field to an older sequence envelope;
+  // project the merged row, not either tab's stale whole tuple.
+  if (!changed || !patch) return { queued, mirrored: false };
+  const effectivePatch = queued.kind === "progress" ? mirrorPatchFor(queued) : patch;
+  if (!effectivePatch) return { queued, mirrored: false };
+  await applyMirrorPatch(mutation.userId, effectivePatch);
   return { queued, mirrored: true };
 }
 
@@ -424,17 +427,71 @@ function mirrorPatchFor(mutation: QueuedMutation): MirrorPatch | null {
         const store = transaction.objectStore("playbackStates");
         const key = mirrorKey(userId, entityId);
         const existing = await store.get(key);
-        if (existing && mirrorHoldsSomethingNewer(existing, mutation)) return;
+        const eventOccurredAt = String(payload.eventOccurredAt ?? now);
+        const playbackRateOccurredAt = String(
+          payload.playbackRateOccurredAt ?? payload.stateOccurredAt ?? eventOccurredAt,
+        );
+        const completedOccurredAt = String(
+          payload.completedOccurredAt ?? payload.stateOccurredAt ?? eventOccurredAt,
+        );
+
+        if (!existing) {
+          await store.put({
+            key,
+            userId,
+            bookId: entityId,
+            positionMs: Number(payload.positionMs ?? 0),
+            playbackRate: Number(payload.playbackRate ?? 1),
+            completed: Boolean(payload.completed ?? false),
+            deviceId: mutation.deviceId,
+            deviceSequence: mutation.deviceSequence,
+            eventOccurredAt,
+            playbackRateOccurredAt,
+            completedOccurredAt,
+            stateOccurredAt: laterClock(playbackRateOccurredAt, completedOccurredAt),
+            updatedAt: now,
+          });
+          return;
+        }
+        if (sameDeviceHasNewerMutation(existing, mutation)) return;
+
+        const positionWins = clockAtLeast(eventOccurredAt, existing.eventOccurredAt);
+        const playbackRateWins = clockAtLeast(
+          playbackRateOccurredAt,
+          existing.playbackRateOccurredAt ?? existing.stateOccurredAt ?? existing.eventOccurredAt,
+        );
+        const completedWins = clockAtLeast(
+          completedOccurredAt,
+          existing.completedOccurredAt ?? existing.stateOccurredAt ?? existing.eventOccurredAt,
+        );
+        if (!positionWins && !playbackRateWins && !completedWins) return;
+        const mergedRateClock = playbackRateWins
+          ? playbackRateOccurredAt
+          : (existing.playbackRateOccurredAt ??
+            existing.stateOccurredAt ??
+            existing.eventOccurredAt);
+        const mergedCompletedClock = completedWins
+          ? completedOccurredAt
+          : (existing.completedOccurredAt ?? existing.stateOccurredAt ?? existing.eventOccurredAt);
         const state: MirrorPlaybackState = {
           key,
           userId,
           bookId: entityId,
-          positionMs: Number(payload.positionMs ?? existing?.positionMs ?? 0),
-          playbackRate: Number(payload.playbackRate ?? existing?.playbackRate ?? 1),
-          completed: Boolean(payload.completed ?? existing?.completed ?? false),
+          positionMs: positionWins
+            ? Number(payload.positionMs ?? existing.positionMs)
+            : existing.positionMs,
+          playbackRate: playbackRateWins
+            ? Number(payload.playbackRate ?? existing.playbackRate)
+            : existing.playbackRate,
+          completed: completedWins
+            ? Boolean(payload.completed ?? existing.completed)
+            : existing.completed,
           deviceId: mutation.deviceId,
           deviceSequence: mutation.deviceSequence,
-          eventOccurredAt: String(payload.eventOccurredAt ?? now),
+          eventOccurredAt: positionWins ? eventOccurredAt : existing.eventOccurredAt,
+          playbackRateOccurredAt: mergedRateClock,
+          completedOccurredAt: mergedCompletedClock,
+          stateOccurredAt: laterClock(mergedRateClock, mergedCompletedClock),
           updatedAt: now,
         };
         await store.put(state);
@@ -446,37 +503,24 @@ function mirrorPatchFor(mutation: QueuedMutation): MirrorPatch | null {
   }
 }
 
-/**
- * Does the mirror already hold a LATER playback state than the one being
- * projected?
- *
- * The guard used to be `existing.deviceSequence > mutation.deviceSequence` with
- * no regard for who wrote the row, and `deviceSequence` is a per-(user, book,
- * DEVICE) counter — the server orders on it that way and `nextDeviceSequence`
- * mints it that way. Comparing this device's counter against a row a *different*
- * device wrote compares two unrelated integers: the phone that has opened a book
- * forty times outranks the laptop opening it for the first time, so a genuinely
- * newer laptop write is discarded, and the reverse lets a stale phone write
- * through. Neither answer is about time.
- *
- * So the comparison is only made where it means something. Same device: the
- * sequence is the ordering, and it is monotonic by construction, which is why it
- * is preferred over any clock. Different devices: the sequences share no origin
- * and the only ordering the two have in common is the event time the server
- * stamps and hands back on a pull, so that is what is compared — and an
- * unparseable or absent stamp on either side is not evidence of anything, so the
- * projection proceeds rather than being dropped on a guess.
- */
-function mirrorHoldsSomethingNewer(
+/** Same-device sequence orders whole events; cross-device fields use their clocks. */
+function sameDeviceHasNewerMutation(
   existing: MirrorPlaybackState,
   mutation: QueuedMutation,
 ): boolean {
-  if (existing.deviceId === mutation.deviceId) {
-    return existing.deviceSequence > mutation.deviceSequence;
-  }
-  const held = Date.parse(existing.eventOccurredAt);
-  const incoming = Date.parse(String(mutation.payload.eventOccurredAt ?? ""));
-  return Number.isFinite(held) && Number.isFinite(incoming) && held > incoming;
+  return (
+    existing.deviceId === mutation.deviceId && existing.deviceSequence > mutation.deviceSequence
+  );
+}
+
+function clockAtLeast(incoming: string, held: string): boolean {
+  const incomingMs = Date.parse(incoming);
+  const heldMs = Date.parse(held);
+  return !Number.isFinite(heldMs) || (Number.isFinite(incomingMs) && incomingMs >= heldMs);
+}
+
+function laterClock(left: string, right: string): string {
+  return Date.parse(left) >= Date.parse(right) ? left : right;
 }
 
 function bookFieldsFrom(payload: Record<string, unknown>): Partial<MirrorBook> {

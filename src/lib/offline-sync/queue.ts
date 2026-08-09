@@ -1,4 +1,4 @@
-import type { IDBPTransaction } from "idb";
+import type { IDBPObjectStore } from "idb";
 
 import { assertAccountWritable } from "@/lib/account-deletion-fence";
 import { withKeyedLock } from "@/lib/keyed-lock";
@@ -12,13 +12,14 @@ import {
   type SyncDatabase,
 } from "./db";
 import { progressMutationKey } from "./keys";
+import { reserveDeviceSequenceAboveInStore } from "./sequences";
 
 /**
  * Coalescing policy, exactly as the design contract states it.
  *
- * - `sequence`: progress for one book+device collapses to the highest
- *   `deviceSequence`; an out-of-order arrival is dropped, never applied over a
- *   newer one.
+ * - `sequence`: progress for one book+device keeps the highest
+ *   `deviceSequence` as its replay envelope and independently keeps the newest
+ *   position, rate and completion registers from every coalesced row.
  * - `replace`: the latest intent for this entity wins outright (a rename, an
  *   archive flip, one tag edge, one collection edge).
  * - `never`: each row is a distinct event. `import`, `delete` and `history`
@@ -64,21 +65,43 @@ export function buildMutation(draft: MutationDraft): QueuedMutation {
  * never believe it queued something the outbox refused.
  */
 export async function queueMutation(mutation: QueuedMutation): Promise<QueuedMutation> {
+  return (await queueMutationWithOutcome(mutation)).queued;
+}
+
+export async function queueMutationWithOutcome(
+  mutation: QueuedMutation,
+): Promise<{ queued: QueuedMutation; changed: boolean }> {
   assertAccountWritable(mutation.userId);
   const db = await database();
-  const transaction = db.transaction("mutations", "readwrite");
-  const existing = await transaction.store.get(mutation.key);
-  const winner = resolveCoalescing(existing, mutation);
-  if (winner !== existing) await transaction.store.put(winner);
+  const transaction = db.transaction(["mutations", "sequences"], "readwrite");
+  const mutations = transaction.objectStore("mutations");
+  const existing = await mutations.get(mutation.key);
+  const resolved = resolveCoalescing(existing, mutation);
+  let winner = resolved;
+  if (existing && mutation.kind === "progress" && resolved !== existing && resolved !== mutation) {
+    const deviceSequence = await reserveDeviceSequenceAboveInStore(
+      transaction.objectStore("sequences"),
+      mutation.entityId,
+      Math.max(existing.deviceSequence, mutation.deviceSequence),
+      mutation.userId,
+    );
+    winner = { ...resolved, mutationId: newMutationId(), deviceSequence };
+  }
+  if (winner !== existing) await mutations.put(winner);
   if (winner === mutation && mutation.kind === "delete") {
-    await dropSupersededImports(transaction.store, mutation);
+    await dropSupersededImports(mutations, mutation);
   }
   assertAccountWritable(mutation.userId);
   await transaction.done;
-  return winner;
+  return { queued: winner, changed: winner !== existing };
 }
 
-type MutationStore = IDBPTransaction<SyncDatabase, ["mutations"], "readwrite">["store"];
+type MutationStore = IDBPObjectStore<
+  SyncDatabase,
+  ("mutations" | "sequences")[],
+  "mutations",
+  "readwrite"
+>;
 
 /**
  * A delete supersedes an UNSENT import of the same file.
@@ -128,9 +151,118 @@ export function resolveCoalescing(
   // same intent, which must stay one event.
   if (MUTATION_COALESCING[next.kind] === "never") return existing;
   if (MUTATION_COALESCING[next.kind] === "sequence") {
-    return existing.deviceSequence <= next.deviceSequence ? next : existing;
+    return mergeProgressMutations(existing, next);
   }
   return next;
+}
+
+/**
+ * The highest sequence is the replay envelope, not permission to discard the
+ * other event's independently newer fields. Tabs share a device id and mint
+ * sequences from one counter, but each can be carrying a different causal
+ * baseline; merge before the single keyed outbox row replaces either event.
+ */
+export function mergeProgressMutations(
+  existing: QueuedMutation,
+  next: QueuedMutation,
+  tieWinner = existing.deviceSequence <= next.deviceSequence ? next : existing,
+): QueuedMutation {
+  const envelope = tieWinner;
+  const position = newerProgressField(existing, next, "position", envelope);
+  const rate = newerProgressField(existing, next, "rate", envelope);
+  const completed = newerProgressField(existing, next, "completed", envelope);
+  if (position === envelope && rate === envelope && completed === envelope) return envelope;
+  const payload: Record<string, unknown> = {
+    ...envelope.payload,
+    positionMs: position.payload.positionMs,
+    eventOccurredAt: progressClock(position, "position"),
+    playbackRate: rate.payload.playbackRate,
+    playbackRateOccurredAt: progressClock(rate, "rate"),
+    completed: completed.payload.completed,
+    completedOccurredAt: progressClock(completed, "completed"),
+  };
+  payload.stateOccurredAt = laterProgressClock(
+    String(payload.playbackRateOccurredAt),
+    String(payload.completedOccurredAt),
+  );
+  if (sameProgressPayload(envelope.payload, payload)) return envelope;
+  // Any payload change is a new outbox revision even when the highest sequence
+  // still belongs to `existing`. Otherwise an in-flight acknowledgement for
+  // that old mutationId can delete the newly merged field in `settleMutation`.
+  return {
+    ...envelope,
+    mutationId: next.mutationId,
+    queuedAt: next.queuedAt,
+    attempts: next.attempts,
+    payload,
+    progressPredecessor: {
+      ...(position.progressPredecessor?.position
+        ? { position: position.progressPredecessor.position }
+        : {}),
+      ...(rate.progressPredecessor?.playbackRate
+        ? { playbackRate: rate.progressPredecessor.playbackRate }
+        : {}),
+      ...(completed.progressPredecessor?.completed
+        ? { completed: completed.progressPredecessor.completed }
+        : {}),
+    },
+  };
+}
+
+type ProgressField = "position" | "rate" | "completed";
+
+function newerProgressField(
+  left: QueuedMutation,
+  right: QueuedMutation,
+  field: ProgressField,
+  tieWinner: QueuedMutation,
+): QueuedMutation {
+  const leftClock = progressClockMoment(left, field);
+  const rightClock = progressClockMoment(right, field);
+  if (leftClock === null && rightClock === null) return tieWinner;
+  if (leftClock === null) return right;
+  if (rightClock === null) return left;
+  if (leftClock === rightClock) return tieWinner;
+  return leftClock > rightClock ? left : right;
+}
+
+function progressClock(mutation: QueuedMutation, field: ProgressField): string {
+  const { payload } = mutation;
+  const value =
+    field === "position"
+      ? payload.eventOccurredAt
+      : field === "rate"
+        ? (payload.playbackRateOccurredAt ?? payload.stateOccurredAt ?? payload.eventOccurredAt)
+        : (payload.completedOccurredAt ?? payload.stateOccurredAt ?? payload.eventOccurredAt);
+  return String(value ?? "");
+}
+
+function progressClockMoment(mutation: QueuedMutation, field: ProgressField): number | null {
+  const parsed = Date.parse(progressClock(mutation, field));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function laterProgressClock(left: string, right: string): string {
+  const leftMoment = Date.parse(left);
+  const rightMoment = Date.parse(right);
+  if (!Number.isFinite(leftMoment)) return right;
+  if (!Number.isFinite(rightMoment)) return left;
+  return leftMoment >= rightMoment ? left : right;
+}
+
+function sameProgressPayload(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+): boolean {
+  return (
+    left.positionMs === right.positionMs &&
+    left.playbackRate === right.playbackRate &&
+    left.completed === right.completed &&
+    left.eventOccurredAt === right.eventOccurredAt &&
+    left.playbackRateOccurredAt === right.playbackRateOccurredAt &&
+    left.completedOccurredAt === right.completedOccurredAt &&
+    left.stateOccurredAt === right.stateOccurredAt
+  );
 }
 
 /**
@@ -147,6 +279,7 @@ export function buildProgressMutation(entry: QueuedProgress): QueuedMutation {
     payload: progressPayload(entry),
     deviceId: entry.deviceId,
     deviceSequence: entry.deviceSequence,
+    ...(entry.predecessor ? { progressPredecessor: entry.predecessor } : {}),
   });
 }
 

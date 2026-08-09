@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { PlayerChapter } from "@/domain/player";
+import type { PlayerBook, PlayerChapter } from "@/domain/player";
 
 import {
+  applyAuthoritativePlaybackState,
+  applyAuthoritativePlaybackStateWithStatus,
+  bootstrapPlaybackState,
   clearLocalPlaybackState,
   detectSuspendedSession,
   dismissSuspensionGap,
@@ -23,6 +26,22 @@ import {
   SUSPENSION_GAP_FLOOR_MS,
   type LocalPosition,
 } from "./playback-core";
+
+const serverBook: PlayerBook = {
+  id: "book-1",
+  title: "Test Book",
+  author: "Test Author",
+  durationMs: 600_000,
+  mediaUrl: "/media/book-1",
+  coverUrl: null,
+  chapters: [],
+  initialPositionMs: 60_000,
+  initialProgressOccurredAt: "2026-07-09T20:05:00.000Z",
+  initialPlaybackRate: 1,
+  initialPlaybackRateOccurredAt: "2026-07-09T20:04:00.000Z",
+  completed: true,
+  initialCompletedOccurredAt: "2026-07-09T20:05:00.000Z",
+};
 
 const chapters: PlayerChapter[] = [
   { id: "a", position: 0, title: "One", startMs: 0, endMs: 20_000 },
@@ -120,6 +139,10 @@ describe("local playback state", () => {
   beforeEach(() => {
     const store = new Map<string, string>();
     vi.stubGlobal("localStorage", {
+      get length() {
+        return store.size;
+      },
+      key: (index: number) => [...store.keys()][index] ?? null,
       getItem: (key: string) => store.get(key) ?? null,
       setItem: (key: string, value: string) => void store.set(key, value),
       removeItem: (key: string) => void store.delete(key),
@@ -131,7 +154,12 @@ describe("local playback state", () => {
     expect(readLocalPosition("user-a", "book-1")).toBe(1235);
     expect(readLocalPosition("user-b", "book-1")).toBeNull();
     localStorage.setItem("chapterline:position:user-a:book-1", "not-a-number");
-    expect(readLocalPosition("user-a", "book-1")).toBeNull();
+    expect(
+      readLocalPosition("user-a", "book-1"),
+      "the independent position register survives a corrupted legacy snapshot",
+    ).toBe(1235);
+    localStorage.setItem("chapterline:position:user-c:book-1", "not-a-number");
+    expect(readLocalPosition("user-c", "book-1")).toBeNull();
   });
 
   it("uses the freshest timestamped position and treats legacy local values as oldest", () => {
@@ -157,6 +185,817 @@ describe("local playback state", () => {
         serverOccurredAt: new Date(3_000).toISOString(),
       }),
     ).toBe(8_000);
+  });
+
+  it("hydrates a cold device with the server's field clocks instead of minting new ones", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-07-09T20:10:00.000Z"));
+      const bootstrap = bootstrapPlaybackState("user-a", serverBook);
+
+      expect(bootstrap.book).toMatchObject(serverBook);
+      expect(readLocalProgress("user-a", "book-1")).toMatchObject({
+        positionMs: 60_000,
+        occurredAt: Date.parse("2026-07-09T20:05:00.000Z"),
+        playbackRate: 1,
+        playbackRateOccurredAt: Date.parse("2026-07-09T20:04:00.000Z"),
+        completed: true,
+        completedOccurredAt: Date.parse("2026-07-09T20:05:00.000Z"),
+        source: "player-bootstrap",
+      });
+
+      vi.setSystemTime(new Date("2026-07-09T20:11:00.000Z"));
+      saveLocalPlaybackState("user-a", "book-1", {
+        positionMs: 61_000,
+        playbackRate: 1,
+        completed: true,
+        source: "media-tick",
+      });
+      expect(readLocalProgress("user-a", "book-1")).toMatchObject({
+        occurredAt: Date.parse("2026-07-09T20:11:00.000Z"),
+        playbackRateOccurredAt: Date.parse("2026-07-09T20:04:00.000Z"),
+        completedOccurredAt: Date.parse("2026-07-09T20:05:00.000Z"),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("chooses position, rate, and completion independently during bootstrap", () => {
+    localStorage.setItem(
+      "chapterline:position:user-a:book-1",
+      JSON.stringify({
+        positionMs: 15_000,
+        occurredAt: Date.parse("2026-07-09T20:01:00.000Z"),
+        playbackRate: 2,
+        playbackRateOccurredAt: Date.parse("2026-07-09T20:06:00.000Z"),
+        completed: false,
+        completedOccurredAt: Date.parse("2026-07-09T20:01:00.000Z"),
+      }),
+    );
+
+    const bootstrap = bootstrapPlaybackState("user-a", serverBook);
+
+    expect(bootstrap.book).toMatchObject({
+      initialPositionMs: 60_000,
+      initialProgressOccurredAt: "2026-07-09T20:05:00.000Z",
+      initialPlaybackRate: 2,
+      initialPlaybackRateOccurredAt: "2026-07-09T20:06:00.000Z",
+      completed: true,
+      initialCompletedOccurredAt: "2026-07-09T20:05:00.000Z",
+    });
+  });
+
+  it("uses the canonical server tuple to break equal-clock register ties", () => {
+    const clock = Date.parse("2026-07-09T20:05:00.000Z");
+    const rateClock = Date.parse("2026-07-09T20:04:00.000Z");
+    localStorage.setItem(
+      "chapterline:position:user-a:book-1",
+      JSON.stringify({
+        positionMs: 15_000,
+        occurredAt: clock,
+        playbackRate: 2,
+        playbackRateOccurredAt: rateClock,
+        completed: false,
+        completedOccurredAt: clock,
+      }),
+    );
+
+    expect(
+      localWinsOver(
+        { positionMs: 15_000, occurredAt: clock },
+        serverBook.initialProgressOccurredAt,
+      ),
+    ).toBe(false);
+    expect(bootstrapPlaybackState("user-a", serverBook).book).toMatchObject({
+      initialPositionMs: 60_000,
+      initialPlaybackRate: 1,
+      completed: true,
+    });
+    expect(readLocalProgress("user-a", "book-1")).toMatchObject({
+      positionMs: 60_000,
+      occurredAt: clock,
+      playbackRate: 1,
+      playbackRateOccurredAt: rateClock,
+      completed: true,
+      completedOccurredAt: clock,
+    });
+    const rateOnly = saveLocalPlaybackState("user-a", "book-1", {
+      positionMs: 60_000,
+      occurredAt: clock,
+      playbackRate: 2,
+      playbackRateOccurredAt: clock + 10_000,
+      completed: true,
+      completedOccurredAt: clock,
+      positionChanged: false,
+      playbackRateChanged: true,
+      completedChanged: false,
+    });
+    expect(rateOnly?.occurredAt).toBe(clock);
+  });
+
+  it("does not let an old server acknowledgement replace a newer local action", () => {
+    saveLocalPlaybackState("user-a", "book-1", {
+      positionMs: 120_000,
+      occurredAt: 51_000,
+      playbackRate: 3,
+      playbackRateOccurredAt: 51_000,
+      completed: false,
+      completedOccurredAt: 51_000,
+      positionChanged: true,
+      playbackRateChanged: true,
+      completedChanged: true,
+    });
+
+    applyAuthoritativePlaybackState(
+      "user-a",
+      "book-1",
+      {
+        positionMs: 100_000,
+        occurredAt: 50_000,
+        playbackRate: 2,
+        playbackRateOccurredAt: 50_000,
+        completed: true,
+        completedOccurredAt: 50_000,
+      },
+      {
+        positionMs: 100_000,
+        occurredAt: 100_000,
+        playbackRate: 2,
+        playbackRateOccurredAt: 100_000,
+        completed: true,
+        completedOccurredAt: 100_000,
+      },
+    );
+
+    expect(readLocalProgress("user-a", "book-1")).toMatchObject({
+      positionMs: 120_000,
+      occurredAt: 51_000,
+      playbackRate: 3,
+      playbackRateOccurredAt: 51_000,
+      completed: false,
+      completedOccurredAt: 51_000,
+    });
+  });
+
+  it("preserves a different local action tied with the acknowledged clock", () => {
+    saveLocalPlaybackState("user-a", "book-1", {
+      positionMs: 120_000,
+      occurredAt: 100_000,
+      playbackRate: 3,
+      playbackRateOccurredAt: 100_000,
+      completed: false,
+      completedOccurredAt: 100_000,
+      positionChanged: true,
+      playbackRateChanged: true,
+      completedChanged: true,
+    });
+
+    applyAuthoritativePlaybackState(
+      "user-a",
+      "book-1",
+      {
+        positionMs: 100_000,
+        occurredAt: 100_000,
+        playbackRate: 2,
+        playbackRateOccurredAt: 100_000,
+        completed: true,
+        completedOccurredAt: 100_000,
+      },
+      {
+        positionMs: 100_000,
+        occurredAt: 100_000,
+        playbackRate: 2,
+        playbackRateOccurredAt: 100_000,
+        completed: true,
+        completedOccurredAt: 100_000,
+      },
+    );
+
+    expect(readLocalProgress("user-a", "book-1")).toMatchObject({
+      positionMs: 120_000,
+      occurredAt: 100_000,
+      playbackRate: 3,
+      playbackRateOccurredAt: 100_000,
+      completed: false,
+      completedOccurredAt: 100_000,
+    });
+  });
+
+  it("keeps normalization primary against a stale tab and a failed snapshot write", () => {
+    saveLocalPlaybackState("user-a", "book-1", {
+      positionMs: 200_000,
+      occurredAt: 100_000,
+      playbackRate: 3,
+      playbackRateOccurredAt: 100_000,
+      completed: true,
+      completedOccurredAt: 100_000,
+      positionChanged: true,
+      playbackRateChanged: true,
+      completedChanged: true,
+    });
+    applyAuthoritativePlaybackState(
+      "user-a",
+      "book-1",
+      {
+        positionMs: 100_000,
+        occurredAt: 50_000,
+        playbackRate: 2,
+        playbackRateOccurredAt: 50_000,
+        completed: false,
+        completedOccurredAt: 50_000,
+      },
+      {
+        positionMs: 200_000,
+        occurredAt: 100_000,
+        playbackRate: 3,
+        playbackRateOccurredAt: 100_000,
+        completed: true,
+        completedOccurredAt: 100_000,
+      },
+    );
+
+    saveLocalPlaybackState("user-a", "book-1", {
+      positionMs: 200_000,
+      occurredAt: 100_000,
+      playbackRate: 3,
+      playbackRateOccurredAt: 100_000,
+      completed: true,
+      completedOccurredAt: 100_000,
+      positionChanged: false,
+      playbackRateChanged: false,
+      completedChanged: false,
+      source: "pagehide-flush",
+    });
+    expect(readLocalProgress("user-a", "book-1")).toMatchObject({
+      positionMs: 100_000,
+      occurredAt: 50_000,
+      playbackRate: 2,
+      playbackRateOccurredAt: 50_000,
+      completed: false,
+      completedOccurredAt: 50_000,
+    });
+
+    const write = localStorage.setItem.bind(localStorage);
+    const setItem = vi.spyOn(localStorage, "setItem");
+    setItem.mockImplementation((key, value) => {
+      if (key === "chapterline:position:user-a:book-1") {
+        throw new DOMException("Quota exceeded", "QuotaExceededError");
+      }
+      write(key, value);
+    });
+    saveLocalPlaybackState("user-a", "book-1", {
+      positionMs: 101_000,
+      occurredAt: 51_000,
+      playbackRate: 2.5,
+      playbackRateOccurredAt: 51_000,
+      completed: true,
+      completedOccurredAt: 51_000,
+      positionChanged: true,
+      playbackRateChanged: true,
+      completedChanged: true,
+    });
+    expect(readLocalProgress("user-a", "book-1")).toMatchObject({
+      positionMs: 101_000,
+      occurredAt: 51_000,
+      playbackRate: 2.5,
+      playbackRateOccurredAt: 51_000,
+      completed: true,
+      completedOccurredAt: 51_000,
+    });
+  });
+
+  it("reports a transient authoritative-register write failure until all fields normalize", () => {
+    const values = new Map<string, string>();
+    let blockRegisters = false;
+    vi.stubGlobal("localStorage", {
+      get length() {
+        return values.size;
+      },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (blockRegisters && key.startsWith("chapterline:playback-")) {
+          throw new DOMException("Full", "QuotaExceededError");
+        }
+        values.set(key, value);
+      },
+      removeItem: (key: string) => void values.delete(key),
+    } as Storage);
+    const future = 100_000;
+    const bounded = 50_000;
+    const submitted = {
+      positionMs: 200_000,
+      occurredAt: future,
+      playbackRate: 3,
+      playbackRateOccurredAt: future,
+      completed: true,
+      completedOccurredAt: future,
+    };
+    const server = {
+      positionMs: 100_000,
+      occurredAt: bounded,
+      playbackRate: 2,
+      playbackRateOccurredAt: bounded,
+      completed: false,
+      completedOccurredAt: bounded,
+    };
+    saveLocalPlaybackState("user-a", "book-1", {
+      ...submitted,
+      positionChanged: true,
+      playbackRateChanged: true,
+      completedChanged: true,
+    });
+
+    blockRegisters = true;
+    const failed = applyAuthoritativePlaybackStateWithStatus("user-a", "book-1", server, submitted);
+    blockRegisters = false;
+
+    expect(failed.persisted).toBe(false);
+    expect(readLocalProgress("user-a", "book-1")).toMatchObject({
+      positionMs: 200_000,
+      occurredAt: future,
+      playbackRate: 3,
+      playbackRateOccurredAt: future,
+      completed: true,
+      completedOccurredAt: future,
+    });
+
+    const retried = applyAuthoritativePlaybackStateWithStatus(
+      "user-a",
+      "book-1",
+      server,
+      submitted,
+    );
+    expect(retried.persisted).toBe(true);
+    expect(readLocalProgress("user-a", "book-1")).toMatchObject({
+      positionMs: 100_000,
+      occurredAt: bounded,
+      playbackRate: 2,
+      playbackRateOccurredAt: bounded,
+      completed: false,
+      completedOccurredAt: bounded,
+    });
+  });
+
+  it("retains an interleaved position write when a stale tab writes only rate", () => {
+    const snapshotKey = "chapterline:position:user-a:book-1";
+    const positionPrefix = "chapterline:playback-position:user-a:book-1:";
+    const ratePrefix = "chapterline:playback-rate:user-a:book-1:";
+    const completedPrefix = "chapterline:playback-completed:user-a:book-1:";
+    const store = new Map<string, string>();
+    let injectPosition = false;
+    const registerWrites: string[] = [];
+    vi.stubGlobal("localStorage", {
+      get length() {
+        return store.size;
+      },
+      key: (index: number) => [...store.keys()][index] ?? null,
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        // Tab A has already read the old tuple and decided to persist its rate.
+        // Tab B lands a position between that read and A's final snapshot write.
+        if (key.startsWith("chapterline:playback-")) registerWrites.push(key);
+        if (injectPosition && key.startsWith(ratePrefix)) {
+          injectPosition = false;
+          store.set(
+            `${positionPrefix}peer-b`,
+            JSON.stringify({ value: 100_000, occurredAt: 20_000 }),
+          );
+        }
+        store.set(key, value);
+      },
+      removeItem: (key: string) => void store.delete(key),
+    } as Storage);
+
+    saveLocalPlaybackState("user-a", "book-1", {
+      positionMs: 0,
+      occurredAt: 5_000,
+      playbackRate: 1,
+      playbackRateOccurredAt: 5_000,
+      completed: false,
+      completedOccurredAt: 5_000,
+    });
+    registerWrites.length = 0;
+    injectPosition = true;
+    saveLocalPlaybackState("user-a", "book-1", {
+      positionMs: 0,
+      occurredAt: 5_000,
+      playbackRate: 2,
+      playbackRateOccurredAt: 30_000,
+      completed: false,
+      completedOccurredAt: 5_000,
+      source: "rate-change",
+    });
+
+    expect(JSON.parse(store.get(snapshotKey)!)).toMatchObject({
+      positionMs: 100_000,
+      playbackRate: 2,
+    });
+    expect(registerWrites).toHaveLength(1);
+    expect(registerWrites[0]).toMatch(new RegExp(`^${ratePrefix}`));
+    expect(registerWrites.some((key) => key.startsWith(positionPrefix))).toBe(false);
+    expect(registerWrites.some((key) => key.startsWith(completedPrefix))).toBe(false);
+    expect(readLocalProgress("user-a", "book-1")).toMatchObject({
+      positionMs: 100_000,
+      occurredAt: 20_000,
+      playbackRate: 2,
+      playbackRateOccurredAt: 30_000,
+      completed: false,
+      completedOccurredAt: 5_000,
+    });
+  });
+
+  it("does not attach one tab's pagehide provenance to another tab's position", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(40_000));
+      localStorage.setItem(
+        "chapterline:playback-position:user-a:book-1:peer-b",
+        JSON.stringify({ value: 100_000, occurredAt: 20_000 }),
+      );
+      saveLocalPlaybackState("user-a", "book-1", {
+        positionMs: 0,
+        occurredAt: 5_000,
+        playbackRate: 1,
+        source: "pagehide-flush",
+        playing: true,
+        positionChanged: false,
+      });
+
+      const joined = readLocalProgress("user-a", "book-1");
+      expect(joined).toMatchObject({ positionMs: 100_000, occurredAt: 20_000 });
+      expect(joined?.source).toBeUndefined();
+      expect(joined?.writtenAt).toBeUndefined();
+      expect(joined?.playingAtWrite).toBeUndefined();
+      expect(
+        detectSuspendedSession({ record: joined, durationMs: 600_000, now: 160_000 }),
+      ).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("strips new provenance when the winning legacy position has no matching register", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(40_000));
+      localStorage.setItem(
+        "chapterline:position:user-a:book-1",
+        JSON.stringify({ positionMs: 100_000, occurredAt: 20_000 }),
+      );
+      saveLocalPlaybackState("user-a", "book-1", {
+        positionMs: 0,
+        occurredAt: 5_000,
+        source: "pagehide-flush",
+        playing: true,
+        positionChanged: false,
+      });
+
+      const joined = readLocalProgress("user-a", "book-1");
+      expect(joined).toMatchObject({ positionMs: 100_000, occurredAt: 20_000 });
+      expect(joined?.source).toBeUndefined();
+      expect(joined?.writtenAt).toBeUndefined();
+      expect(joined?.playingAtWrite).toBeUndefined();
+      expect(
+        detectSuspendedSession({ record: joined, durationMs: 600_000, now: 160_000 }),
+      ).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("projects suspension from the hide-edge writer's rate and completion", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(5_000));
+      saveLocalPlaybackState("user-a", "book-1", {
+        positionMs: 0,
+        occurredAt: 5_000,
+        playbackRate: 1,
+        playbackRateOccurredAt: 5_000,
+        completed: false,
+        completedOccurredAt: 5_000,
+        hydrate: true,
+      });
+      localStorage.setItem(
+        "chapterline:playback-rate:user-a:book-1:peer-b",
+        JSON.stringify({ value: 3, occurredAt: 20_000 }),
+      );
+      localStorage.setItem(
+        "chapterline:playback-completed:user-a:book-1:peer-b",
+        JSON.stringify({ value: true, occurredAt: 20_000 }),
+      );
+
+      vi.setSystemTime(new Date(40_000));
+      saveLocalPlaybackState("user-a", "book-1", {
+        positionMs: 0,
+        occurredAt: 5_000,
+        playbackRate: 1,
+        playbackRateOccurredAt: 5_000,
+        playbackRateChanged: false,
+        completed: false,
+        completedOccurredAt: 5_000,
+        completedChanged: false,
+        positionChanged: false,
+        source: "pagehide-flush",
+        playing: true,
+      });
+
+      const joined = readLocalProgress("user-a", "book-1");
+      expect(joined).toMatchObject({
+        playbackRate: 3,
+        completed: true,
+        playbackRateAtWrite: 1,
+        completedAtWrite: false,
+      });
+      expect(
+        detectSuspendedSession({ record: joined, durationMs: 600_000, now: 160_000 }),
+      ).toMatchObject({ playbackRate: 1, projectedPositionMs: 120_000 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps duplicated tabs on distinct writer registers during a same-field interleave", async () => {
+    const values = new Map<string, string>();
+    const positionWrites: string[] = [];
+    let beforeSet: ((key: string) => void) | null = null;
+    vi.stubGlobal("localStorage", {
+      get length() {
+        return values.size;
+      },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (key.startsWith("chapterline:playback-position:")) positionWrites.push(key);
+        beforeSet?.(key);
+        values.set(key, value);
+      },
+      removeItem: (key: string) => void values.delete(key),
+    } as Storage);
+    // Browsers clone this value into opener/duplicated tabs. It must not be a
+    // writer identity shared by the two live documents.
+    vi.stubGlobal("sessionStorage", {
+      getItem: () => "cloned-writer-id",
+      setItem: vi.fn(),
+    } as unknown as Storage);
+    const randomUuid = vi.fn().mockReturnValueOnce("writer-a").mockReturnValueOnce("writer-b");
+    vi.stubGlobal("crypto", { randomUUID: randomUuid } as unknown as Crypto);
+
+    try {
+      vi.resetModules();
+      const documentA = await import("./playback-core");
+      vi.resetModules();
+      const documentB = await import("./playback-core");
+      documentA.saveLocalPosition("user-a", "book-1", 0, 5_000);
+
+      beforeSet = (key) => {
+        if (!key.includes(":writer-b:")) return;
+        beforeSet = null;
+        documentA.saveLocalPosition("user-a", "book-1", 100_000, 30_000);
+      };
+      documentB.saveLocalPosition("user-a", "book-1", 50_000, 20_000);
+      documentB.saveLocalPosition("user-a", "book-1", 60_000, 25_000);
+
+      expect(documentB.readLocalProgress("user-a", "book-1")).toMatchObject({
+        positionMs: 100_000,
+        occurredAt: 30_000,
+      });
+      expect(
+        [...values.keys()].filter((key) =>
+          key.startsWith("chapterline:playback-position:user-a:book-1:"),
+        ),
+      ).toHaveLength(1);
+      expect(positionWrites.some((key) => key.includes(":writer-a:"))).toBe(true);
+      expect(positionWrites.some((key) => key.includes(":writer-b:"))).toBe(true);
+      expect(randomUuid).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("makes the later equal-clock action win in both document completion orders", async () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      get length() {
+        return values.size;
+      },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => void values.set(key, value),
+      removeItem: (key: string) => void values.delete(key),
+    } as Storage);
+    const randomUuid = vi.fn().mockReturnValueOnce("writer-z").mockReturnValueOnce("writer-a");
+    vi.stubGlobal("crypto", { randomUUID: randomUuid } as unknown as Crypto);
+
+    const writeAllFields = (
+      document: typeof import("./playback-core"),
+      positionMs: number,
+      playbackRate: number,
+      completed: boolean,
+    ) =>
+      document.saveLocalPlaybackState("user-a", "book-1", {
+        positionMs,
+        occurredAt: 20_000,
+        playbackRate,
+        playbackRateOccurredAt: 20_000,
+        completed,
+        completedOccurredAt: 20_000,
+        positionChanged: true,
+        playbackRateChanged: true,
+        completedChanged: true,
+      });
+
+    try {
+      vi.resetModules();
+      const documentZ = await import("./playback-core");
+      vi.resetModules();
+      const documentA = await import("./playback-core");
+
+      writeAllFields(documentZ, 100_000, 1, false);
+      const lexicallyLosingLaterWrite = writeAllFields(documentA, 50_000, 2, true);
+      expect(lexicallyLosingLaterWrite).toMatchObject({
+        positionMs: 50_000,
+        occurredAt: 20_001,
+        playbackRate: 2,
+        playbackRateOccurredAt: 20_001,
+        completed: true,
+        completedOccurredAt: 20_001,
+      });
+      expect(documentA.readLocalProgress("user-a", "book-1")).toMatchObject(
+        lexicallyLosingLaterWrite!,
+      );
+
+      values.clear();
+      writeAllFields(documentA, 50_000, 2, true);
+      const lexicallyWinningLaterWrite = writeAllFields(documentZ, 100_000, 1, false);
+      expect(lexicallyWinningLaterWrite).toMatchObject({
+        positionMs: 100_000,
+        occurredAt: 20_000,
+        playbackRate: 1,
+        playbackRateOccurredAt: 20_000,
+        completed: false,
+        completedOccurredAt: 20_000,
+      });
+      expect(documentZ.readLocalProgress("user-a", "book-1")).toMatchObject(
+        lexicallyWinningLaterWrite!,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not advance a strictly older touched field past a peer register", () => {
+    const writes = vi.spyOn(localStorage, "setItem");
+    for (const [field, value] of [
+      ["position", 100_000],
+      ["rate", 3],
+      ["completed", true],
+    ] as const) {
+      localStorage.setItem(
+        `chapterline:playback-${field}:user-a:book-1:peer-b`,
+        JSON.stringify({ value, occurredAt: 30_000 }),
+      );
+    }
+    writes.mockClear();
+
+    const stale = saveLocalPlaybackState("user-a", "book-1", {
+      positionMs: 60_000,
+      occurredAt: 25_000,
+      playbackRate: 2,
+      playbackRateOccurredAt: 25_000,
+      completed: false,
+      completedOccurredAt: 25_000,
+      positionChanged: true,
+      playbackRateChanged: true,
+      completedChanged: true,
+      source: "pagehide-flush",
+      playing: true,
+    });
+
+    expect(stale).toMatchObject({
+      positionMs: 100_000,
+      occurredAt: 30_000,
+      playbackRate: 3,
+      playbackRateOccurredAt: 30_000,
+      completed: true,
+      completedOccurredAt: 30_000,
+    });
+    expect(stale?.source).toBeUndefined();
+    expect(stale?.playingAtWrite).toBeUndefined();
+    const touchedRegisters = writes.mock.calls
+      .filter(([key]) => String(key).startsWith("chapterline:playback-"))
+      .map(([key, raw]) => [String(key).split(":")[1], JSON.parse(String(raw))]);
+    expect(touchedRegisters).toStrictEqual([
+      ["playback-position", expect.objectContaining({ value: 60_000, occurredAt: 25_000 })],
+      ["playback-rate", expect.objectContaining({ value: 2, occurredAt: 25_000 })],
+      ["playback-completed", expect.objectContaining({ value: false, occurredAt: 25_000 })],
+    ]);
+  });
+
+  it("drops writerless legacy provenance when a different register position wins", () => {
+    localStorage.setItem(
+      "chapterline:position:user-a:book-1",
+      JSON.stringify({
+        positionMs: 60_000,
+        occurredAt: 20_000,
+        source: "pagehide-flush",
+        playingAtWrite: true,
+        writtenAt: 40_000,
+      }),
+    );
+    localStorage.setItem(
+      "chapterline:playback-position:user-a:book-1:peer-b",
+      JSON.stringify({ value: 100_000, occurredAt: 30_000 }),
+    );
+
+    const joined = readLocalProgress("user-a", "book-1");
+    expect(joined).toMatchObject({ positionMs: 100_000, occurredAt: 30_000 });
+    expect(joined?.source).toBeUndefined();
+    expect(joined?.playingAtWrite).toBeUndefined();
+    expect(joined?.writtenAt).toBeUndefined();
+  });
+
+  it("compacts immutable register generations across document reloads", async () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      get length() {
+        return values.size;
+      },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => void values.set(key, value),
+      removeItem: (key: string) => void values.delete(key),
+    } as Storage);
+    let documentNumber = 0;
+    vi.stubGlobal("crypto", {
+      randomUUID: () => `writer-${++documentNumber}`,
+    } as unknown as Crypto);
+
+    try {
+      for (let index = 1; index <= 12; index += 1) {
+        vi.resetModules();
+        const document = await import("./playback-core");
+        document.saveLocalPlaybackState("user-a", "book-1", {
+          positionMs: index * 1_000,
+          occurredAt: index * 1_000,
+          playbackRate: 1.5,
+          playbackRateOccurredAt: index * 1_000,
+          completed: false,
+          completedOccurredAt: index * 1_000,
+          hydrate: true,
+        });
+      }
+
+      for (const field of ["position", "rate", "completed"]) {
+        expect(
+          [...values.keys()].filter((key) =>
+            key.startsWith(`chapterline:playback-${field}:user-a:book-1:`),
+          ),
+        ).toHaveLength(1);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not compact a register whose exact bytes changed after enumeration", () => {
+    const prefix = "chapterline:playback-position:user-a:book-1:";
+    const peerKey = `${prefix}mixed-version-peer`;
+    const values = new Map<string, string>([
+      [peerKey, JSON.stringify({ value: 50_000, occurredAt: 10_000 })],
+    ]);
+    let compactionStarted = false;
+    let peerReadsDuringCompaction = 0;
+    vi.stubGlobal("localStorage", {
+      get length() {
+        return values.size;
+      },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      getItem: (key: string) => {
+        if (compactionStarted && key === peerKey) {
+          peerReadsDuringCompaction += 1;
+          if (peerReadsDuringCompaction === 2) {
+            values.set(peerKey, JSON.stringify({ value: 200_000, occurredAt: 30_000 }));
+          }
+        }
+        return values.get(key) ?? null;
+      },
+      setItem: (key: string, value: string) => {
+        if (key.startsWith(prefix) && key !== peerKey) compactionStarted = true;
+        values.set(key, value);
+      },
+      removeItem: (key: string) => void values.delete(key),
+    } as Storage);
+
+    saveLocalPosition("user-a", "book-1", 100_000, 20_000);
+
+    expect(values.has(peerKey)).toBe(true);
+    expect(readLocalProgress("user-a", "book-1")).toMatchObject({
+      positionMs: 200_000,
+      occurredAt: 30_000,
+    });
   });
 
   /**
@@ -321,6 +1160,44 @@ describe("durable write provenance", () => {
     }
   });
 
+  it("advances only the clocks of playback fields that changed", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(10_000));
+      saveLocalPlaybackState("user-a", "book-1", {
+        positionMs: 6_793,
+        playbackRate: 1,
+        completed: false,
+      });
+
+      vi.setSystemTime(new Date(20_000));
+      saveLocalPlaybackState("user-a", "book-1", {
+        positionMs: 6_793,
+        playbackRate: 2,
+        completed: false,
+      });
+      expect(readLocalProgress("user-a", "book-1")).toMatchObject({
+        occurredAt: 10_000,
+        playbackRateOccurredAt: 20_000,
+        completedOccurredAt: 10_000,
+      });
+
+      vi.setSystemTime(new Date(30_000));
+      saveLocalPlaybackState("user-a", "book-1", {
+        positionMs: 6_793,
+        playbackRate: 2,
+        completed: true,
+      });
+      expect(readLocalProgress("user-a", "book-1")).toMatchObject({
+        occurredAt: 10_000,
+        playbackRateOccurredAt: 20_000,
+        completedOccurredAt: 30_000,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   /**
    * Both fields are optional and there is no IndexedDB migration, so every
    * record written by a shipped build has to keep parsing and resuming exactly
@@ -425,6 +1302,18 @@ describe("detectSuspendedSession", () => {
       // Five minutes at 1x. The RECORDED position is untouched and stays the
       // source of truth; this is only what is offered.
       projectedPositionMs: RECORDED_MS + 300_000,
+    });
+  });
+
+  it("projects from the writer's actual smart-rewind position, not its durable floor", () => {
+    const gap = detect(
+      suspended({ positionMs: 60_000, positionAtWrite: 50_000 }),
+      120_000,
+      600_000,
+    );
+    expect(gap).toMatchObject({
+      recordedPositionMs: 60_000,
+      projectedPositionMs: 170_000,
     });
   });
 

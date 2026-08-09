@@ -1,6 +1,8 @@
 import type { PlayerBook } from "@/domain/player";
 import {
+  applyPendingProgressNormalizations,
   clearQueuedMutationsForUser,
+  purgeProgressNormalizationsForUser,
   registerImportReattachedHandler,
   registerProgressConflictHandler,
 } from "@/lib/offline-sync";
@@ -67,6 +69,7 @@ export async function getStoredOfflineBook(
 
 export async function getOfflineBook(userId: string, bookId: string) {
   try {
+    await applyPendingProgressNormalizations(userId, bookId);
     const db = await database();
     const key = offlineBookKey(userId, bookId);
     const record = await db.get("downloads", key);
@@ -329,7 +332,19 @@ function toCanonicalBook(value: unknown): OfflineBook["book"] | null {
     initialProgressOccurredAt:
       typeof book.initialProgressOccurredAt === "string" ? book.initialProgressOccurredAt : null,
     initialPlaybackRate: Number(book.initialPlaybackRate) || 1,
+    initialPlaybackRateOccurredAt:
+      typeof book.initialPlaybackRateOccurredAt === "string"
+        ? book.initialPlaybackRateOccurredAt
+        : typeof book.initialProgressOccurredAt === "string"
+          ? book.initialProgressOccurredAt
+          : null,
     completed: !!book.completed,
+    initialCompletedOccurredAt:
+      typeof book.initialCompletedOccurredAt === "string"
+        ? book.initialCompletedOccurredAt
+        : typeof book.initialProgressOccurredAt === "string"
+          ? book.initialProgressOccurredAt
+          : null,
   };
 }
 
@@ -341,24 +356,56 @@ export async function projectOfflineProgress(
     completed: boolean;
     playbackRate: number;
     eventOccurredAt: string | null;
+    playbackRateOccurredAt: string | null;
+    completedOccurredAt: string | null;
+    stateOccurredAt: string | null;
   },
 ): Promise<void> {
   const db = await database();
-  const transaction = db.transaction("downloads", "readwrite");
+  const transaction = db.transaction(["downloads", "playbackStates"], "readwrite");
   const key = offlineBookKey(userId, bookId);
-  const record = await transaction.store.get(key);
+  const downloads = transaction.objectStore("downloads");
+  const playbackStates = transaction.objectStore("playbackStates");
+  const record = await downloads.get(key);
   if (record) {
-    await transaction.store.put({
+    await downloads.put({
       ...record,
       book: {
         ...record.book,
         initialPositionMs: state.positionMs,
         initialProgressOccurredAt: state.eventOccurredAt,
         initialPlaybackRate: state.playbackRate,
+        initialPlaybackRateOccurredAt:
+          state.playbackRateOccurredAt ?? state.stateOccurredAt ?? state.eventOccurredAt,
         completed: state.completed,
+        initialCompletedOccurredAt:
+          state.completedOccurredAt ?? state.stateOccurredAt ?? state.eventOccurredAt,
       },
     });
   }
+  const existing = await playbackStates.get(key);
+  const eventOccurredAt = state.eventOccurredAt ?? new Date(0).toISOString();
+  const playbackRateOccurredAt =
+    state.playbackRateOccurredAt ?? state.stateOccurredAt ?? eventOccurredAt;
+  const completedOccurredAt = state.completedOccurredAt ?? state.stateOccurredAt ?? eventOccurredAt;
+  await playbackStates.put({
+    key,
+    userId,
+    bookId,
+    positionMs: state.positionMs,
+    playbackRate: state.playbackRate,
+    completed: state.completed,
+    deviceId: existing?.deviceId ?? "",
+    deviceSequence: existing?.deviceSequence ?? 0,
+    eventOccurredAt,
+    playbackRateOccurredAt,
+    completedOccurredAt,
+    stateOccurredAt:
+      Date.parse(playbackRateOccurredAt) >= Date.parse(completedOccurredAt)
+        ? playbackRateOccurredAt
+        : completedOccurredAt,
+    updatedAt: new Date().toISOString(),
+  });
   await transaction.done;
 }
 
@@ -412,6 +459,7 @@ export async function clearLocalDataForUser(userId: string): Promise<void> {
   const recordCleanup = await Promise.allSettled([
     deleteAllTranscriptsForUser(userId),
     clearQueuedMutationsForUser(userId),
+    purgeProgressNormalizationsForUser(userId),
     clearPlaybackHistoryForUser(userId),
   ]);
   const failures: unknown[] = recordCleanup.flatMap((result) =>

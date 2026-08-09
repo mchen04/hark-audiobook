@@ -88,12 +88,14 @@ async function serverState(bookId: string) {
       device_id: string;
       device_sequence: string;
       event_occurred_at: Date;
+      playback_rate_occurred_at: Date | null;
+      completed_occurred_at: Date | null;
       state_occurred_at: Date | null;
       playback_rate: string;
     }[]
   >`
     SELECT position_ms, completed, device_id, device_sequence, event_occurred_at,
-           state_occurred_at, playback_rate
+           playback_rate_occurred_at, completed_occurred_at, state_occurred_at, playback_rate
     FROM playback_states WHERE book_id = ${bookId}::uuid
   `;
   return row
@@ -103,6 +105,8 @@ async function serverState(bookId: string) {
         deviceId: row.device_id,
         deviceSequence: Number(row.device_sequence),
         eventOccurredAt: row.event_occurred_at.toISOString(),
+        playbackRateOccurredAt: row.playback_rate_occurred_at?.toISOString() ?? null,
+        completedOccurredAt: row.completed_occurred_at?.toISOString() ?? null,
         stateOccurredAt: row.state_occurred_at?.toISOString() ?? null,
         playbackRate: Number(row.playback_rate),
       }
@@ -226,7 +230,7 @@ test("a newer rate-only recovery keeps the newer cross-device position", async (
       bookId,
       positionMs: 240_000,
       playbackRate: 1,
-      completed: false,
+      completed: true,
       eventOccurredAt: newerPositionAt,
     });
     await drainOutbox(a.page);
@@ -239,6 +243,8 @@ test("a newer rate-only recovery keeps the newer cross-device position", async (
       playbackRate: 2,
       completed: false,
       eventOccurredAt: stalePositionAt,
+      playbackRateOccurredAt: newerRateAt,
+      completedOccurredAt: stalePositionAt,
       stateOccurredAt: newerRateAt,
     });
     await goOnline(b.context, b.page);
@@ -247,7 +253,10 @@ test("a newer rate-only recovery keeps the newer cross-device position", async (
     expect(await serverState(bookId)).toMatchObject({
       positionMs: 240_000,
       playbackRate: 2,
+      completed: true,
       eventOccurredAt: newerPositionAt,
+      playbackRateOccurredAt: newerRateAt,
+      completedOccurredAt: newerPositionAt,
       stateOccurredAt: newerRateAt,
     });
     expect(await outbox(b.page)).toStrictEqual([]);
@@ -255,6 +264,7 @@ test("a newer rate-only recovery keeps the newer cross-device position", async (
       bookId,
       positionMs: 240_000,
       playbackRate: 2,
+      completed: true,
     });
   } finally {
     await a.context.close();

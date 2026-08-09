@@ -21,10 +21,8 @@ import {
 } from "@/lib/app-keys";
 import { createListeningTracker, queueListeningSession } from "@/lib/listening-tracker";
 import {
+  bootstrapPlaybackState,
   markPausedNow,
-  freshestPosition,
-  localWinsOver,
-  readLocalProgress,
   readMsSinceLastPause,
   resolveStartPosition,
   selectCurrentChapter,
@@ -237,44 +235,32 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
           }
           trackerRef.current.reset();
 
-          const localProgress = readLocalProgress(userId, nextBook.id);
-          const localIsFresher = localWinsOver(localProgress, nextBook.initialProgressOccurredAt);
+          const bootstrap = bootstrapPlaybackState(userId, nextBook);
+          const resolvedBook = bootstrap.book;
           const { startAtMs, appliedRewindMs } = resolveStartPosition({
-            storedPositionMs: freshestPosition({
-              local: localProgress,
-              serverPositionMs: nextBook.initialPositionMs,
-              serverOccurredAt: nextBook.initialProgressOccurredAt,
-            }),
-            durationMs: nextBook.durationMs,
+            storedPositionMs: bootstrap.storedPositionMs,
+            durationMs: resolvedBook.durationMs,
             smartRewindEnabled: preferencesRef.current.smartRewind,
-            msSinceLastPause: readMsSinceLastPause(userId, nextBook.id),
+            msSinceLastPause: readMsSinceLastPause(userId, resolvedBook.id),
           });
           // The rewind is a one-shot listening aid: refresh the pause marker so
           // reopening the book again does not walk the position further back.
-          if (appliedRewindMs > 0) markPausedNow(userId, nextBook.id);
-          // The rate is part of where the user left off. A relaunch with no
-          // network reads the book's server-side rate from whatever the mirror
-          // last held, which is 1.0 for a book whose 1.6x was only ever set on
-          // this device — so this device's own record wins whenever it also
-          // owns the position.
-          const startRate =
-            localIsFresher && localProgress?.playbackRate
-              ? localProgress.playbackRate
-              : nextBook.initialPlaybackRate;
+          if (appliedRewindMs > 0) markPausedNow(userId, resolvedBook.id);
+          const startRate = resolvedBook.initialPlaybackRate;
 
-          audio.src = nextBook.mediaUrl;
+          audio.src = resolvedBook.mediaUrl;
           audio.currentTime = startAtMs / 1000;
           audio.playbackRate = startRate;
-          activeBookRef.current = nextBook;
+          activeBookRef.current = resolvedBook;
           // Nothing has happened to this book's position yet on this open, so a
           // close with no listening must not write the (possibly rewound)
           // start back as if the user had chosen it.
           resetPositionChanged();
-          setBook(nextBook);
+          setBook(resolvedBook);
           clearHistory();
           timeStore.write(startAtMs);
           setRateState(startRate);
-          setMediaSessionMetadata(nextBook);
+          setMediaSessionMetadata(resolvedBook);
           recordAction(
             "opened",
             startAtMs,

@@ -265,4 +265,28 @@ describe("mutation schemas reject a body they do not understand", () => {
       preferencesPatchSchema.safeParse({ defaultsVersion: 2, smartRewind: true }).success,
     ).toBe(false);
   });
+
+  it("accepts both legacy combined and independent progress clocks", () => {
+    const progress = {
+      deviceId: "device-abcdefghijklmnop",
+      deviceSequence: 1,
+      positionMs: 5_000,
+      playbackRate: 1.5,
+      completed: false,
+      eventOccurredAt: "2026-07-05T00:00:00.000Z",
+    };
+    expect(
+      progressSchema.safeParse({
+        ...progress,
+        stateOccurredAt: "2026-07-05T00:00:01.000Z",
+      }).success,
+    ).toBe(true);
+    expect(
+      progressSchema.safeParse({
+        ...progress,
+        playbackRateOccurredAt: "2026-07-05T00:00:02.000Z",
+        completedOccurredAt: "2026-07-05T00:00:01.000Z",
+      }).success,
+    ).toBe(true);
+  });
 });
