@@ -8,7 +8,6 @@ import { replayQueuedMutations } from "@/lib/offline-sync";
 import { removeOfflineBook } from "@/lib/offline/deletion-journal";
 import { commitBookDeletion } from "@/lib/offline/outbox";
 import { clearLocalPlaybackState, getDeviceId } from "@/lib/playback-core";
-import { clearPlaybackHistoryForBook } from "@/lib/playback-history";
 
 /**
  * The one delete-book flow: confirm tap, journalled delete, player unload,
@@ -55,8 +54,7 @@ export function useDeleteBook(
     // would otherwise use to resurrect a playback row for a deleted book on
     // every launch.
     clearLocalPlaybackState(userId, bookId);
-    await clearPlaybackHistoryForBook(userId, bookId).catch(() => undefined);
-    await removeOfflineBook(userId, bookId).catch(() => {
+    await removeOfflineBook(userId, bookId, { clearPlaybackHistory: true }).catch(() => {
       onError("The book was deleted, but device cleanup will retry automatically.");
     });
     void replayQueuedMutations(userId).catch(() => undefined);

@@ -1,3 +1,5 @@
+import { assertAccountWritable } from "@/lib/account-deletion-fence";
+
 import { activeUserId, database, deviceSequenceKey, SEQUENCE_FLOOR_KEY } from "./db";
 
 /**
@@ -12,6 +14,7 @@ import { activeUserId, database, deviceSequenceKey, SEQUENCE_FLOOR_KEY } from ".
  */
 export async function nextDeviceSequence(bookId: string, userId?: string): Promise<number> {
   const owner = userId || activeUserId();
+  if (owner) assertAccountWritable(owner);
   const db = await database();
   const transaction = db.transaction("sequences", "readwrite");
   const store = transaction.store;
@@ -32,6 +35,7 @@ export async function nextDeviceSequence(bookId: string, userId?: string): Promi
   } else {
     await store.put({ key: bookId, value: next });
   }
+  if (owner) assertAccountWritable(owner);
   await transaction.done;
   return next;
 }

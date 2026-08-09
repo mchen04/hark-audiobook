@@ -1,4 +1,5 @@
 import type { BookTranscript } from "@/domain/transcript";
+import { assertAccountWritable } from "@/lib/account-deletion-fence";
 
 import { database, type OfflineDb, type StoredChapterTranscript } from "./db";
 
@@ -23,6 +24,7 @@ export async function storeBookTranscript(
   bookId: string,
   transcript: BookTranscript,
 ): Promise<void> {
+  assertAccountWritable(userId);
   const db = await database();
   const transaction = db.transaction("transcripts", "readwrite");
   let cursor = await transaction.store.openCursor(bookRange(userId, bookId));
@@ -40,6 +42,7 @@ export async function storeBookTranscript(
       sentences: chapter.sentences,
     });
   }
+  assertAccountWritable(userId);
   await transaction.done;
 }
 

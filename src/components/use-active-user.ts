@@ -8,6 +8,7 @@ import {
   serverUserNeedsBootstrap,
   subscribeActiveUser,
 } from "@/lib/active-user";
+import { readPendingAccountDeletion } from "@/lib/account-deletion-fence";
 
 /**
  * The account this device is signed into.
@@ -39,6 +40,10 @@ export function useActiveUserId(serverUserId?: string): string | null {
 
   useEffect(() => {
     if (userId) return;
+    // Deletion owns this transition. Sending the fenced document to /login
+    // while its authenticated server render still exists can bounce it back to
+    // /library and bootstrap the identity the fence is revoking.
+    if (readPendingAccountDeletion()) return;
     // The hydration render always reports "no user" — it is the server's
     // answer, not the device's. Letting the task queue turn over first means
     // the device has answered before anyone is sent to the login page.

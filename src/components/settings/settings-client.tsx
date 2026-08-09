@@ -55,7 +55,11 @@ export function SettingsClient({ email }: { email: string }) {
       setDeleteError(
         result?.phase === "purge"
           ? "Your account was not deleted because this browser could not clear every local file. Clear Hark's website data or try again."
-          : "This device is cleared, but account deletion could not be confirmed. Keep this page open and try again when your connection returns.",
+          : result?.phase === "final-purge"
+            ? "Your account was deleted, but this browser still has local data to clear. Keep this page open and try again."
+            : result?.phase === "expired"
+              ? "The deletion request expired. Sign in again and restart account deletion."
+              : "This device is cleared, but account deletion could not be confirmed. Keep this page open and try again when your connection returns.",
       );
       return;
     }

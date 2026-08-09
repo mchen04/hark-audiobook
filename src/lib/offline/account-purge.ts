@@ -74,11 +74,6 @@ export type PurgeOptions = {
   alreadyDrained?: UndeliveredWrite[];
 };
 
-type AccountPurgeOptions = {
-  /** Account deletion purges before its server commit, then revokes on success. */
-  revokeActiveUser?: boolean;
-};
-
 /**
  * The user-agnostic shell may survive an account switch: it contains no book
  * data and no user identity (section 8), which is precisely what makes caching
@@ -124,10 +119,7 @@ function isUserAgnosticShellEntry(url: string): boolean {
  * doing it. The steps are independent, so the only honest response to a failure
  * is to keep removing what can still be removed and report the aggregate.
  */
-export async function purgeAccount(
-  userId: string,
-  options: AccountPurgeOptions = {},
-): Promise<void> {
+export async function purgeAccount(userId: string): Promise<void> {
   const failures: unknown[] = [];
   const step = async (name: string, run: () => Promise<void>) => {
     try {
@@ -152,11 +144,10 @@ export async function purgeAccount(
   // signing back in cannot restart its counters below what the server already
   // recorded. See `purgeDeviceSequencesForUser`.
   await step("device sequence purge", () => purgeDeviceSequencesForUser(userId));
-  if (options.revokeActiveUser !== false) {
-    // Sign-out is an unconditional statement that this device is no longer the
-    // account's, so the key goes even when a step above could not finish.
-    await step("active user key", async () => forgetActiveUser(userId));
-  }
+  // Every account boundary is an unconditional statement that this device is
+  // no longer writable as the account, so the key goes even when a sweep step
+  // above could not finish. Account deletion installs its durable fence first.
+  await step("active user key", async () => forgetActiveUser(userId));
 
   if (failures.length) throw asPurgeFailure("the account purge", failures);
 }

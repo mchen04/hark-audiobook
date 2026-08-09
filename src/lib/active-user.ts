@@ -1,4 +1,8 @@
 import { ACTIVE_USER_KEY } from "@/lib/app-keys";
+import {
+  isAccountDeletionFenced,
+  subscribeAccountDeletionFence,
+} from "@/lib/account-deletion-fence";
 
 const ACTIVE_USER_CHANGED_EVENT = "chapterline:active-user-changed";
 let bootstrappedServerUserId: string | null = null;
@@ -6,7 +10,8 @@ let bootstrappedServerUserId: string | null = null;
 /** The account this browser profile currently authorizes device-local data for. */
 export function readActiveUserId(): string | null {
   if (typeof localStorage === "undefined") return null;
-  return localStorage.getItem(ACTIVE_USER_KEY);
+  const userId = localStorage.getItem(ACTIVE_USER_KEY);
+  return userId && !isAccountDeletionFenced(userId) ? userId : null;
 }
 
 /**
@@ -21,13 +26,16 @@ export function subscribeActiveUser(onChange: () => void): () => void {
   };
   window.addEventListener("storage", onStorage);
   window.addEventListener(ACTIVE_USER_CHANGED_EVENT, onChange);
+  const unsubscribeFence = subscribeAccountDeletionFence(onChange);
   return () => {
     window.removeEventListener("storage", onStorage);
     window.removeEventListener(ACTIVE_USER_CHANGED_EVENT, onChange);
+    unsubscribeFence();
   };
 }
 
 export function rememberActiveUserId(userId: string): void {
+  if (isAccountDeletionFenced(userId)) return;
   bootstrappedServerUserId = userId;
   if (typeof localStorage === "undefined") return;
   localStorage.setItem(ACTIVE_USER_KEY, userId);
@@ -36,7 +44,7 @@ export function rememberActiveUserId(userId: string): void {
 
 /** A server identity is only a bootstrap source once per mounted document. */
 export function serverUserNeedsBootstrap(userId: string): boolean {
-  return bootstrappedServerUserId !== userId;
+  return !isAccountDeletionFenced(userId) && bootstrappedServerUserId !== userId;
 }
 
 export function forgetActiveUserId(userId: string): void {

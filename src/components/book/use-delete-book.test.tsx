@@ -114,6 +114,14 @@ describe("deleting a book", () => {
     );
   });
 
+  it("puts playback-history cleanup under the durable deletion journal", async () => {
+    await deleteThroughTheUi();
+
+    expect(removeOfflineBook).toHaveBeenCalledWith("user-a", "book-1", {
+      clearPlaybackHistory: true,
+    });
+  });
+
   it("leaves other books and other accounts alone", async () => {
     localStorage.setItem("chapterline:position:user-a:book-2", '{"positionMs":7,"occurredAt":1}');
     localStorage.setItem("chapterline:position:user-b:book-1", '{"positionMs":9,"occurredAt":1}');

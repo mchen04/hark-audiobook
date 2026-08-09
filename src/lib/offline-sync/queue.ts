@@ -1,5 +1,6 @@
 import type { IDBPTransaction } from "idb";
 
+import { assertAccountWritable } from "@/lib/account-deletion-fence";
 import { withKeyedLock } from "@/lib/keyed-lock";
 
 import {
@@ -63,6 +64,7 @@ export function buildMutation(draft: MutationDraft): QueuedMutation {
  * never believe it queued something the outbox refused.
  */
 export async function queueMutation(mutation: QueuedMutation): Promise<QueuedMutation> {
+  assertAccountWritable(mutation.userId);
   const db = await database();
   const transaction = db.transaction("mutations", "readwrite");
   const existing = await transaction.store.get(mutation.key);
@@ -71,6 +73,7 @@ export async function queueMutation(mutation: QueuedMutation): Promise<QueuedMut
   if (winner === mutation && mutation.kind === "delete") {
     await dropSupersededImports(transaction.store, mutation);
   }
+  assertAccountWritable(mutation.userId);
   await transaction.done;
   return winner;
 }

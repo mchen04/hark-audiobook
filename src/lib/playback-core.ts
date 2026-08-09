@@ -1,4 +1,5 @@
 import type { PlayerChapter } from "@/domain/player";
+import { isAccountDeletionFenced } from "@/lib/account-deletion-fence";
 
 /** How close to a boundary counts as "at" it, in milliseconds. */
 export const CHAPTER_END_EPSILON_MS = 350;
@@ -187,6 +188,7 @@ export function saveLocalPlaybackState(
     playing?: boolean;
   },
 ): boolean {
+  if (isAccountDeletionFenced(userId)) return false;
   const positionMs = Math.round(state.positionMs);
   const record: LocalPosition = {
     positionMs,
@@ -504,6 +506,7 @@ export function readDismissedSuspensionGap(userId: string, bookId: string): numb
 }
 
 export function dismissSuspensionGap(userId: string, bookId: string, writtenAt: number): void {
+  if (isAccountDeletionFenced(userId)) return;
   try {
     localStorage.setItem(suspensionDismissedKey(userId, bookId), String(writtenAt));
   } catch {
@@ -568,6 +571,7 @@ export function readMsSinceLastPause(userId: string, bookId: string): number | n
 }
 
 export function markPausedNow(userId: string, bookId: string): void {
+  if (isAccountDeletionFenced(userId)) return;
   try {
     localStorage.setItem(lastPausedKey(userId, bookId), String(Date.now()));
   } catch {

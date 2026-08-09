@@ -8,6 +8,7 @@ import {
   PREFERENCES_WRITE_ID_HEADER,
   SKIP_BOUNDS_MS,
 } from "@/domain/preferences";
+import { isAccountDeletionFenced } from "@/lib/account-deletion-fence";
 
 const activePreferenceWrites = new Map<string, Promise<void>>();
 const armedReconnectRetries = new Map<string, () => void>();
@@ -147,6 +148,7 @@ function finiteOr(value: unknown, fallback: number): number {
 }
 
 function cachePreferences(userId: string, cached: CachedPreferences): void {
+  if (isAccountDeletionFenced(userId)) return;
   localStorage.setItem(cacheKey(userId), JSON.stringify(cached));
 }
 

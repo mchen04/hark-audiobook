@@ -1,4 +1,5 @@
 import { runBounded } from "@/lib/run-bounded";
+import { clearPlaybackHistoryForBook } from "@/lib/playback-history";
 
 import {
   database,
@@ -16,18 +17,26 @@ const CACHE_DELETE_CONCURRENCY = 8;
  * Deletions are journaled before any bytes are removed so a crash mid-delete
  * leaves a retryable record instead of orphaned cache entries.
  */
-export async function removeOfflineBook(userId: string, bookId: string) {
+export async function removeOfflineBook(
+  userId: string,
+  bookId: string,
+  options: { clearPlaybackHistory?: boolean } = {},
+) {
   const key = offlineBookKey(userId, bookId);
   await withMediaWriteLock(key, async () => {
     const db = await database();
     const existing = await db.get("downloads", key);
+    const pending = await db.get("deletions", key);
     await db.put("deletions", {
+      ...pending,
       key,
       userId,
       bookId,
       offlineMediaUrl: existing?.offlineMediaUrl,
       offlineCoverUrl: existing?.offlineCoverUrl,
       offlineCoverThumbUrl: existing?.offlineCoverThumbUrl,
+      clearPlaybackHistory:
+        pending?.clearPlaybackHistory === true || options.clearPlaybackHistory === true,
     });
     await completeOfflineDeletion(db, key);
   });
@@ -74,7 +83,10 @@ async function completeOfflineDeletion(db: OfflineDb, key: string): Promise<void
   const bookId = pending?.bookId || existing?.book.id;
   const userId = pending?.userId || existing?.userId;
   if (bookId && userId) {
-    await deleteBookTranscript(db, userId, bookId).catch(() => undefined);
+    await deleteBookTranscript(db, userId, bookId);
+    if (pending?.clearPlaybackHistory) {
+      await clearPlaybackHistoryForBook(userId, bookId);
+    }
   }
   await db.delete("downloads", key);
   if (pending) {
@@ -83,6 +95,7 @@ async function completeOfflineDeletion(db: OfflineDb, key: string): Promise<void
       offlineMediaUrl: undefined,
       offlineCoverUrl: undefined,
       offlineCoverThumbUrl: undefined,
+      clearPlaybackHistory: pending.clearPlaybackHistory,
       completedAt: Date.now(),
     });
   }

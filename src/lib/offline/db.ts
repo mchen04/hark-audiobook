@@ -211,6 +211,8 @@ export interface OfflineDatabase extends DBSchema {
       offlineMediaUrl?: string;
       offlineCoverUrl?: string | null;
       offlineCoverThumbUrl?: string | null;
+      /** Permanent book deletion also owns its listening-history sweep. */
+      clearPlaybackHistory?: boolean;
       completedAt?: number;
     };
     indexes: { "by-user": string };

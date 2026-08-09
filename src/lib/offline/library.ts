@@ -409,12 +409,19 @@ export async function clearLocalDataForUser(userId: string): Promise<void> {
   }
   keysToRemove.forEach((key) => localStorage.removeItem(key));
 
-  await deleteAllTranscriptsForUser(userId).catch(() => undefined);
-  await clearQueuedMutationsForUser(userId);
-  await clearPlaybackHistoryForUser(userId);
+  const recordCleanup = await Promise.allSettled([
+    deleteAllTranscriptsForUser(userId),
+    clearQueuedMutationsForUser(userId),
+    clearPlaybackHistoryForUser(userId),
+  ]);
+  const failures: unknown[] = recordCleanup.flatMap((result) =>
+    result.status === "rejected" ? [result.reason] : [],
+  );
   if (cacheCleanupFailed || orphanCleanup.some((result) => result.status === "rejected")) {
-    throw new OfflineStorageUnavailableError();
+    failures.push(new OfflineStorageUnavailableError());
   }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) throw new AggregateError(failures, "Local account cleanup failed.");
 }
 
 // This module owns the records a 409 reconciliation must touch, and the sync

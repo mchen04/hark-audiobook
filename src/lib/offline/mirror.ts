@@ -1,5 +1,10 @@
 import type { IDBPTransaction } from "idb";
 
+import {
+  assertAccountWritable,
+  isAccountDeletionFenced,
+  subscribeAccountDeletionFence,
+} from "@/lib/account-deletion-fence";
 import type { LibraryBook } from "@/domain/library";
 import type { PlayerBook } from "@/domain/player";
 import type { MediaFingerprintKind } from "@/lib/media-fingerprint";
@@ -90,8 +95,12 @@ export type MirrorPlayerBook = {
  * and the new cursor — or none of it does.
  */
 export async function applyPullBatch(userId: string, batch: PullBatch): Promise<void> {
+  assertAccountWritable(userId);
   const db = await database();
   const transaction = db.transaction(MIRROR_STORES, "readwrite");
+  const unsubscribe = subscribeAccountDeletionFence(() => {
+    if (isAccountDeletionFenced(userId)) abortQuietly(transaction);
+  });
 
   // A failing IndexedDB request aborts the transaction on its own, but a
   // JavaScript throw between two requests — a malformed row that will not
@@ -119,10 +128,13 @@ export async function applyPullBatch(userId: string, batch: PullBatch): Promise<
     };
     await transaction.objectStore("syncMeta").put(meta);
 
+    assertAccountWritable(userId);
     await transaction.done;
   } catch (error) {
     abortQuietly(transaction);
     throw error;
+  } finally {
+    unsubscribe();
   }
 }
 

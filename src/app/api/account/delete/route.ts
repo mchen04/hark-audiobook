@@ -42,7 +42,7 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "Invalid deletion request." }, { status: 400 });
   return parsed.data.phase === "prepare"
     ? prepareDeletion(request, parsed.data)
-    : commitDeletion(parsed.data);
+    : commitDeletion(request, parsed.data);
 }
 
 async function prepareDeletion(
@@ -88,7 +88,10 @@ async function prepareDeletion(
   return Response.json({ deleteToken });
 }
 
-async function commitDeletion(data: z.infer<typeof commitSchema>): Promise<Response> {
+async function commitDeletion(
+  request: Request,
+  data: z.infer<typeof commitSchema>,
+): Promise<Response> {
   const id = intentId(data.userId);
   const prepared = intentValue(data.deleteToken, "prepared");
   const deleted = intentValue(data.deleteToken, "deleted");
@@ -119,15 +122,13 @@ async function commitDeletion(data: z.infer<typeof commitSchema>): Promise<Respo
   if (!committed) {
     return Response.json({ error: "Deletion intent is invalid or expired." }, { status: 410 });
   }
-  return Response.json(
-    { deleted: true },
-    {
-      status: 200,
-      headers: {
-        "Set-Cookie": "chapterline.session_token=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax",
-      },
-    },
-  );
+  // Better Auth owns the cookie prefix and the HTTPS `__Secure-` variant. Its
+  // sign-out endpoint clears the configured name even though the user/session
+  // rows were already removed transactionally above.
+  const signedOut = await auth.api.signOut({ headers: request.headers, asResponse: true });
+  const headers = new Headers();
+  for (const cookie of signedOut.headers.getSetCookie()) headers.append("Set-Cookie", cookie);
+  return Response.json({ deleted: true }, { status: 200, headers });
 }
 
 function intentId(userId: string): string {

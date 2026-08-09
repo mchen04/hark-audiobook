@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import "fake-indexeddb/auto";
 import { IDBFactory as FakeIDBFactory } from "fake-indexeddb";
 
+import { PENDING_ACCOUNT_DELETION_KEY } from "@/lib/app-keys";
+
 import { database } from "./db";
 import {
   applyPullBatch,
@@ -85,6 +87,30 @@ beforeEach(() => {
 });
 
 describe("applyPullBatch", () => {
+  it("rejects a batch for an account behind the durable deletion fence", async () => {
+    const values = new Map([
+      [
+        PENDING_ACCOUNT_DELETION_KEY,
+        JSON.stringify({
+          userId: USER_A,
+          deleteToken: "token-with-enough-entropy-for-the-fence-123456",
+          phase: "purged",
+          createdAt: Date.now(),
+        }),
+      ],
+    ]);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+    });
+
+    await expect(applyPullBatch(USER_A, batch({ books: [book("private-book")] }))).rejects.toThrow(
+      /deletion/i,
+    );
+    expect(await storeContents("books")).toStrictEqual([]);
+
+    vi.unstubAllGlobals();
+  });
+
   it("writes a whole batch across every affected store", async () => {
     await applyPullBatch(
       USER_A,

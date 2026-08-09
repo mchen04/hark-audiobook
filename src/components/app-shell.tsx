@@ -32,7 +32,7 @@ export function AppShell({
   // The player brings its own topbar with a back button; on phones the
   // global header would just duplicate chrome above it.
   const onPlayerPage = pathname.startsWith("/books/");
-  const header = <AppHeader email={email} collapsible={onPlayerPage} />;
+  const header = <AppHeader email={userId ? email : undefined} collapsible={onPlayerPage} />;
 
   // The device has not answered with its active user yet. Everything in the
   // header above is account-agnostic, so it is rendered now rather than a beat

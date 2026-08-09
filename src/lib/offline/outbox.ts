@@ -1,5 +1,6 @@
 import type { IDBPTransaction } from "idb";
 
+import { assertAccountWritable } from "@/lib/account-deletion-fence";
 import {
   archiveMutationKey,
   buildMutation,
@@ -82,20 +83,23 @@ export async function commitMutation(
   mutation: QueuedMutation,
   patch: MirrorPatch | null = mirrorPatchFor(mutation),
 ): Promise<CommitResult> {
+  assertAccountWritable(mutation.userId);
   const queued = await queueMutation(mutation);
+  assertAccountWritable(mutation.userId);
   // Coalescing kept an existing row instead: the intent this call carried is
   // already superseded, so projecting it would move the mirror backwards.
   if (queued !== mutation || !patch) return { queued, mirrored: false };
-  await applyMirrorPatch(patch);
+  await applyMirrorPatch(mutation.userId, patch);
   return { queued, mirrored: true };
 }
 
 /** One mirror patch, atomically, with no outbox row in front of it. */
-async function applyMirrorPatch(patch: MirrorPatch): Promise<void> {
+async function applyMirrorPatch(userId: string, patch: MirrorPatch): Promise<void> {
   const db = await database();
   const transaction = db.transaction(PATCH_STORES as unknown as PatchStore[], "readwrite");
   try {
     await patch(transaction);
+    assertAccountWritable(userId);
     await transaction.done;
   } catch (error) {
     abortQuietly(transaction);
@@ -266,7 +270,7 @@ export function commitProgress(entry: QueuedProgress) {
  */
 export function mirrorProgress(entry: QueuedProgress): Promise<void> {
   const patch = mirrorPatchFor(buildProgressMutation(entry));
-  return patch ? applyMirrorPatch(patch) : Promise.resolve();
+  return patch ? applyMirrorPatch(entry.userId, patch) : Promise.resolve();
 }
 
 export function commitCollectionEdge(
