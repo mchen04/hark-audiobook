@@ -214,7 +214,7 @@ reconnect.
 
 ## Launch path
 
-`public/sw.js` (shell cache `chapterline-shell-v6`) answers a `/library`
+`public/sw.js` (shell cache `chapterline-shell-v7`) answers a `/library`
 navigation from the cached user-agnostic shell **without calling `fetch` at
 all**. That shell is the `/offline` document, which renders the same `AppShell`
 and the same `LibraryClient` as `/library` and contains no book rows and no user
@@ -231,13 +231,20 @@ renders no user rows.
   render for itself (`/`, `/library`, `/offline`, `/books/:id`) gets the shell,
   and an auth page gets a self-contained notice rather than being bounced back
   to `/login` forever.
-- Install precaches the shell plus the `/_next/static` chunks parsed out of it,
-  because a shell whose chunks are missing is a blank screen with extra steps.
-  A deployment renames those chunks without changing `sw.js`, so the page posts
-  `REFRESH_SHELL` once it has gone idle after launch. Refresh first fetches and
-  caches every asset named by the candidate document, then promotes that
-  document at both navigation keys, and only then sweeps old chunks. A failed
-  asset fetch therefore leaves the previous document and chunk set live.
+- Install precaches the shell and every parsed `/_next/static` chunk into a
+  unique immutable generation, but leaves the active document untouched. It
+  records a durable ready pointer outside the live cache; activation claims the
+  clients before promoting that generation, so the old worker can never serve
+  a new document whose chunks only the new handler can find. A deployment also
+  prompts the active page to post `REFRESH_SHELL` after launch goes idle. Both
+  paths publish `/library?source=pwa` as the single commit point only after the
+  generation is complete, so a failed asset fetch leaves the previous shell
+  live. Cleanup deletes whole unreferenced generations rather than individual
+  chunks. It retains generations named by either live document, a pending
+  install, or a durable lease for a live window; long-lived offline tabs can
+  therefore lazy-load their original chunks across any number of refreshes,
+  while closed-window leases and their generations are reclaimed on the next
+  sweep.
 - Revalidation (`src/lib/launch-revalidation.ts`) waits for the render that sets
   `data-launch-ready`, then for 500ms of quiet and an idle callback, before it
   touches the network. A device that has never completed a pull is the one

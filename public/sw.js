@@ -1,9 +1,30 @@
 // Bumped whenever the meaning of what is stored changes, not merely its
-// contents: v6 is the first version whose shell document is served cache-first
-// for the launch itself rather than only as an offline fallback. `activate`
+// contents: v7 stores documents as pointers into immutable asset generations;
+// v6 served a document and its mutable chunk set from one shared cache. `activate`
 // deletes every other `chapterline-shell-` cache, and account-purge.ts keys off
 // the same prefix, so the prefix is part of the contract.
-const CACHE_VERSION = "chapterline-shell-v6";
+const CACHE_VERSION = "chapterline-shell-v7";
+const SHELL_CACHE_PREFIX = "chapterline-shell-";
+// Each refresh owns an immutable asset generation. The prefix deliberately
+// does not begin `chapterline-shell-`: an activating worker deletes old LIVE
+// cache versions under that prefix, and must not erase a generation an older
+// active worker is still promoting.
+const STAGING_CACHE_PREFIX = "chapterline-staged-shell-";
+// Kept outside the `chapterline-shell-` prefix so an older worker's activation
+// sweep cannot erase a new install's ready pointer before that install activates.
+const SHELL_METADATA_CACHE = "chapterline-runtime-shell-metadata-v1";
+const SHELL_INTERNAL_PATH = "/_next/static/__chapterline_shell__/";
+const STAGED_OFFLINE_URL = `${SHELL_INTERNAL_PATH}offline`;
+const STAGED_LAUNCH_URL = `${SHELL_INTERNAL_PATH}launch`;
+const STAGING_READY_URL = `${SHELL_INTERNAL_PATH}ready`;
+const STAGING_PROMOTED_URL = `${SHELL_INTERNAL_PATH}promoted`;
+const INSTALL_READY_URL = `${SHELL_INTERNAL_PATH}install-ready`;
+const CLIENT_LEASE_URL_PREFIX = `${SHELL_INTERNAL_PATH}clients/`;
+const SHELL_GENERATION_HEADER = "X-Chapterline-Shell-Generation";
+// An extendable service-worker event cannot legitimately remain alive for a
+// day. This only reclaims a generation whose worker died before promotion, and
+// only when neither live document, install marker nor client lease names it.
+const STAGING_ABANDONED_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const MEDIA_CACHE = "chapterline-media-v2";
 const LEGACY_MEDIA_CACHE = "chapterline-media-v1";
 /**
@@ -41,11 +62,10 @@ const PRECACHE = [OFFLINE_URL, "/icons/icon-192.png"];
  */
 const NAVIGATION_TIMEOUT_MS = 3000;
 
-// Refreshing is a cache-wide transaction: one candidate adds its chunks,
-// promotes two document keys, then sweeps every other chunk. If two candidates
-// interleave, either sweep can delete chunks still named by the other's live
-// document. A single promise tail keeps those transactions indivisible while
-// still letting each event wait for (and observe) its own refresh result.
+// The tail avoids redundant overlap inside ONE worker global. Correctness does
+// not depend on it: an old active worker and a new installing worker have
+// separate globals, so `precacheShell` also isolates every candidate in its own
+// immutable generation before changing the live launch pointer.
 let shellRefreshTail = Promise.resolve();
 function queueShellRefresh() {
   const refresh = shellRefreshTail.then(precacheShell);
@@ -54,7 +74,11 @@ function queueShellRefresh() {
 }
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(queueShellRefresh().then(() => self.skipWaiting()));
+  // Installing must not change the document an older active worker serves: it
+  // only knows the legacy shared cache and cannot find chunks in this worker's
+  // generation. Persist the ready generation, then promote it from `activate`
+  // after this worker has claimed the clients and its fetch handler is in use.
+  event.waitUntil(prepareInstalledShell().then(() => self.skipWaiting()));
   declareLaunchRoute(event);
 });
 
@@ -100,7 +124,7 @@ function declareLaunchRoute(event) {
         urlPattern: { pathname: "/library", search: "source=pwa" },
         requestMode: "navigate",
       },
-      source: "cache",
+      source: { cacheName: CACHE_VERSION },
     });
     if (routed && typeof routed.catch === "function") routed.catch(() => undefined);
   } catch {
@@ -113,75 +137,300 @@ function declareLaunchRoute(event) {
 // served — so its static chunks are captured here at install time rather than
 // left to lazy runtime caching. Installation fails if any of them is missing,
 // because a shell whose chunks are absent is a blank screen with extra steps.
-async function precacheShell() {
-  const cache = await caches.open(CACHE_VERSION);
-  // Fetch the candidate document without exposing it at either live navigation
-  // key. A refresh is only promotable after every chunk it names is cached; if
-  // one fetch fails, the previous document and all of its chunks remain a
-  // complete working set instead of becoming a shell that cannot boot.
-  const offlinePage = await fetch(OFFLINE_URL, { cache: "no-store" });
-  if (!offlinePage.ok) throw new Error("The required offline page could not be fetched.");
-  const html = await offlinePage.clone().text();
-  const assets = [...new Set(html.match(/\/_next\/static\/[^"'\s\\]+/g) || [])];
-  const supportingAssets = PRECACHE.filter((asset) => asset !== OFFLINE_URL);
-  await Promise.all([...supportingAssets, ...assets].map((asset) => cache.add(asset)));
+async function stageShell() {
+  const stageName = `${STAGING_CACHE_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const stage = await caches.open(stageName);
 
-  // Both possible document keys are promoted only after the candidate asset
-  // set is complete. A process death between these two puts is still safe:
-  // old and new documents both reference chunks that remain present, and the
-  // superseded-chunk sweep does not begin until both puts finish.
-  await cache.put(OFFLINE_URL, offlinePage.clone());
-  // The same bytes, stored a second time under the URL a launch actually asks
-  // for, because the static route declared in `install` resolves by request URL
-  // and a miss would go to the network. `serveNavigation` does not need this —
-  // it maps /library onto the /offline entry itself — so this key exists purely
-  // to make the declarative rule and the handler agree on one document.
-  await cache.put(LAUNCH_URL, offlinePage.clone());
-  await dropSupersededChunks(cache, assets);
+  try {
+    // Fetch and validate the whole candidate without exposing it at a live
+    // navigation key. Required chunks and both document copies land in the
+    // candidate's immutable cache before promotion starts.
+    const offlinePage = await fetch(OFFLINE_URL, { cache: "no-store" });
+    if (!offlinePage.ok) throw new Error("The required offline page could not be fetched.");
+    const html = await offlinePage.clone().text();
+    const assets = [...new Set(html.match(/\/_next\/static\/[^"'\s\\]+/g) || [])];
+    const supportingAssets = PRECACHE.filter((asset) => asset !== OFFLINE_URL);
+    await Promise.all([...supportingAssets, ...assets].map((asset) => stage.add(asset)));
+
+    // `text()` decoded any content encoding. Reusing Content-Encoding or the
+    // encoded Content-Length on this new response would make the cached HTML
+    // unreadable on compressed deployments, so those transport headers go.
+    const headers = new Headers(offlinePage.headers);
+    headers.delete("Content-Encoding");
+    headers.delete("Content-Length");
+    headers.set(SHELL_GENERATION_HEADER, stageName);
+    const stagedResponse = () =>
+      new Response(html, {
+        status: offlinePage.status,
+        statusText: offlinePage.statusText,
+        headers,
+      });
+    await stage.put(STAGED_OFFLINE_URL, stagedResponse());
+    await stage.put(STAGED_LAUNCH_URL, stagedResponse());
+    await stage.put(STAGING_READY_URL, new Response(String(Date.now())));
+    return stageName;
+  } catch (error) {
+    // No live key can name an incomplete stage.
+    await caches.delete(stageName).catch(() => undefined);
+    throw error;
+  }
+}
+
+/** Stage an install without making its document visible to the old worker. */
+async function prepareInstalledShell() {
+  const stageName = await stageShell();
+  const metadata = await caches.open(SHELL_METADATA_CACHE);
+  await metadata.put(INSTALL_READY_URL, new Response(stageName));
+  return stageName;
+}
+
+/** Active-worker refreshes can stage and promote under the same event. */
+async function precacheShell() {
+  const stageName = await stageShell();
+  const cleanupSafe = await promoteShell(stageName);
+  if (cleanupSafe) {
+    await Promise.allSettled([dropSupersededShellStages(), dropLegacyShellCaches()]);
+  }
 }
 
 /**
- * Forget the chunks the shell no longer references.
+ * Publish one complete immutable generation.
  *
- * Every deployment gives the build new `/_next/static` names, and this function
- * re-runs on each `REFRESH_SHELL`. Without a sweep the old names stay cached
- * forever: the shell cache grows by a full chunk set per deploy, against the
- * same origin quota the downloaded audio competes for — and that audio is the
- * only copy in existence, so the eviction this would eventually provoke costs
- * the user something unrecoverable. The cache-version bump in `activate` does
- * not cover it either, since the version changes with the cache's MEANING, not
- * with the build.
- *
- * Deliberately conservative: only `/_next/static` entries are considered, and
- * only ones the freshly-read shell does not reference. The shell document, the
- * launch key and the icons are never touched here.
+ * The launch key is the sole commit point: both `serveNavigation` and the
+ * declarative launch route read it. A failure before that put leaves the old
+ * shell live; a failure afterward leaves a complete named generation live.
  */
-async function dropSupersededChunks(cache, assets) {
-  const keep = new Set(assets);
-  const stale = (await cache.keys()).filter((request) => {
-    const { pathname } = new URL(request.url);
-    return pathname.startsWith("/_next/static/") && !keep.has(pathname);
-  });
-  await Promise.all(stale.map((request) => cache.delete(request)));
+async function promoteShell(stageName) {
+  if (!stageName.startsWith(STAGING_CACHE_PREFIX)) {
+    throw new Error("The staged shell generation name is invalid.");
+  }
+  const stage = await caches.open(stageName);
+  const [ready, offlineDocument, launchDocument] = await Promise.all([
+    stage.match(STAGING_READY_URL),
+    stage.match(STAGED_OFFLINE_URL),
+    stage.match(STAGED_LAUNCH_URL),
+  ]);
+  if (!ready || !offlineDocument || !launchDocument) {
+    throw new Error("The staged shell generation is incomplete.");
+  }
+
+  const live = await caches.open(CACHE_VERSION);
+  await live.put(OFFLINE_URL, offlineDocument);
+  // A client can receive the old launch document until the next put. Pin that
+  // generation to every currently untracked window before changing the key.
+  const previousLaunch = await live.match(LAUNCH_URL);
+  const previousGeneration = previousLaunch?.headers.get(SHELL_GENERATION_HEADER);
+  await leaseUntrackedClients([previousGeneration]);
+  await live.put(LAUNCH_URL, launchDocument);
+  // Include both sides for a client created between the pre-commit snapshot and
+  // the launch-key put. Distinct lease keys make concurrent workers union their
+  // conservative answers instead of overwriting one another.
+  let cleanupSafe = true;
+  try {
+    await leaseUntrackedClients([previousGeneration, stageName]);
+  } catch {
+    // The candidate is already canonical and complete. Skipping collection is
+    // safer than rejecting the event and guessing which racing client saw it.
+    cleanupSafe = false;
+  }
+
+  await Promise.allSettled([
+    stage.put(STAGING_PROMOTED_URL, new Response(String(Date.now()))),
+    (async () => {
+      const metadata = await caches.open(SHELL_METADATA_CACHE);
+      const installReady = await metadata.match(INSTALL_READY_URL);
+      if (installReady && (await installReady.text()) === stageName) {
+        await metadata.delete(INSTALL_READY_URL);
+      }
+    })(),
+  ]);
+  return cleanupSafe;
+}
+
+/** Pin an untracked live window to every generation it could have received. */
+async function leaseUntrackedClients(generations) {
+  const candidates = [
+    ...new Set(generations.filter((name) => name?.startsWith(STAGING_CACHE_PREFIX))),
+  ];
+  if (candidates.length === 0) return;
+
+  const windows = await self.clients.matchAll({ includeUncontrolled: true, type: "window" });
+  const leases = await caches.open(SHELL_METADATA_CACHE);
+  await Promise.all(
+    windows.map(async ({ id }) => {
+      const clientRoot = `${CLIENT_LEASE_URL_PREFIX}${encodeURIComponent(id)}/`;
+      if (await leases.match(`${clientRoot}tracked`)) return;
+      await Promise.all(
+        candidates.map((name) =>
+          leases.put(`${clientRoot}generations/${encodeURIComponent(name)}`, new Response("")),
+        ),
+      );
+      await leases.put(`${clientRoot}tracked`, new Response(""));
+    }),
+  );
+}
+
+/** Return live client leases and discard leases whose window has closed. */
+async function retainedClientGenerations() {
+  const windows = await self.clients.matchAll({ includeUncontrolled: true, type: "window" });
+  const liveClientIds = new Set(windows.map(({ id }) => id));
+  const leases = await caches.open(SHELL_METADATA_CACHE);
+  const retained = new Set();
+
+  await Promise.all(
+    (await leases.keys()).map(async (request) => {
+      const pathname = new URL(request.url).pathname;
+      if (!pathname.startsWith(CLIENT_LEASE_URL_PREFIX)) return;
+      const [encodedClientId, kind, encodedGeneration] = pathname
+        .slice(CLIENT_LEASE_URL_PREFIX.length)
+        .split("/");
+      const clientId = decodeURIComponent(encodedClientId);
+      if (!liveClientIds.has(clientId)) {
+        await leases.delete(request);
+        return;
+      }
+      if (kind === "generations" && encodedGeneration) {
+        const generation = decodeURIComponent(encodedGeneration);
+        if (generation.startsWith(STAGING_CACHE_PREFIX)) retained.add(generation);
+      }
+    }),
+  );
+  return retained;
+}
+
+/**
+ * Preserve chunks already-loaded clients may request from a pre-v7 document.
+ *
+ * The old worker can finish a refresh after v7 activates. Its Cache object is
+ * therefore deleted after these bytes are copied: late writes stay attached to
+ * the detached object and cannot overwrite v7's canonical launch key.
+ */
+async function preserveLegacyShellAssets(cacheNames) {
+  const windows = await self.clients.matchAll({ includeUncontrolled: true, type: "window" });
+  if (windows.length === 0 || cacheNames.length === 0) return;
+
+  const stageName = `${STAGING_CACHE_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const stage = await caches.open(stageName);
+  for (const cacheName of cacheNames) {
+    const legacy = await caches.open(cacheName);
+    for (const request of await legacy.keys()) {
+      const { pathname } = new URL(request.url);
+      if (!pathname.startsWith("/_next/static/") && !pathname.startsWith("/icons/")) continue;
+      const response = await legacy.match(request);
+      if (response) await stage.put(request, response);
+    }
+  }
+  await stage.put(STAGING_READY_URL, new Response(String(Date.now())));
+
+  const leases = await caches.open(SHELL_METADATA_CACHE);
+  await Promise.all(
+    windows.map(async ({ id }) => {
+      const clientRoot = `${CLIENT_LEASE_URL_PREFIX}${encodeURIComponent(id)}/`;
+      await leases.put(
+        `${clientRoot}generations/${encodeURIComponent(stageName)}`,
+        new Response(""),
+      );
+      await leases.put(`${clientRoot}tracked`, new Response(""));
+    }),
+  );
+  await stage.put(STAGING_PROMOTED_URL, new Response(String(Date.now())));
+}
+
+/**
+ * Forget immutable generations no live document can reference.
+ *
+ * Every deployment gives the build new `/_next/static` names. Deleting files
+ * one by one from a shared cache was unsafe across worker globals; deleting a
+ * completed, unreferenced generation is all-or-nothing and cannot strand a
+ * document. The sweep still bounds storage to the generations named by the two
+ * live keys, plus young interrupted candidates. That matters because shell
+ * caches and irreplaceable downloaded audio compete for the same origin quota.
+ *
+ * Deliberately conservative: a young ready generation is a peer worker, not
+ * garbage. A promoted generation stays while either live document, a pending
+ * install, or a live client lease can name it; closing the client makes its
+ * lease reclaimable on the next sweep. Storage is therefore bounded by live
+ * clients and in-flight workers, not by an arbitrary deployment count.
+ */
+async function dropSupersededShellStages() {
+  const live = await caches.open(CACHE_VERSION);
+  const metadata = await caches.open(SHELL_METADATA_CACHE);
+  const [offlineDocument, launchDocument, installReady, clientGenerations] = await Promise.all([
+    live.match(OFFLINE_URL),
+    live.match(LAUNCH_URL),
+    metadata.match(INSTALL_READY_URL),
+    retainedClientGenerations(),
+  ]);
+  const retained = new Set(
+    [offlineDocument, launchDocument]
+      .map((response) => response?.headers.get(SHELL_GENERATION_HEADER))
+      .filter((name) => name?.startsWith(STAGING_CACHE_PREFIX)),
+  );
+  const installGeneration = installReady && (await installReady.text());
+  if (installGeneration?.startsWith(STAGING_CACHE_PREFIX)) retained.add(installGeneration);
+  clientGenerations.forEach((name) => retained.add(name));
+
+  const now = Date.now();
+  const names = (await caches.keys()).filter((name) => name.startsWith(STAGING_CACHE_PREFIX));
+  const generations = await Promise.all(
+    names.map(async (name) => {
+      const promoted = await caches.match(STAGING_PROMOTED_URL, { cacheName: name });
+      return { name, promotedAt: promoted ? Number(await promoted.text()) : null };
+    }),
+  );
+
+  await Promise.all(
+    generations.map(async ({ name, promotedAt }) => {
+      if (retained.has(name)) return;
+      const createdAt = Number(name.slice(STAGING_CACHE_PREFIX.length).split("-", 1)[0]);
+      const abandoned =
+        Number.isFinite(createdAt) && now - createdAt > STAGING_ABANDONED_MAX_AGE_MS;
+      // A promoted generation cannot publish again. A young unpromoted one may
+      // be a peer worker between staging and commit, so only age can reclaim it.
+      if (Number.isFinite(promotedAt) || abandoned) await caches.delete(name);
+    }),
+  );
+}
+
+/** Retryable cleanup for pre-v7 live caches after v7 is canonical. */
+async function dropLegacyShellCaches() {
+  const names = (await caches.keys()).filter(
+    (key) => key.startsWith(SHELL_CACHE_PREFIX) && key !== CACHE_VERSION,
+  );
+  await Promise.all(names.map((name) => caches.delete(name)));
 }
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    Promise.all([
-      caches
-        .keys()
-        .then((keys) =>
-          Promise.all(
-            keys
-              .filter((key) => key.startsWith("chapterline-shell-") && key !== CACHE_VERSION)
-              .map((key) => caches.delete(key)),
-          ),
-        ),
-      caches.delete(LEGACY_MEDIA_CACHE),
-      self.clients.claim(),
-    ]),
-  );
+  event.waitUntil(activateWorker());
 });
+
+async function activateWorker() {
+  // Install never exposes its document. Claim first so every request for a
+  // newly promoted chunk reaches the handler that searches generation caches.
+  await self.clients.claim();
+  const metadata = await caches.open(SHELL_METADATA_CACHE);
+  const ready = await metadata.match(INSTALL_READY_URL);
+  if (!ready) {
+    await dropSupersededShellStages();
+    await caches.delete(LEGACY_MEDIA_CACHE);
+    return;
+  }
+
+  const keys = await caches.keys();
+  const legacyShellCaches = keys.filter(
+    (key) => key.startsWith(SHELL_CACHE_PREFIX) && key !== CACHE_VERSION,
+  );
+  await preserveLegacyShellAssets(legacyShellCaches);
+  const cleanupSafe = await promoteShell(await ready.text());
+
+  await Promise.allSettled([
+    ...legacyShellCaches.map((key) => caches.delete(key)),
+    caches.delete(LEGACY_MEDIA_CACHE),
+  ]);
+  if (cleanupSafe) {
+    await Promise.allSettled([dropSupersededShellStages(), dropLegacyShellCaches()]);
+  }
+}
 
 self.addEventListener("message", (event) => {
   if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
@@ -215,8 +464,10 @@ self.addEventListener("fetch", (event) => {
 
   if (url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/")) {
     event.respondWith(
-      caches.open(CACHE_VERSION).then(async (cache) => {
-        const cached = await cache.match(request);
+      currentShellAssetCache().then(async (cache) => {
+        // Prefer the canonical generation. The cross-cache fallback is for a
+        // retained older client lazily requesting one of its own chunks.
+        const cached = (await cache.match(request)) || (await caches.match(request));
         if (cached) return cached;
         const response = await fetch(request);
         if (response.ok) await cache.put(request, response.clone());
@@ -225,6 +476,14 @@ self.addEventListener("fetch", (event) => {
     );
   }
 });
+
+/** Runtime-warmed chunks join the generation the canonical launch key names. */
+async function currentShellAssetCache() {
+  const live = await caches.open(CACHE_VERSION);
+  const launch = await live.match(LAUNCH_URL);
+  const generation = launch?.headers.get(SHELL_GENERATION_HEADER);
+  return generation?.startsWith(STAGING_CACHE_PREFIX) ? caches.open(generation) : live;
+}
 
 /**
  * The launch path (`docs/local-first.md` section 8).
@@ -244,7 +503,7 @@ async function serveNavigation(request, pathname) {
   const cache = await caches.open(CACHE_VERSION);
 
   if (pathname === "/library") {
-    const shell = await cache.match(OFFLINE_URL);
+    const shell = await cache.match(LAUNCH_URL);
     if (shell) return shell;
   }
 
@@ -256,7 +515,7 @@ async function serveNavigation(request, pathname) {
   // and handing it the library shell would bounce a signed-out visitor between
   // /login and the shell forever, so it gets an honest notice instead.
   if (rendersFromLocalData(pathname)) {
-    const shell = await cache.match(OFFLINE_URL);
+    const shell = await cache.match(LAUNCH_URL);
     if (shell) return shell;
   }
   return unreachableDocument();

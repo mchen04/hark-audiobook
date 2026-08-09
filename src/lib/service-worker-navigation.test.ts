@@ -31,6 +31,7 @@ type Timer = { run: () => void; ms: number; cancelled: boolean };
 type ServeNavigation = (request: Request, pathname: string) => Promise<Response>;
 
 const SHELL_HTML = "<!doctype html><title>Library shell</title>";
+const LAUNCH_KEY = "/library?source=pwa";
 
 let cache: {
   match: ReturnType<typeof vi.fn>;
@@ -111,7 +112,7 @@ function navigate(pathname: string) {
 
 describe("service-worker navigation", () => {
   it("serves a warm library launch from Cache Storage without touching the network", async () => {
-    entries.set("/offline", SHELL_HTML);
+    entries.set(LAUNCH_KEY, SHELL_HTML);
 
     const response = await serveNavigation(navigate("/library"), "/library");
 
@@ -120,12 +121,22 @@ describe("service-worker navigation", () => {
   });
 
   it("serves the shell for the launch URL the manifest actually uses", async () => {
-    entries.set("/offline", SHELL_HTML);
+    entries.set(LAUNCH_KEY, SHELL_HTML);
 
     const response = await serveNavigation(
       new Request("https://hark.test/library?source=pwa"),
       "/library",
     );
+
+    expect(await response.text()).toBe(SHELL_HTML);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps serving the committed launch key during a two-document promotion", async () => {
+    entries.set("/offline", "uncommitted candidate");
+    entries.set(LAUNCH_KEY, SHELL_HTML);
+
+    const response = await serveNavigation(navigate("/library"), "/library");
 
     expect(await response.text()).toBe(SHELL_HTML);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -139,7 +150,7 @@ describe("service-worker navigation", () => {
   });
 
   it("bounds a first install: a connection that never answers still shows something", async () => {
-    entries.set("/offline", SHELL_HTML);
+    entries.set(LAUNCH_KEY, SHELL_HTML);
     // A weak-but-alive connection: the fetch neither resolves nor rejects, so
     // `.catch()` would never fire and the user would stare at nothing.
     fetchMock.mockImplementation(() => new Promise<Response>(() => undefined));
@@ -154,7 +165,7 @@ describe("service-worker navigation", () => {
   });
 
   it("prefers the live document for a book page, which the shell cannot fully render", async () => {
-    entries.set("/offline", SHELL_HTML);
+    entries.set(LAUNCH_KEY, SHELL_HTML);
 
     const response = await serveNavigation(navigate("/books/abc"), "/books/abc");
 
@@ -163,7 +174,7 @@ describe("service-worker navigation", () => {
   });
 
   it("falls back to the shell when a book page cannot be fetched", async () => {
-    entries.set("/offline", SHELL_HTML);
+    entries.set(LAUNCH_KEY, SHELL_HTML);
     fetchMock.mockRejectedValue(new Error("offline"));
 
     const response = await serveNavigation(navigate("/books/abc"), "/books/abc");
@@ -172,7 +183,7 @@ describe("service-worker navigation", () => {
   });
 
   it("never answers an auth page with the library shell", async () => {
-    entries.set("/offline", SHELL_HTML);
+    entries.set(LAUNCH_KEY, SHELL_HTML);
     fetchMock.mockRejectedValue(new Error("offline"));
 
     const response = await serveNavigation(navigate("/login"), "/login");
