@@ -420,11 +420,6 @@ export function applyAuthoritativePlaybackStateWithStatus(
   const current = ignorePendingNormalizations
     ? readLocalProgressRaw(userId, bookId)
     : readLocalProgress(userId, bookId);
-  // Canonical entries intentionally lose an equal-clock tie to every ordinary
-  // document writer. A local action can land after the read above but before
-  // this write; giving the server entry lexical priority would let compaction
-  // erase that concurrent action without a compare-and-set primitive.
-  const writerId = `!canonical:${localPlaybackWriterId()}`;
   const currentRateClock = current
     ? (current.playbackRateOccurredAt ?? current.writtenAt ?? current.occurredAt)
     : -1;
@@ -465,15 +460,53 @@ export function applyAuthoritativePlaybackStateWithStatus(
   const rateSource = rateDecision.source;
   const completedSource = completedDecision.source;
 
+  const resolvedPositionMs = replacePosition
+    ? server.positionMs
+    : (current?.positionMs ?? server.positionMs);
+  const resolvedPositionClock = replacePosition
+    ? server.occurredAt
+    : (current?.occurredAt ?? server.occurredAt);
+  /**
+   * A server acknowledgement is not a new physical write mechanism.
+   *
+   * In particular, acknowledging a `visibility-flush` used to replace its
+   * ordinary register with a canonical one and then rebuild the compatibility
+   * tuple without `source`, `writtenAt`, or `playingAtWrite`. A renderer killed
+   * after that response therefore lost the exact suspension signature it had
+   * synchronously made durable before the request began.
+   *
+   * Preserve provenance only when the resolved server position is the exact
+   * position/moment the current tuple describes. A clamp, conflict, or newer
+   * server value must not inherit evidence from a different local position.
+   */
+  const preservedProvenance =
+    current?.source &&
+    current.positionMs === resolvedPositionMs &&
+    current.occurredAt === resolvedPositionClock
+      ? current
+      : null;
+  // Canonical entries intentionally lose an equal-clock tie to every ordinary
+  // document writer. A local action can land after the read above but before
+  // this write; giving the server entry lexical priority would let compaction
+  // erase that concurrent action without a compare-and-set primitive.
+  const writerId = `!canonical:${localPlaybackWriterId()}`;
+  // When canonicalizing the exact position that supplied the provenance, keep
+  // its document identity. `joinLocalPlaybackRegisters` can then prove that the
+  // metadata and winning position still belong together across a reload.
+  const positionWriterId = preservedProvenance?.writerId
+    ? `!canonical:${documentPlaybackWriterId(preservedProvenance.writerId)}`
+    : writerId;
+
   const positionPersisted =
     !replacePosition ||
     persistAuthoritativeLocalRegister(
       positionRegisterPrefix(userId, bookId),
-      writerId,
+      positionWriterId,
       server.positionMs,
       server.occurredAt,
       positionSource.value,
       positionSource.occurredAt,
+      writerId,
     );
   const ratePersisted =
     !replaceRate ||
@@ -496,9 +529,10 @@ export function applyAuthoritativePlaybackStateWithStatus(
       completedSource.occurredAt,
     );
 
+  const requestedProvenance = source && replacePosition ? source : null;
   const seed: LocalPosition = {
-    positionMs: replacePosition ? server.positionMs : (current?.positionMs ?? server.positionMs),
-    occurredAt: replacePosition ? server.occurredAt : (current?.occurredAt ?? server.occurredAt),
+    positionMs: resolvedPositionMs,
+    occurredAt: resolvedPositionClock,
     playbackRate: replaceRate
       ? server.playbackRate
       : (current?.playbackRate ?? server.playbackRate),
@@ -513,15 +547,33 @@ export function applyAuthoritativePlaybackStateWithStatus(
       : currentCompletedClock >= 0
         ? currentCompletedClock
         : server.completedOccurredAt,
-    ...(source && replacePosition
+    ...(preservedProvenance
       ? {
-          source,
-          writtenAt: Date.now(),
-          writerId,
-          playbackRateAtWrite: server.playbackRate,
-          completedAtWrite: server.completed,
+          source: preservedProvenance.source,
+          ...(preservedProvenance.positionAtWrite !== undefined
+            ? { positionAtWrite: preservedProvenance.positionAtWrite }
+            : {}),
+          ...(preservedProvenance.writtenAt !== undefined
+            ? { writtenAt: preservedProvenance.writtenAt }
+            : {}),
+          writerId: preservedProvenance.writerId,
+          ...(preservedProvenance.playingAtWrite ? { playingAtWrite: true } : {}),
+          ...(preservedProvenance.playbackRateAtWrite !== undefined
+            ? { playbackRateAtWrite: preservedProvenance.playbackRateAtWrite }
+            : {}),
+          ...(preservedProvenance.completedAtWrite !== undefined
+            ? { completedAtWrite: preservedProvenance.completedAtWrite }
+            : {}),
         }
-      : {}),
+      : requestedProvenance
+        ? {
+            source: requestedProvenance,
+            writtenAt: Date.now(),
+            writerId: positionWriterId,
+            playbackRateAtWrite: server.playbackRate,
+            completedAtWrite: server.completed,
+          }
+        : {}),
   };
   const record = joinLocalPlaybackRegisters(userId, bookId, seed) ?? seed;
   writeLocalValue(localPositionKey(userId, bookId), JSON.stringify(record));
@@ -1348,6 +1400,7 @@ function persistAuthoritativeLocalRegister(
   occurredAt: number,
   submittedValue: number | boolean,
   submittedAt: number,
+  storageWriterId = writerId,
 ): boolean {
   try {
     const entries: Array<{ key: string; raw: string; register: LocalPlaybackRegister }> = [];
@@ -1362,7 +1415,12 @@ function persistAuthoritativeLocalRegister(
     // Land the canonical replacement before retiring anything. If quota or a
     // blocked store rejects it, the acknowledged local value remains intact.
     const revision = String(++playbackRegisterRevision).padStart(12, "0");
-    const key = `${prefix}${writerId}:${revision}`;
+    // The register's writer can deliberately name the previous document when
+    // an exact canonical acknowledgement preserves that document's lifecycle
+    // provenance. Its storage key still belongs to THIS document. Otherwise a
+    // reload resets `playbackRegisterRevision`, recreates the previous key, and
+    // the acknowledged-entry cleanup below removes the just-written register.
+    const key = `${prefix}${storageWriterId}:${revision}`;
     const canonicalRaw = JSON.stringify({ value, occurredAt, writerId });
     localStorage.setItem(key, canonicalRaw);
     if (localStorage.getItem(key) !== canonicalRaw) return false;
@@ -1589,9 +1647,11 @@ function joinLocalPlaybackRegisters(
 
 function samePlaybackWriter(left: string, right: string | undefined): boolean {
   if (!right) return false;
-  const documentWriter = (value: string) =>
-    value.startsWith("!canonical:") ? value.slice("!canonical:".length) : value;
-  return documentWriter(left) === documentWriter(right);
+  return documentPlaybackWriterId(left) === documentPlaybackWriterId(right);
+}
+
+function documentPlaybackWriterId(value: string): string {
+  return value.startsWith("!canonical:") ? value.slice("!canonical:".length) : value;
 }
 
 function validLocalPosition(parsed: unknown, occurredAtOverride: number | undefined) {

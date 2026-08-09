@@ -1094,6 +1094,85 @@ describe("durable write provenance", () => {
     expect(readLocalProgress("user-a", "book-1")?.source).toBe("cadence-timer");
   });
 
+  it("keeps hide-edge provenance when the server acknowledges the exact position", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(40_000));
+      localStorage.setItem(
+        "chapterline:playback-position:user-a:book-1:!canonical:previous-document:000000000001",
+        JSON.stringify({
+          value: 12_436,
+          occurredAt: 35_000,
+          writerId: "!canonical:previous-document",
+        }),
+      );
+      localStorage.setItem(
+        KEY,
+        JSON.stringify({
+          positionMs: 12_436,
+          positionAtWrite: 12_436,
+          occurredAt: 35_000,
+          playbackRate: 1,
+          playbackRateOccurredAt: 30_000,
+          completed: false,
+          completedOccurredAt: 30_000,
+          writerId: "!canonical:previous-document",
+          source: "visibility-flush",
+          writtenAt: 40_000,
+          playingAtWrite: true,
+        }),
+      );
+
+      applyAuthoritativePlaybackState(
+        "user-a",
+        "book-1",
+        {
+          positionMs: 12_436,
+          occurredAt: 35_000,
+          playbackRate: 1,
+          playbackRateOccurredAt: 30_000,
+          completed: false,
+          completedOccurredAt: 30_000,
+        },
+        {
+          positionMs: 12_436,
+          occurredAt: 35_000,
+          playbackRate: 1,
+          playbackRateOccurredAt: 30_000,
+          completed: false,
+          completedOccurredAt: 30_000,
+        },
+      );
+
+      expect(readLocalProgress("user-a", "book-1")).toMatchObject({
+        positionMs: 12_436,
+        occurredAt: 35_000,
+        source: "visibility-flush",
+        writtenAt: 40_000,
+        playingAtWrite: true,
+      });
+
+      bootstrapPlaybackState("user-a", {
+        ...serverBook,
+        initialPositionMs: 12_436,
+        initialProgressOccurredAt: new Date(35_000).toISOString(),
+        initialPlaybackRate: 1,
+        initialPlaybackRateOccurredAt: new Date(30_000).toISOString(),
+        completed: false,
+        initialCompletedOccurredAt: new Date(30_000).toISOString(),
+      });
+      expect(readLocalProgress("user-a", "book-1")).toMatchObject({
+        positionMs: 12_436,
+        occurredAt: 35_000,
+        source: "visibility-flush",
+        writtenAt: 40_000,
+        playingAtWrite: true,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   /**
    * The readout in Settings renders this verbatim, so a value this build does
    * not write is dropped rather than shown. Absent reads as "unknown", which is
