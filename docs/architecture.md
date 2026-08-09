@@ -94,6 +94,9 @@ critical path.
   `playback_action_receipts` idempotency ledger are server-authoritative and are
   never mirrored: a device may not mint its own session, and only the server
   writes its own receipt ledger.
+- Rate-limit enforcement uses an atomic Postgres adapter whose cleanup horizon
+  includes custom ten-minute signup and reset rules; process-local memory and
+  Better Auth's shorter built-in cleanup are not enforcement boundaries.
 - The active account is a subscribed browser external store, not a server prop
   that stays authoritative forever. Storage events revoke peer tabs after
   sign-out so a mounted player cannot retain or recreate the departed account.
@@ -160,8 +163,9 @@ pending deletion journal comes through intact.
   IndexedDB database (`hark-playback-history-v1`). Reads reconcile IndexedDB
   against Cache Storage so an OS-evicted media entry becomes an honest reattach
   flow instead of a broken player.
-- Account deletion clears that user's local books, mirror, queues, positions,
-  and preferences on the device; sign-out purges the account that is leaving,
+- Account deletion journals a verified intent, clears that user's local books,
+  mirror, queues, positions, and preferences, and then performs an idempotent
+  server commit; sign-out purges the account that is leaving,
   and sign-in purges every account _other_ than the one signing in — never the
   incoming account's own downloads, which exist nowhere else.
 

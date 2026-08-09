@@ -12,10 +12,11 @@ Last reviewed: 2026-08-09
   origin are rejected.
 - The server stores metadata only; audio bytes live in each device's browser
   storage. There is no object storage to provision.
-- Auth rate limiting uses Better Auth's database store and the `rate_limit`
-  table, so cold starts and multiple instances share one atomic per-IP/path
-  attempt budget. Do not change it back to the default memory store on a
-  horizontally scaled deployment.
+- Auth rate limiting uses an app-owned atomic database adapter over the
+  `rate_limit` table, so cold starts and multiple instances share one
+  per-IP/path attempt budget. Its cleanup retention is derived from every
+  configured rule (currently ten minutes); Better Auth 1.6's built-in database
+  cleanup omits custom-rule windows and must not replace it.
 - Session validation is authoritative against Postgres so password resets and
   explicit revocations take effect immediately on every API route.
 - Postgres: Vercel runs `pnpm db:migrate` before its production build. Preview
@@ -51,9 +52,11 @@ restore live data from Neon snapshots or `pg_dump`, never from Drizzle metadata.
 
 - Book deletion: the rows cascade server-side and the client removes the
   device-local bytes in the same flow.
-- Account deletion: requires the email and current password; cascades every row,
-  expires the session cookie, and clears the device's local data for that user
-  (local books, queues, positions, preferences).
+- Account deletion: requires the email and current password, then journals a
+  short-lived deletion intent on the device. The device purge completes before
+  the idempotent server commit cascades every row and expires the cookie. A
+  crash or lost success response resumes from that journal, so a deleted
+  account cannot leave its local mirror behind.
 - Export: `GET /api/account/export` returns all metadata, chapters, progress,
   playback history, legacy saved positions, collections, tags, sessions, and preferences as JSON.
   Audio bytes are the user's own files and are not duplicated.

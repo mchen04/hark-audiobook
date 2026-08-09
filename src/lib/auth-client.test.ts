@@ -70,6 +70,7 @@ function fakeLocalStorage() {
 }
 
 let storage: ReturnType<typeof fakeLocalStorage>;
+let session: ReturnType<typeof fakeLocalStorage>;
 
 beforeEach(async () => {
   purge.order = [];
@@ -77,8 +78,10 @@ beforeEach(async () => {
   purge.failure = null;
   purge.wedged = false;
   storage = fakeLocalStorage();
+  session = fakeLocalStorage();
   vi.stubGlobal("window", globalThis);
   vi.stubGlobal("localStorage", storage);
+  vi.stubGlobal("sessionStorage", session);
   // Drain any report a previous test left behind.
   const { takeSignOutReport } = await import("@/lib/auth-client");
   takeSignOutReport();
@@ -109,12 +112,18 @@ describe("sign-out hooks", () => {
 
     await signOutThroughHooks();
 
+    expect(
+      session.getItem("chapterline:sign-out-report"),
+      "the warning existed only in the provider subtree that revocation unmounts",
+    ).not.toBeNull();
+
     const { takeSignOutReport } = await import("@/lib/auth-client");
     const report = takeSignOutReport();
     expect(report?.undelivered).toStrictEqual([
       { kind: "metadata", entityId: "book", queuedAt: 1 },
     ]);
     expect(report?.purgeFailed).toBe(false);
+    expect(session.getItem("chapterline:sign-out-report")).toBe(null);
   });
 
   it("reports a purge that failed without failing the sign-out", async () => {

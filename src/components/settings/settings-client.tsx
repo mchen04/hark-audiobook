@@ -8,9 +8,12 @@ import { FormEvent, useEffect, useState } from "react";
 import { usePlayback } from "@/components/player/playback-provider";
 import { usePreferences } from "@/components/player/preferences-provider";
 import { formatClock } from "@/lib/format-time";
-import { purgeAccount } from "@/lib/offline/account-purge";
 import { readLatestLocalPlayback } from "@/lib/playback-core";
 import { SKIP_CHOICES_MS } from "@/domain/preferences";
+import {
+  finishPendingAccountDeletion,
+  rememberPendingAccountDeletion,
+} from "@/lib/account-deletion";
 
 export function SettingsClient({ email }: { email: string }) {
   const router = useRouter();
@@ -32,27 +35,27 @@ export function SettingsClient({ email }: { email: string }) {
     const response = await fetch("/api/account/delete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ confirmEmail, currentPassword }),
+      body: JSON.stringify({ phase: "prepare", confirmEmail, currentPassword }),
     }).catch(() => null);
     if (!response?.ok) {
       setDeleting(false);
       setDeleteError("The account could not be deleted. Check your connection and try again.");
       return;
     }
-    // The whole sweep, not just the audio. `clearLocalDataForUser` covers the
-    // downloads, transcripts and cache entries; it does not touch the mirror,
-    // the deletion journal, the device sequences, the cached pages or the
-    // active-user key. Deleting your account used to leave your entire mirrored
-    // library — every book row, chapter, tag and position — readable on this
-    // device. `/api/account/delete` ends the session server-side, so none of
-    // the auth client's sign-out hooks fire on this path and this is the only
-    // place the sweep can be asked for.
-    try {
-      await purgeAccount(userId);
-    } catch {
+    const prepared = (await response.json().catch(() => null)) as { deleteToken?: unknown } | null;
+    if (typeof prepared?.deleteToken !== "string") {
+      setDeleting(false);
+      setDeleteError("The account could not be deleted. Check your connection and try again.");
+      return;
+    }
+    rememberPendingAccountDeletion(userId, prepared.deleteToken);
+    const result = await finishPendingAccountDeletion();
+    if (!result?.ok) {
       setDeleting(false);
       setDeleteError(
-        "Your account was deleted, but this browser could not clear every local file. Clear Hark's website data in browser settings.",
+        result?.phase === "purge"
+          ? "Your account was not deleted because this browser could not clear every local file. Clear Hark's website data or try again."
+          : "This device is cleared, but account deletion could not be confirmed. Keep this page open and try again when your connection returns.",
       );
       return;
     }

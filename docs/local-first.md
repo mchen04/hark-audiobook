@@ -470,6 +470,15 @@ The cached shell is user-agnostic and holds no user data, so it may survive an
 account switch. Every store that does hold user data is keyed by `userId`, which
 is what makes the purge provable rather than best-effort.
 
+Account deletion adds a durable two-phase boundary. Password verification first
+issues a short-lived bearer intent. The browser journals it, runs the complete
+local purge without revoking the still-needed session, records that the purge
+finished, and only then makes an idempotent server commit. The consumed token is
+kept briefly as a deletion receipt, so retrying after a lost HTTP response still
+returns success. A root-level runner resumes either the purge or commit after a
+tab crash; server deletion is never allowed to outrun an incomplete device
+purge.
+
 ## 12. Migration for devices that already have data
 
 Non-negotiable: a device that already holds downloads, transcripts and a pending

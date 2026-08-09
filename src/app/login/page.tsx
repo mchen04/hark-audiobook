@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { AuthForm } from "@/components/auth/auth-form";
 import { AuthShell } from "@/components/auth/auth-shell";
+import { SignOutNotice } from "@/components/auth/sign-out-notice";
 import { getSession } from "@/server/auth-session";
 
 export const metadata: Metadata = { title: "Sign in" };
@@ -16,6 +17,7 @@ export default async function LoginPage() {
       title="Sign in to your library"
       summary="Your listening position and private books stay connected across your devices."
     >
+      <SignOutNotice />
       <AuthForm mode="login" />
     </AuthShell>
   );

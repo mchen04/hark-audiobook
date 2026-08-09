@@ -6,12 +6,24 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "@/server/db/client";
 import { schema } from "@/server/db/schema";
 import { env } from "@/server/env";
+import { createDatabaseRateLimitStorage } from "@/server/auth-rate-limit-storage";
 import {
   assertPasswordResetDeliveryConfigured,
   sendPasswordReset,
 } from "@/server/mail/password-reset";
 
 assertPasswordResetDeliveryConfigured();
+
+const authRateLimitRules = {
+  "/sign-in/email": { window: 60, max: 8 },
+  "/sign-up/email": { window: 60 * 10, max: 5 },
+  "/request-password-reset": { window: 60 * 10, max: 5 },
+} as const;
+const authRateLimitWindow = 60;
+const authRateLimitRetention = Math.max(
+  authRateLimitWindow,
+  ...Object.values(authRateLimitRules).map((rule) => rule.window),
+);
 
 export const auth = betterAuth({
   appName: "Hark",
@@ -40,14 +52,10 @@ export const auth = betterAuth({
     // Vercel and any horizontally scaled deployment run more than one process.
     // The default in-memory store gives every process a separate attempt
     // budget; the existing Better Auth table is the shared enforcement point.
-    storage: "database",
-    window: 60,
+    customStorage: createDatabaseRateLimitStorage(authRateLimitRetention),
+    window: authRateLimitWindow,
     max: 100,
-    customRules: {
-      "/sign-in/email": { window: 60, max: 8 },
-      "/sign-up/email": { window: 60 * 10, max: 5 },
-      "/request-password-reset": { window: 60 * 10, max: 5 },
-    },
+    customRules: authRateLimitRules,
   },
   advanced: {
     cookiePrefix: "chapterline",

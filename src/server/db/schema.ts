@@ -100,7 +100,10 @@ export const rateLimit = pgTable(
     count: integer("count").notNull(),
     lastRequest: bigint("last_request", { mode: "number" }).notNull(),
   },
-  (table) => [check("rate_limit_count_nonnegative", sql`${table.count} >= 0`)],
+  (table) => [
+    index("rate_limit_last_request_idx").on(table.lastRequest),
+    check("rate_limit_count_nonnegative", sql`${table.count} >= 0`),
+  ],
 );
 
 export const books = pgTable(

@@ -1,5 +1,4 @@
 import type { PlayerBook } from "@/domain/player";
-import { ACTIVE_USER_KEY } from "@/lib/app-keys";
 import {
   clearQueuedMutationsForUser,
   registerImportReattachedHandler,
@@ -413,9 +412,6 @@ export async function clearLocalDataForUser(userId: string): Promise<void> {
   await deleteAllTranscriptsForUser(userId).catch(() => undefined);
   await clearQueuedMutationsForUser(userId);
   await clearPlaybackHistoryForUser(userId);
-  if (localStorage.getItem(ACTIVE_USER_KEY) === userId) {
-    localStorage.removeItem(ACTIVE_USER_KEY);
-  }
   if (cacheCleanupFailed || orphanCleanup.some((result) => result.status === "rejected")) {
     throw new OfflineStorageUnavailableError();
   }

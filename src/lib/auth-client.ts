@@ -2,7 +2,7 @@
 
 import { createAuthClient } from "better-auth/react";
 
-import { ACTIVE_USER_KEY } from "@/lib/app-keys";
+import { ACTIVE_USER_KEY, SIGN_OUT_REPORT_KEY } from "@/lib/app-keys";
 import type { UndeliveredWrite } from "@/lib/offline/account-purge";
 
 /**
@@ -83,6 +83,8 @@ let signOutDrain: { ran: boolean; undelivered: UndeliveredWrite[] } = {
   undelivered: [],
 };
 let signOutReport: SignOutReport | null = null;
+let storedSignOutReportRaw: string | null = null;
+let storedSignOutReport: SignOutReport | null = null;
 let purgeInFlight: Promise<void> = Promise.resolve();
 let purgeGate: Promise<void> = Promise.resolve();
 
@@ -122,9 +124,68 @@ function bounded(work: Promise<void>, timeoutMs: number): Promise<void> {
  * warning twice.
  */
 export function takeSignOutReport(): SignOutReport | null {
-  const report = signOutReport;
+  const report = peekSignOutReport();
   signOutReport = null;
+  if (typeof sessionStorage !== "undefined") sessionStorage.removeItem(SIGN_OUT_REPORT_KEY);
+  storedSignOutReportRaw = null;
+  storedSignOutReport = null;
   return report;
+}
+
+/** Read without clearing so hydration can use it as an external-store snapshot. */
+export function peekSignOutReport(): SignOutReport | null {
+  return signOutReport ?? readStoredSignOutReport();
+}
+
+function rememberSignOutReport(report: SignOutReport): void {
+  signOutReport = report;
+  if (typeof sessionStorage === "undefined") return;
+  if (report.undelivered.length > 0 || report.purgeFailed) {
+    const raw = JSON.stringify(report);
+    sessionStorage.setItem(SIGN_OUT_REPORT_KEY, raw);
+    storedSignOutReportRaw = raw;
+    storedSignOutReport = report;
+  } else {
+    sessionStorage.removeItem(SIGN_OUT_REPORT_KEY);
+    storedSignOutReportRaw = null;
+    storedSignOutReport = null;
+  }
+}
+
+function readStoredSignOutReport(): SignOutReport | null {
+  if (typeof sessionStorage === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(SIGN_OUT_REPORT_KEY);
+    if (raw === storedSignOutReportRaw) return storedSignOutReport;
+    const value = JSON.parse(raw || "null") as unknown;
+    if (!value || typeof value !== "object") return null;
+    const candidate = value as Partial<SignOutReport>;
+    if (!Array.isArray(candidate.undelivered) || typeof candidate.purgeFailed !== "boolean") {
+      return null;
+    }
+    storedSignOutReportRaw = raw;
+    storedSignOutReport = candidate as SignOutReport;
+    return storedSignOutReport;
+  } catch {
+    storedSignOutReportRaw = null;
+    storedSignOutReport = null;
+    return null;
+  }
+}
+
+export function describeSignOutReport(report: SignOutReport): string | null {
+  if (report.undelivered.length > 0) {
+    return `${report.undelivered.length} ${report.undelivered.length === 1 ? "change" : "changes"} you made on this device (${describeKinds(report.undelivered)}) could not be sent to the server before signing out, and signing out removes this account's data from this device. ${report.undelivered.length === 1 ? "It is" : "They are"} gone.`;
+  }
+  return report.purgeFailed
+    ? "Some of this account's data could not be removed from this device. It will be removed the next time an account signs in here."
+    : null;
+}
+
+function describeKinds(undelivered: SignOutReport["undelivered"]): string {
+  const counts = new Map<string, number>();
+  for (const write of undelivered) counts.set(write.kind, (counts.get(write.kind) || 0) + 1);
+  return [...counts.entries()].map(([kind, count]) => `${count} ${kind}`).join(", ");
 }
 
 /** The sweep itself: resolves only once it has actually finished. */
@@ -173,7 +234,7 @@ export async function runAccountPurge(context: AuthSuccessContext): Promise<void
     signOutDrain = { ran: false, undelivered: [] };
     const purge = await import("@/lib/offline/account-purge");
     if (!userId) {
-      signOutReport = { undelivered: drain.undelivered, purgeFailed: false };
+      rememberSignOutReport({ undelivered: drain.undelivered, purgeFailed: false });
       await purge.purgeCachedPages();
       return;
     }
@@ -184,7 +245,10 @@ export async function runAccountPurge(context: AuthSuccessContext): Promise<void
       userId,
       drain.ran ? { alreadyDrained: drain.undelivered } : {},
     );
-    signOutReport = { undelivered: outcome.undelivered, purgeFailed: !!outcome.failure };
+    rememberSignOutReport({
+      undelivered: outcome.undelivered,
+      purgeFailed: !!outcome.failure,
+    });
     if (outcome.failure) throw outcome.failure;
     return;
   }
