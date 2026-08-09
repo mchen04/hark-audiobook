@@ -41,8 +41,20 @@ const PRECACHE = [OFFLINE_URL, "/icons/icon-192.png"];
  */
 const NAVIGATION_TIMEOUT_MS = 3000;
 
+// Refreshing is a cache-wide transaction: one candidate adds its chunks,
+// promotes two document keys, then sweeps every other chunk. If two candidates
+// interleave, either sweep can delete chunks still named by the other's live
+// document. A single promise tail keeps those transactions indivisible while
+// still letting each event wait for (and observe) its own refresh result.
+let shellRefreshTail = Promise.resolve();
+function queueShellRefresh() {
+  const refresh = shellRefreshTail.then(precacheShell);
+  shellRefreshTail = refresh.catch(() => undefined);
+  return refresh;
+}
+
 self.addEventListener("install", (event) => {
-  event.waitUntil(precacheShell().then(() => self.skipWaiting()));
+  event.waitUntil(queueShellRefresh().then(() => self.skipWaiting()));
   declareLaunchRoute(event);
 });
 
@@ -179,7 +191,7 @@ self.addEventListener("message", (event) => {
   // it does not do per build. The page asks for the refresh once it has gone
   // idle after launch, so the round trip is never on the paint path.
   if (event.data?.type === "REFRESH_SHELL") {
-    event.waitUntil(precacheShell().catch(() => undefined));
+    event.waitUntil(queueShellRefresh().catch(() => undefined));
   }
 });
 

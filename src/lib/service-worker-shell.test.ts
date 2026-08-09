@@ -22,6 +22,21 @@ const createPrecacheShell = new Function(
   `${constants}; ${functionSource}; ${sweepSource}; return precacheShell;`,
 ) as (cacheStorage: unknown, fetchFn: typeof fetch) => () => Promise<void>;
 
+// Before serialization existed the shipping message handler called
+// `precacheShell` directly. The fallback models that exact old entrypoint so
+// this concurrency test fails against the old worker and switches to the
+// production queue once it exists.
+const queueSource = source.match(
+  /let shellRefreshTail = Promise\.resolve\(\);[\s\S]*?function queueShellRefresh\(\) \{[\s\S]*?\n\}/,
+)?.[0];
+const createShellRefresh = new Function(
+  "caches",
+  "fetch",
+  `${constants}; ${functionSource}; ${sweepSource}; ${
+    queueSource || "const queueShellRefresh = precacheShell;"
+  }; return queueShellRefresh;`,
+) as (cacheStorage: unknown, fetchFn: typeof fetch) => () => Promise<void>;
+
 describe("service-worker shell installation", () => {
   it("precaches the document a warm launch is served, under a purgeable name", async () => {
     // Two other places key off these exact strings and would silently stop
@@ -140,6 +155,33 @@ describe("service-worker shell installation", () => {
 
     expect(await (await cache.match("/offline"))!.text()).toContain("working-old.js");
   });
+
+  it("serializes overlapping refresh messages into complete document and chunk sets", async () => {
+    expect(source).toContain("event.waitUntil(queueShellRefresh().catch");
+    const race = interleavingShellCache();
+    const fetchShell = alternatingShellFetch();
+    const refreshShell = createShellRefresh(
+      { open: vi.fn().mockResolvedValue(race.cache) },
+      fetchShell,
+    );
+
+    const first = refreshShell();
+    await race.firstLaunchPutReached;
+    const second = refreshShell();
+    // Give an unqueued second refresh enough microtasks to promote B and sweep
+    // A while A is paused between its two document puts.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    if (fetchShell.mock.calls.length === 2) await second;
+    race.releaseFirstLaunchPut();
+    await Promise.all([first, second]);
+
+    expect(fetchShell).toHaveBeenCalledTimes(2);
+    for (const document of [race.offlineDocument(), race.launchDocument()]) {
+      const chunk = document.match(/\/_next\/static\/chunks\/[^"']+/)?.[0];
+      if (!chunk) throw new Error("The promoted shell named no static chunk.");
+      expect(race.hasAsset(chunk), `${chunk} was swept while its document stayed live`).toBe(true);
+    }
+  });
 });
 
 /** A cache already holding one superseded chunk from an earlier deployment. */
@@ -173,4 +215,60 @@ function shellFetch() {
     .mockResolvedValue(
       new Response('<script src="/_next/static/chunks/offline.js"></script>'),
     ) as typeof fetch;
+}
+
+function alternatingShellFetch() {
+  let call = 0;
+  return vi.fn(async () => {
+    call += 1;
+    const chunk = call === 1 ? "candidate-a.js" : "candidate-b.js";
+    return new Response(`<script src="/_next/static/chunks/${chunk}"></script>`);
+  }) as unknown as ReturnType<typeof vi.fn> & typeof fetch;
+}
+
+function interleavingShellCache() {
+  const assets = new Set<string>();
+  let offlineDocument = "";
+  let launchDocument = "";
+  let releaseFirst!: () => void;
+  let reachedFirst!: () => void;
+  const firstLaunchPutReached = new Promise<void>((resolve) => {
+    reachedFirst = resolve;
+  });
+  const firstLaunchGate = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+
+  const cache = {
+    add: vi.fn(async (asset: string) => {
+      assets.add(asset);
+    }),
+    put: vi.fn(async (url: string, response: Response) => {
+      const document = await response.clone().text();
+      if (url === "/library?source=pwa" && document.includes("candidate-a.js")) {
+        reachedFirst();
+        await firstLaunchGate;
+      }
+      if (url === "/offline") offlineDocument = document;
+      else if (url === "/library?source=pwa") launchDocument = document;
+    }),
+    keys: vi.fn(async () =>
+      [...assets]
+        .filter((asset) => asset.startsWith("/_next/static/"))
+        .map((asset) => new Request(`https://hark.test${asset}`)),
+    ),
+    delete: vi.fn(async (request: Request) => {
+      assets.delete(new URL(request.url).pathname);
+      return true;
+    }),
+  };
+
+  return {
+    cache,
+    firstLaunchPutReached,
+    releaseFirstLaunchPut: releaseFirst,
+    offlineDocument: () => offlineDocument,
+    launchDocument: () => launchDocument,
+    hasAsset: (asset: string) => assets.has(asset),
+  };
 }
