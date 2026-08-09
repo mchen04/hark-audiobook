@@ -33,7 +33,8 @@ import { listBookIdsWithTranscripts } from "@/lib/offline/transcript-store";
 
 import { UploadBanners, useMp3Import } from "./library-upload";
 import { type SortOrder, type StatusFilter } from "./library-view";
-import { usePageWindow, useSeedFollowingToggle } from "./use-derived-reset";
+import { useLibraryViewState } from "./library-view-state";
+import { usePageWindow, useSeedFollowingValue } from "./use-derived-reset";
 import { type DeviceIndex, useLibraryBooks } from "./use-library-books";
 import { useOfflineBookRoute } from "./use-offline-book-route";
 
@@ -71,22 +72,31 @@ const MISSING_MEDIA_HINT =
 export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
   const userId = useActiveUserId(serverUserId);
   const searchParams = useSearchParams();
-
-  const [query, setQuery] = useState("");
+  const { view: savedView, setView: setSavedView } = useLibraryViewState();
+  const { query, status, activeTag, sort, view } = savedView;
   // The input stays controlled and immediate; the listing reads the deferred
   // value, so a slow re-read never holds a keystroke back from the screen.
   const deferredQuery = useDeferredValue(query);
-  const [status, setStatus] = useState<StatusFilter>("all");
-  // The header's Downloads link is `?device=1`, so the facet follows the URL
-  // until the user works the chip themselves — and follows it again the next
-  // time that link is used.
-  const facetFromUrl = searchParams.get("device") === "1";
-  const [onDevice, setOnDevice] = useSeedFollowingToggle(facetFromUrl);
-  const [activeTag, setActiveTag] = useState<string | null>(null);
-  const [sort, setSort] = useState<SortOrder>("activity");
-  const [view, setView] = useState<"grid" | "list">("grid");
+  const [onDevice, setOnDevice] = useSeedFollowingValue(
+    searchParams.get("device") === "1" || savedView.onDevice,
+  );
   const [readAlongIds, setReadAlongIds] = useState<Set<string>>(new Set());
   const { bookId: fallbackBookId, leavePlayer } = useOfflineBookRoute();
+
+  // Downloads remains a URL facet because the global header links to it. The
+  // rest of the controls live in AppShell's account-scoped provider so swapping
+  // route content cannot reset them and another account cannot inherit them.
+  const updateDeviceRoute = useCallback((enabled: boolean) => {
+    const params = new URLSearchParams(window.location.search);
+    if (enabled) params.set("device", "1");
+    else params.delete("device");
+    const queryString = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${queryString ? `?${queryString}` : ""}${window.location.hash}`,
+    );
+  }, []);
 
   const { snapshot, preparing, firstSyncStatus, unavailable, reload, retry, removeDownload } =
     useLibraryBooks(userId, { query: deferredQuery, status, tag: activeTag, sort, onDevice });
@@ -392,7 +402,8 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
                 type="search"
                 value={query}
                 onChange={(event) => {
-                  setQuery(event.target.value);
+                  const next = event.target.value;
+                  setSavedView((current) => ({ ...current, query: next }));
                 }}
                 placeholder="Search library"
               />
@@ -400,7 +411,7 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
                 <button
                   type="button"
                   onClick={() => {
-                    setQuery("");
+                    setSavedView((current) => ({ ...current, query: "" }));
                   }}
                   aria-label="Clear search"
                 >
@@ -413,7 +424,8 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
               <select
                 value={sort}
                 onChange={(event) => {
-                  setSort(event.target.value as SortOrder);
+                  const next = event.target.value as SortOrder;
+                  setSavedView((current) => ({ ...current, sort: next }));
                 }}
               >
                 <option value="activity">Recent activity</option>
@@ -427,7 +439,9 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
                 type="button"
                 aria-label="Grid view"
                 aria-pressed={view === "grid"}
-                onClick={() => setView("grid")}
+                onClick={() => {
+                  setSavedView((current) => ({ ...current, view: "grid" }));
+                }}
               >
                 <SquaresFour size={19} weight={view === "grid" ? "fill" : "regular"} />
               </button>
@@ -435,7 +449,9 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
                 type="button"
                 aria-label="List view"
                 aria-pressed={view === "list"}
-                onClick={() => setView("list")}
+                onClick={() => {
+                  setSavedView((current) => ({ ...current, view: "list" }));
+                }}
               >
                 <Rows size={19} weight={view === "list" ? "bold" : "regular"} />
               </button>
@@ -450,7 +466,7 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
                 className="filter-chip"
                 aria-pressed={status === filter.id}
                 onClick={() => {
-                  setStatus(filter.id);
+                  setSavedView((current) => ({ ...current, status: filter.id }));
                 }}
               >
                 {filter.label}
@@ -461,7 +477,12 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
               type="button"
               className="filter-chip filter-chip-device"
               aria-pressed={onDevice}
-              onClick={() => setOnDevice(!onDevice)}
+              onClick={() => {
+                const next = !onDevice;
+                setOnDevice(next);
+                setSavedView((current) => ({ ...current, onDevice: next }));
+                updateDeviceRoute(next);
+              }}
             >
               <DownloadSimple size={15} weight="bold" aria-hidden="true" />
               <span>On this device</span>
@@ -474,7 +495,8 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
                 className="filter-chip filter-chip-tag"
                 aria-pressed={activeTag === tag}
                 onClick={() => {
-                  setActiveTag((current) => (current === tag ? null : tag));
+                  const next = activeTag === tag ? null : tag;
+                  setSavedView((current) => ({ ...current, activeTag: next }));
                 }}
               >
                 #{tag}
@@ -510,10 +532,15 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
                 type="button"
                 className="secondary-button"
                 onClick={() => {
-                  setQuery("");
-                  setStatus("all");
-                  setActiveTag(null);
+                  setSavedView((current) => ({
+                    ...current,
+                    query: "",
+                    status: "all",
+                    activeTag: null,
+                    onDevice: false,
+                  }));
                   setOnDevice(false);
+                  updateDeviceRoute(false);
                 }}
               >
                 Clear filters

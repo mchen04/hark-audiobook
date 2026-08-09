@@ -9,18 +9,14 @@ import { useCallback, useState } from "react";
  */
 
 /**
- * A toggle that follows `seed` until the user works it themselves — and
- * follows it again the next time the seed changes.
- *
- * The library's Downloads link is `?device=1`, so the on-device facet follows
- * the URL until the chip is clicked, and follows the URL again the next time
- * that link is used.
+ * A value that follows `seed` until the user works it themselves — and follows
+ * it again the next time that URL/server seed changes.
  */
-export function useSeedFollowingToggle(seed: boolean): [boolean, (on: boolean) => void] {
-  const [choice, setChoice] = useState<{ from: boolean; on: boolean } | null>(null);
-  const on = choice?.from === seed ? choice.on : seed;
-  const set = useCallback((next: boolean) => setChoice({ from: seed, on: next }), [seed]);
-  return [on, set];
+export function useSeedFollowingValue<T>(seed: T): [T, (value: T) => void] {
+  const [choice, setChoice] = useState<{ from: T; value: T } | null>(null);
+  const value = choice?.from === seed ? choice.value : seed;
+  const set = useCallback((next: T) => setChoice({ from: seed, value: next }), [seed]);
+  return [value, set];
 }
 
 /**

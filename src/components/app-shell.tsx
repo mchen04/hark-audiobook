@@ -1,12 +1,15 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, Suspense } from "react";
 import { DownloadSimple, GearSix } from "@phosphor-icons/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { AccountMenu } from "@/components/account-menu";
+import { AppNavigation } from "@/components/app-navigation";
 import { BrandMark } from "@/components/brand-mark";
+import { LibraryClient } from "@/components/library/library-client";
+import { LibraryViewProvider } from "@/components/library/library-view-state";
 import { MiniPlayer } from "@/components/player/mini-player";
 import { PlaybackProvider } from "@/components/player/playback-provider";
 import { PreferencesProvider } from "@/components/player/preferences-provider";
@@ -41,14 +44,32 @@ export function AppShell({
   // the header appearing to come and go with the connection.
   if (!userId) return <main className="app-page">{header}</main>;
 
+  // The shell owns the library view instead of asking the router for another
+  // document. This makes leaving a player a local URL transition: the one
+  // PlaybackProvider stays mounted even when the network disappears between
+  // opening the book and tapping Library. A cached anonymous shell also uses
+  // this path to answer an offline `/books/:id` navigation from IndexedDB.
+  const showLocalLibrary = pathname === "/library" || (!serverUserId && onPlayerPage);
+  const route = showLocalLibrary ? (
+    <Suspense>
+      <LibraryClient userId={userId} />
+    </Suspense>
+  ) : (
+    children
+  );
+
   return (
     <PreferencesProvider userId={userId}>
       <PlaybackProvider userId={userId}>
-        <main className="app-page">
-          {header}
-          {children}
-        </main>
-        <MiniPlayer />
+        <LibraryViewProvider userId={userId}>
+          <AppNavigation pathname={pathname}>
+            <main className="app-page">
+              {header}
+              {route}
+            </main>
+            <MiniPlayer />
+          </AppNavigation>
+        </LibraryViewProvider>
       </PlaybackProvider>
     </PreferencesProvider>
   );

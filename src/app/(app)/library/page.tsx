@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
 
-import { LibraryClient } from "@/components/library/library-client";
 import { requireSession } from "@/server/auth-session";
 
 export const metadata: Metadata = { title: "Library" };
@@ -13,10 +11,8 @@ export const metadata: Metadata = { title: "Library" };
  * only thing this page needs the database for.
  */
 export default async function LibraryPage() {
-  const session = await requireSession();
-  return (
-    <Suspense>
-      <LibraryClient userId={session.user.id} />
-    </Suspense>
-  );
+  await requireSession();
+  // AppShell owns the persistent client library so a local player-to-library
+  // transition never has to replace the PlaybackProvider.
+  return null;
 }

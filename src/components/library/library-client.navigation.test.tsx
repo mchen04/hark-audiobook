@@ -2,9 +2,11 @@
 
 import { act, cleanup, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LibraryClient } from "./library-client";
+import { LibraryViewProvider } from "./library-view-state";
 
 /**
  * The one library UI answers two URLs.
@@ -81,6 +83,14 @@ function goTo(path: string) {
   window.history.replaceState(null, "", path);
 }
 
+function renderLibrary() {
+  return render(<LibraryClient />, {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <LibraryViewProvider userId="user-1">{children}</LibraryViewProvider>
+    ),
+  });
+}
+
 /** What a back button does, as this document observes it: the URL, then the event. */
 function popTo(path: string) {
   act(() => {
@@ -111,14 +121,14 @@ afterEach(cleanup);
 describe("LibraryClient URL following", () => {
   it("plays the book the document was opened at", () => {
     goTo(`/books/${BOOK_ID}`);
-    render(<LibraryClient />);
+    renderLibrary();
     expect(screen.getByText("Now playing")).toBeInTheDocument();
   });
 
   it("waits for the device snapshot before deciding a cold book route is missing", async () => {
     libraryState.snapshot = null;
     goTo(`/books/${BOOK_ID}`);
-    const view = render(<LibraryClient />);
+    const view = renderLibrary();
 
     await act(async () => void (await Promise.resolve()));
 
@@ -143,7 +153,7 @@ describe("LibraryClient URL following", () => {
 
   it("returns to the library when the back button leaves the book URL", () => {
     goTo(`/books/${BOOK_ID}`);
-    render(<LibraryClient />);
+    renderLibrary();
     expect(screen.getByText("Now playing")).toBeInTheDocument();
 
     popTo("/library");
@@ -153,7 +163,7 @@ describe("LibraryClient URL following", () => {
   });
 
   it("plays the book a back button lands ON", () => {
-    render(<LibraryClient />);
+    renderLibrary();
     expect(screen.getByRole("heading", { name: "Library" })).toBeInTheDocument();
 
     popTo(`/books/${BOOK_ID}`);
@@ -165,7 +175,7 @@ describe("LibraryClient URL following", () => {
     setReferrer(`${window.location.origin}/library`);
     goTo(`/books/${BOOK_ID}`);
     const back = vi.spyOn(window.history, "back").mockImplementation(() => undefined);
-    render(<LibraryClient />);
+    renderLibrary();
 
     act(() => {
       screen.getByRole("button", { name: "Library" }).click();
@@ -181,7 +191,7 @@ describe("LibraryClient URL following", () => {
     setReferrer("");
     goTo(`/books/${BOOK_ID}`);
     const back = vi.spyOn(window.history, "back").mockImplementation(() => undefined);
-    render(<LibraryClient />);
+    renderLibrary();
 
     act(() => {
       screen.getByRole("button", { name: "Library" }).click();

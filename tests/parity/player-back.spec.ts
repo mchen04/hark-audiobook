@@ -141,6 +141,70 @@ test("the online Library control replaces the player instead of only changing it
   }
 });
 
+test("the Library control keeps playback alive when the connection drops mid-book", async () => {
+  const page = await launchLibrary();
+  try {
+    await page.getByRole("link", { name: ON_DEVICE_BOOK.title, exact: true }).click();
+    await expect(page.locator(".player-page")).toBeVisible({ timeout: 60_000 });
+    await page.getByRole("button", { name: "Play" }).click();
+    await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+    await cutNetwork(page);
+
+    await leavePlayerFromTopbar(page);
+
+    await expectLibraryOnScreen(page);
+    await expect(page.locator(".player-page")).toHaveCount(0);
+    await expect(page.getByRole("complementary", { name: "Now playing" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+    await expect(page.locator("audio")).toHaveCount(1);
+    expect(await page.locator("audio").evaluate((audio: HTMLAudioElement) => audio.paused)).toBe(
+      false,
+    );
+  } finally {
+    await page.close();
+  }
+});
+
+test("returning from a book restores the library search, facet, sort, and view", async () => {
+  const page = await launchLibrary();
+  try {
+    await page.setViewportSize({ width: 760, height: 900 });
+    const search = page.getByPlaceholder("Search library");
+    const sort = page.getByLabel("Sort books");
+    const list = page.getByRole("button", { name: "List view" });
+    const onDevice = page.getByRole("button", { name: /On this device/ });
+    await search.fill(ON_DEVICE_BOOK.title);
+    await expect(search).toHaveValue(ON_DEVICE_BOOK.title);
+    await search.blur();
+    await sort.selectOption("title");
+    await expect(sort).toHaveValue("title");
+    await list.click();
+    await expect(list).toHaveAttribute("aria-pressed", "true");
+    await onDevice.click();
+    await expect(onDevice).toHaveAttribute("aria-pressed", "true");
+    const bookLink = page.getByRole("link", { name: ON_DEVICE_BOOK.title, exact: true });
+    await expect(bookLink).toBeVisible();
+    await bookLink.click({ timeout: 15_000 });
+    await expect(page.locator(".player-page")).toBeVisible({ timeout: 60_000 });
+
+    await leavePlayerFromTopbar(page);
+
+    await expectLibraryOnScreen(page);
+    await expect(page.getByPlaceholder("Search library")).toHaveValue(ON_DEVICE_BOOK.title);
+    await expect(page.getByLabel("Sort books")).toHaveValue("title");
+    await expect(page.getByRole("button", { name: "List view" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.getByRole("button", { name: /On this device/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  } finally {
+    await page.close();
+  }
+});
+
 test("opening a missing book never hides the controls for the book still playing", async () => {
   const page = await launchLibrary();
   try {
