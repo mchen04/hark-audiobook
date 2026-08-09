@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { useOpenLocalLibrary } from "@/components/app-navigation";
 import { UNLOAD_PLAYER_EVENT, type UnloadPlayerDetail } from "@/lib/app-keys";
 import { replayQueuedMutations } from "@/lib/offline-sync";
 import { removeOfflineBook } from "@/lib/offline/deletion-journal";
@@ -26,6 +27,7 @@ export function useDeleteBook(
   mediaFingerprint?: string | null,
 ) {
   const router = useRouter();
+  const openLocalLibrary = useOpenLocalLibrary();
   const [deleting, setDeleting] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
@@ -58,8 +60,8 @@ export function useDeleteBook(
       onError("The book was deleted, but device cleanup will retry automatically.");
     });
     void replayQueuedMutations(userId).catch(() => undefined);
-    router.push("/library");
-    if (navigator.onLine) router.refresh();
+    if (openLocalLibrary) openLocalLibrary();
+    else router.push("/library");
   }
 
   return {
