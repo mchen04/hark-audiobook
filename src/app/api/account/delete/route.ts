@@ -1,9 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, inArray, like, lte } from "drizzle-orm";
 import { z } from "zod";
 
 import { auth } from "@/server/auth";
+import { createDatabaseRateLimitStorage } from "@/server/auth-rate-limit-storage";
 import { db } from "@/server/db/client";
 import { user, verification } from "@/server/db/schema";
 import { isTrustedMutationOrigin } from "@/server/security/request-origin";
@@ -22,6 +23,8 @@ const commitSchema = z.object({
 });
 const deleteSchema = z.discriminatedUnion("phase", [prepareSchema, commitSchema]);
 const DELETE_INTENT_MS = 24 * 60 * 60 * 1_000;
+const DELETE_REAUTH_RULE = { window: 10 * 60, max: 5 } as const;
+const deleteReauthLimits = createDatabaseRateLimitStorage(DELETE_REAUTH_RULE.window);
 
 /**
  * Two phases make the irreversible boundary recoverable:
@@ -57,6 +60,16 @@ async function prepareDeletion(
       { status: 400 },
     );
   }
+  const attempt = await deleteReauthLimits.consume(intentId(session.user.id), DELETE_REAUTH_RULE);
+  if (!attempt.allowed) {
+    return Response.json(
+      { error: "Too many deletion attempts. Try again later." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(attempt.retryAfter ?? 1) },
+      },
+    );
+  }
   try {
     await auth.api.verifyPassword({
       headers: request.headers,
@@ -69,6 +82,7 @@ async function prepareDeletion(
   const deleteToken = randomBytes(32).toString("base64url");
   const id = intentId(session.user.id);
   const expiresAt = new Date(Date.now() + DELETE_INTENT_MS);
+  await pruneExpiredDeletionIntents(new Date());
   await db
     .insert(verification)
     .values({
@@ -92,32 +106,32 @@ async function commitDeletion(
   request: Request,
   data: z.infer<typeof commitSchema>,
 ): Promise<Response> {
-  const id = intentId(data.userId);
+  const ids = [intentId(data.userId), legacyIntentId(data.userId)];
   const prepared = intentValue(data.deleteToken, "prepared");
   const deleted = intentValue(data.deleteToken, "deleted");
   const now = new Date();
+  await pruneExpiredDeletionIntents(now);
   const committed = await db.transaction(async (transaction) => {
-    const [claimed] = await transaction
+    const claimed = await transaction
       .update(verification)
       .set({ value: deleted, updatedAt: now })
       .where(
         and(
-          eq(verification.id, id),
+          inArray(verification.id, ids),
           eq(verification.value, prepared),
           gt(verification.expiresAt, now),
         ),
       )
       .returning({ id: verification.id });
-    if (claimed) {
+    if (claimed.length > 0) {
       await transaction.delete(user).where(eq(user.id, data.userId));
       return true;
     }
-    const [existing] = await transaction
+    const existing = await transaction
       .select({ value: verification.value, expiresAt: verification.expiresAt })
       .from(verification)
-      .where(eq(verification.id, id))
-      .limit(1);
-    return !!existing && existing.expiresAt > now && existing.value === deleted;
+      .where(inArray(verification.id, ids));
+    return existing.some((receipt) => receipt.expiresAt > now && receipt.value === deleted);
   });
   if (!committed) {
     return Response.json({ error: "Deletion intent is invalid or expired." }, { status: 410 });
@@ -132,10 +146,23 @@ async function commitDeletion(
 }
 
 function intentId(userId: string): string {
+  return `account-delete:${createHash("sha256").update(userId).digest("hex")}`;
+}
+
+/** Accepts a deletion journal prepared by a build that stored the raw user id. */
+function legacyIntentId(userId: string): string {
   return `account-delete:${userId}`;
 }
 
 function intentValue(token: string, status: "prepared" | "deleted"): string {
   const tokenHash = createHash("sha256").update(token).digest("hex");
   return JSON.stringify({ status, tokenHash });
+}
+
+async function pruneExpiredDeletionIntents(now: Date): Promise<void> {
+  await db
+    .delete(verification)
+    .where(
+      and(like(verification.identifier, "account-delete:%"), lte(verification.expiresAt, now)),
+    );
 }

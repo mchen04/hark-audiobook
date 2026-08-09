@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { createHash } from "node:crypto";
 
 import { testAccountPassword } from "../shared/test-account-password";
 import {
@@ -6,6 +7,7 @@ import {
   findUserId,
   openDevice,
   signInThroughUi,
+  sql,
   type Account,
 } from "./harness/app";
 
@@ -21,11 +23,46 @@ test.beforeAll(async ({ browser }) => {
   account = await ensureAccount(browser, ACCOUNT);
 });
 
+test("account deletion bounds password reauthentication attempts", async ({ browser }) => {
+  const device = await openDevice(browser);
+  const limiterKey = `account-delete:${createHash("sha256").update(account.userId).digest("hex")}`;
+  try {
+    await sql()`DELETE FROM rate_limit WHERE key = ${limiterKey}`;
+    await signInThroughUi(device.page, account);
+    const wrongPassword = testAccountPassword("account-deletion-wrong-password");
+    const attempt = () =>
+      device.page.evaluate(
+        async ({ confirmEmail, currentPassword }) => {
+          const response = await fetch("/api/account/delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ phase: "prepare", confirmEmail, currentPassword }),
+          });
+          return { status: response.status, retryAfter: response.headers.get("Retry-After") };
+        },
+        { confirmEmail: account.email, currentPassword: wrongPassword },
+      );
+
+    const allowed = [];
+    for (let count = 0; count < 5; count += 1) allowed.push(await attempt());
+    expect(allowed.map(({ status }) => status)).toStrictEqual([403, 403, 403, 403, 403]);
+    await expect(attempt()).resolves.toMatchObject({ status: 429, retryAfter: expect.any(String) });
+  } finally {
+    await sql()`DELETE FROM rate_limit WHERE key = ${limiterKey}`;
+    await device.context.close();
+  }
+});
+
 test("a lost deletion response leaves the server deleted and the device clean", async ({
   browser,
 }) => {
   const device = await openDevice(browser);
+  const expiredIntent = `account-delete:expired-${crypto.randomUUID()}`;
   try {
+    await sql()`
+      INSERT INTO verification (id, identifier, value, expires_at)
+      VALUES (${expiredIntent}, ${expiredIntent}, ${"expired"}, ${new Date(0)})
+    `;
     await signInThroughUi(device.page, account);
     const residueKey = `chapterline:account-delete-residue:${account.userId}`;
     await device.page.evaluate((key) => localStorage.setItem(key, "must disappear"), residueKey);
@@ -80,7 +117,22 @@ test("a lost deletion response leaves the server deleted and the device clean", 
       residueKey,
     );
     expect(local).toStrictEqual({ residue: null, activeUser: null, pendingDeletion: null });
+
+    const receiptId = `account-delete:${createHash("sha256").update(account.userId).digest("hex")}`;
+    const [receipt] = await sql()<Array<{ id: string }>>`
+      SELECT id FROM verification WHERE id = ${receiptId}
+    `;
+    const [legacyReceipt] = await sql()<Array<{ id: string }>>`
+      SELECT id FROM verification WHERE id = ${`account-delete:${account.userId}`}
+    `;
+    const [expiredReceipt] = await sql()<Array<{ id: string }>>`
+      SELECT id FROM verification WHERE id = ${expiredIntent}
+    `;
+    expect(receipt?.id).toBe(receiptId);
+    expect(legacyReceipt).toBeUndefined();
+    expect(expiredReceipt).toBeUndefined();
   } finally {
+    await sql()`DELETE FROM verification WHERE id = ${expiredIntent}`;
     await device.context.close();
   }
 });
