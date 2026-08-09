@@ -97,14 +97,19 @@ export const APP_ORIGIN = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:3
  * renderer process (`WebKit.WebContent`), which is precisely what iOS does to a
  * backgrounded PWA — the app's process dies and the device's storage does not.
  *
- * Measured across that kill: cookies, localStorage, IndexedDB and the
+ * Measured across ordinary kills: cookies, localStorage, IndexedDB and the
  * service-worker registration all survive. Those are every witness the resume
  * position lives in, so the thing under measurement crosses the gap on its own.
- * Cache Storage RECORDS do not survive, which is a Playwright/WebKit artifact
- * and not something an iPhone does; they hold the audiobook BYTES, which are
- * not under measurement. So the oracle snapshots Cache Storage before the kill
- * and puts it back after the relaunch (`snapshotCaches`/`restoreCaches`), and
- * verifies the restore rather than assuming it.
+ * Under a long run of repeated renderer kills, WebKit has also discarded its
+ * entire cookie jar once. The oracle plants an HttpOnly sentinel beside the
+ * auth cookie and repairs only when BOTH disappear while the exact snapshotted
+ * session is still active in Postgres. A real sign-out removes the auth cookie
+ * but leaves that sentinel, and therefore still fails. Cache Storage RECORDS
+ * disappear more routinely, which is also a Playwright/WebKit artifact and not
+ * something an iPhone does; they hold the audiobook BYTES, which are not under
+ * measurement. So the oracle snapshots Cache Storage before the kill and puts
+ * it back after the relaunch (`snapshotCaches`/`restoreCaches`), and verifies
+ * the restore rather than assuming it.
  */
 export type Engine = "webkit" | "chromium";
 export const ENGINE: Engine = process.env.HARK_RESUME_ENGINE === "chromium" ? "chromium" : "webkit";
@@ -975,6 +980,17 @@ let fixture: Fixture | null = null;
 type Device = { browser: Browser; context: BrowserContext };
 let device: Device | null = null;
 
+const SESSION_COOKIE_NAME = "chapterline.session_token";
+const SESSION_COOKIE_SENTINEL = "resume-oracle.session-cookie-sentinel";
+type ContextCookie = Awaited<ReturnType<BrowserContext["cookies"]>>[number];
+type SessionCookieWitness = {
+  userId: string;
+  origin: string;
+  session: ContextCookie;
+  sentinel: ContextCookie;
+};
+let sessionCookieWitness: SessionCookieWitness | null = null;
+
 /**
  * Renderer processes that were already running when this run started. They
  * belong to somebody else and are never killed. (Another session on this
@@ -1035,6 +1051,103 @@ async function openDevice(): Promise<Device> {
   return device;
 }
 
+/**
+ * Gives the one auth cookie a control cookie with matching lifetime and
+ * attributes. Application code cannot clear either HttpOnly cookie directly;
+ * Better Auth's sign-out endpoint clears only its own cookie, leaving the
+ * sentinel behind so this harness can distinguish sign-out from WebKit losing
+ * the context's whole cookie jar.
+ */
+async function armSessionCookieWitness(
+  context: BrowserContext,
+  origin: string,
+  userId: string,
+): Promise<void> {
+  const session = (await context.cookies(origin)).find(
+    (cookie) => cookie.name === SESSION_COOKIE_NAME,
+  );
+  expect(
+    session,
+    "sign-in reached the library without leaving the Better Auth session cookie on the device",
+  ).toBeTruthy();
+
+  await context.addCookies([
+    {
+      ...session!,
+      name: SESSION_COOKIE_SENTINEL,
+      value: "cookie-jar-present",
+    },
+  ]);
+  const sentinel = (await context.cookies(origin)).find(
+    (cookie) => cookie.name === SESSION_COOKIE_SENTINEL,
+  );
+  expect(
+    sentinel,
+    "the resume instrument could not plant its HttpOnly cookie-jar sentinel",
+  ).toBeTruthy();
+  sessionCookieWitness = { userId, origin, session: session!, sentinel: sentinel! };
+}
+
+/**
+ * Repairs one WebKit-only instrument failure without masking an auth failure.
+ *
+ * The saved cookie contains `<database token>.<signature>`, so the database
+ * check proves that the exact session WebKit dropped is still active. This is
+ * deliberately direct rather than an HTTP request: offline rows must not touch
+ * the network while reconstructing their device after a kill.
+ */
+async function restoreDiscardedCookieJar(context: BrowserContext): Promise<void> {
+  const witness = sessionCookieWitness;
+  if (!witness) return;
+
+  const current = await context.cookies(witness.origin);
+  const session = current.find((cookie) => cookie.name === SESSION_COOKIE_NAME);
+  const sentinel = current.find((cookie) => cookie.name === SESSION_COOKIE_SENTINEL);
+  if (session) {
+    expect(
+      session.value,
+      "the resume device changed authenticated sessions during one shared-device run",
+    ).toBe(witness.session.value);
+    if (!sentinel) await context.addCookies([witness.sentinel]);
+    return;
+  }
+
+  expect(
+    sentinel,
+    "the auth cookie disappeared while the independent cookie-jar sentinel survived; this is " +
+      "a real auth transition, not WebKit discarding the whole cookie jar",
+  ).toBeFalsy();
+
+  const token = witness.session.value.split(".", 1)[0]!;
+  const [row] = await sql()<{ active: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM "session"
+      WHERE token = ${token}
+        AND user_id = ${witness.userId}
+        AND expires_at > now()
+    ) AS active
+  `;
+  expect(
+    row?.active,
+    "WebKit discarded the cookie jar, but the exact saved server session is no longer active; " +
+      "restoring it would mask a real authentication failure",
+  ).toBe(true);
+
+  await context.addCookies([witness.session, witness.sentinel]);
+  const repaired = await context.cookies(witness.origin);
+  expect(
+    repaired.some(
+      (cookie) => cookie.name === SESSION_COOKIE_NAME && cookie.value === witness.session.value,
+    ),
+    "WebKit discarded the cookie jar and did not accept the still-active session when restored",
+  ).toBe(true);
+  console.log(
+    "[resume-oracle] WebKit discarded the whole cookie jar; restored the still-active shared " +
+      "session before the app was allowed to look",
+  );
+}
+
 type Session = { page: Page };
 
 /**
@@ -1059,7 +1172,9 @@ function trackCrash(page: Page): Page {
 /** A fresh page on the device. Not a fresh device: that is the whole point. */
 async function launch(): Promise<Session> {
   const { context } = await openDevice();
-  return { page: trackCrash(await context.newPage()) };
+  const page = trackCrash(await context.newPage());
+  await restoreDiscardedCookieJar(context);
+  return { page };
 }
 
 /**
@@ -1553,6 +1668,7 @@ export async function resumeFixture(
       SELECT id FROM "user" WHERE lower(email) = ${EMAIL.toLowerCase()}
     `;
     const userId = row!.id;
+    await armSessionCookieWitness(page.context(), net.origin, userId);
     await resetAccount(userId);
     await enableSmartRewindForOracle(page, userId, `${net.origin}/library`);
     await assertEngineCanStoreMedia(page);
@@ -1675,6 +1791,7 @@ export async function closeResumeFixture(): Promise<void> {
     await device.browser.close().catch(() => undefined);
     device = null;
   }
+  sessionCookieWitness = null;
   await closeSql();
 }
 
@@ -1793,6 +1910,7 @@ async function relaunch(
     ]);
   }
   const page = trackCrash(await context.newPage());
+  await restoreDiscardedCookieJar(context);
   await page.goto(`${origin}${RESTORE_PATH}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
   expect(
     await page.title(),
@@ -4112,17 +4230,27 @@ export async function measureCompletionAcrossBooks(spec: {
       (window as unknown as { __f2SameDocument?: number }).__f2SameDocument = Date.now();
     });
     await scrubber.fill(String(nearEndMs));
+    let endedObserved = false;
     await expect
-      .poll(() => session.page.evaluate(() => document.querySelector("audio")?.ended ?? false), {
-        timeout: 60_000,
-        message:
-          `${spec.scenario}: the book never reached its end after being scrubbed to ` +
-          `${nearEndMs}ms of ${durationMs}ms, so it was never finished`,
-      })
+      .poll(
+        async () => {
+          const ended = await session.page.evaluate(
+            () => document.querySelector("audio")?.ended ?? false,
+          );
+          // Autoplay immediately swaps the audio element to the next book. Latch
+          // this witness inside the successful poll instead of rereading a
+          // different source after the assertion has already proved the end.
+          if (ended) endedObserved = true;
+          return ended;
+        },
+        {
+          timeout: 60_000,
+          message:
+            `${spec.scenario}: the book never reached its end after being scrubbed to ` +
+            `${nearEndMs}ms of ${durationMs}ms, so it was never finished`,
+        },
+      )
       .toBe(true);
-    const endedObserved = await session.page.evaluate(
-      () => document.querySelector("audio")?.ended ?? false,
-    );
     notes.push(`scrubbed to ${nearEndMs}ms of ${durationMs}ms and played to the end`);
 
     // Read AT ONCE, and never by polling the server.
