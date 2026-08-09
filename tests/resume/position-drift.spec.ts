@@ -113,6 +113,8 @@ const T5_RETIRED_RATIONALE =
  */
 const FIVE_MINUTE_BOOK_INDEX = 10;
 const TOP_TIER_BOOK_INDEX = 11;
+const CROSS_BOOK_ABSENT_INDEX = 12;
+const CROSS_BOOK_OTHER_INDEX = 13;
 const LONG_BOOK_REPEAT = 15;
 
 const CUMULATIVE = [
@@ -193,6 +195,13 @@ test.beforeAll(async () => {
   await resumeFixture(BOOK_COUNT, {
     [FIVE_MINUTE_BOOK_INDEX]: LONG_BOOK_REPEAT,
     [TOP_TIER_BOOK_INDEX]: LONG_BOOK_REPEAT,
+    // X1 asks WebKit to play, pause, switch books, kill, relaunch and reopen.
+    // Under a loaded full-matrix run those waits can consume most of an
+    // ordinary ~24 s fixture, and a book legitimately restarts from zero when
+    // it lands inside the end epsilon. Give both books headroom so this row
+    // measures key scoping rather than the unrelated completed-book rule.
+    [CROSS_BOOK_ABSENT_INDEX]: LONG_BOOK_REPEAT,
+    [CROSS_BOOK_OTHER_INDEX]: LONG_BOOK_REPEAT,
   });
 });
 
@@ -481,8 +490,8 @@ test("X1: an absence from one book does not rewind another", async () => {
   test.setTimeout(600_000);
   const row = await measureCrossBookAbsence({
     scenario: "X1 cross-book absence",
-    absentBookIndex: 12,
-    otherBookIndex: 13,
+    absentBookIndex: CROSS_BOOK_ABSENT_INDEX,
+    otherBookIndex: CROSS_BOOK_OTHER_INDEX,
     /**
      * 90 minutes puts the ABSENT book on the ladder's top rung (30 s), which is
      * two rungs clear of anything the untouched book can reach on its own while

@@ -2176,6 +2176,7 @@ async function readQueuedProgress(
 /** This device's durable local record for one book, exactly as written. */
 export type LocalRecord = {
   positionMs: number | null;
+  positionAtWrite: number | null;
   occurredAt: number | null;
   completed: boolean | null;
   playbackRate: number | null;
@@ -2188,6 +2189,7 @@ export type LocalRecord = {
   source: string | null;
   writtenAt: number | null;
   playingAtWrite: boolean | null;
+  writerId: string | null;
 };
 
 async function readLocalRecord(page: Page, userId: string, bookId: string): Promise<LocalRecord> {
@@ -2195,12 +2197,14 @@ async function readLocalRecord(page: Page, userId: string, bookId: string): Prom
     ([user, book]) => {
       const empty = {
         positionMs: null,
+        positionAtWrite: null,
         occurredAt: null,
         completed: null,
         playbackRate: null,
         source: null,
         writtenAt: null,
         playingAtWrite: null,
+        writerId: null,
       };
       try {
         const raw = localStorage.getItem(`chapterline:position:${user}:${book}`);
@@ -2208,12 +2212,15 @@ async function readLocalRecord(page: Page, userId: string, bookId: string): Prom
         const parsed = JSON.parse(raw) as Record<string, unknown>;
         return {
           positionMs: typeof parsed.positionMs === "number" ? parsed.positionMs : null,
+          positionAtWrite:
+            typeof parsed.positionAtWrite === "number" ? parsed.positionAtWrite : null,
           occurredAt: typeof parsed.occurredAt === "number" ? parsed.occurredAt : null,
           completed: typeof parsed.completed === "boolean" ? parsed.completed : null,
           playbackRate: typeof parsed.playbackRate === "number" ? parsed.playbackRate : null,
           source: typeof parsed.source === "string" ? parsed.source : null,
           writtenAt: typeof parsed.writtenAt === "number" ? parsed.writtenAt : null,
           playingAtWrite: typeof parsed.playingAtWrite === "boolean" ? parsed.playingAtWrite : null,
+          writerId: typeof parsed.writerId === "string" ? parsed.writerId : null,
         };
       } catch {
         return empty;
@@ -3531,6 +3538,7 @@ export async function measureCrossBookAbsence(spec: {
   const otherTitle = bookTitleFor(spec.otherBookIndex);
   const absentId = books.get(absentTitle)!.id;
   const otherId = books.get(otherTitle)!.id;
+  const otherDurationMs = books.get(otherTitle)!.durationMs;
   await sql()`DELETE FROM playback_states WHERE book_id IN (${absentId}, ${otherId})`;
 
   net.restore();
@@ -3557,6 +3565,12 @@ export async function measureCrossBookAbsence(spec: {
     playedMs = Math.round(sample.positionMs - startedAtMs);
     const otherStoredMs = Math.round(sample.positionMs);
     expect(ticks, `${spec.scenario}: nothing played, so nothing was measured`).toBeGreaterThan(2);
+    expect(
+      otherStoredMs,
+      `${spec.scenario}: the untouched book reached ${otherStoredMs}ms in a ` +
+        `${otherDurationMs}ms fixture. Reopening inside the final second correctly restarts a ` +
+        "completed book from zero, so this row has no headroom to measure cross-book rewind.",
+    ).toBeLessThan(otherDurationMs - 1_000);
 
     // The book the user really is away from: play it, pause it, leave it.
     await openPlayer(session.page, origin, absentId, absentTitle);
@@ -4271,10 +4285,10 @@ export type TwoDeviceRow = {
   deviceALostMs: number;
   deviceBLostMs: number;
   /**
-   * The rewind the app's own ladder credits each device on its final open.
-   * Both devices paused through the UI, and the cross-device leg takes real
-   * wall-clock time, so a bounded smart rewind is legitimate here and is
-   * subtracted from the "lost" columns rather than being charged to the bug.
+   * The rewind the app's own ladder credits each device on its final open. The
+   * app-created pause markers are pinned inside one stable rung by the harness,
+   * so mounting across a threshold cannot make the measurement disagree with
+   * the rewind the app actually applies.
    */
   rewindCreditedA: number;
   rewindCreditedB: number;
@@ -4454,8 +4468,17 @@ export async function measureTwoDeviceResume(spec: {
     const serverAfterForegroundMs = (await readServerProgress(bookId))?.positionMs ?? null;
 
     // ------------------------------------------------- what each device shows
-    // The rewind each device is owed is read BEFORE its open, because the open
-    // is what consumes the marker.
+    // Pin both app-created markers inside the 5 s rung before their final open.
+    // This journey naturally finishes near the 60 s boundary under load; reading
+    // the marker at 59 s and mounting the player at 61 s otherwise reports 0 ms
+    // of credit for the 5 s rewind the app correctly applies. Ageing refuses to
+    // create a marker, and two minutes leaves ample room below the next rung.
+    const stableAbsenceMs = 2 * 60_000;
+    const agedB = await ageAbsenceMarker(pageB, userId, bookId, stableAbsenceMs);
+    expect(
+      agedB,
+      `${spec.scenario}: device B did not retain the pause marker its own UI wrote`,
+    ).not.toBeNull();
     const inputsB = await readRewindInputs(pageB, userId, bookId);
     assertMarkerKeyShape(spec.scenario, userId, inputsB.markerKeysSeen);
     const rewindCreditedB = expectedRewindMs(inputsB);
@@ -4477,6 +4500,11 @@ export async function measureTwoDeviceResume(spec: {
       `device A local record before its own navigation ${JSON.stringify(localABeforeNav)}, ` +
         `after ${JSON.stringify(localAAfterNav)}`,
     );
+    const agedA = await ageAbsenceMarker(pageA, userId, bookId, stableAbsenceMs);
+    expect(
+      agedA,
+      `${spec.scenario}: device A did not retain the pause marker its own UI wrote`,
+    ).not.toBeNull();
     const inputsA = await readRewindInputs(pageA, userId, bookId);
     assertMarkerKeyShape(spec.scenario, userId, inputsA.markerKeysSeen);
     const rewindCreditedA = expectedRewindMs(inputsA);
