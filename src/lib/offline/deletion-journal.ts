@@ -27,17 +27,24 @@ export async function removeOfflineBook(
     const db = await database();
     const existing = await db.get("downloads", key);
     const pending = await db.get("deletions", key);
-    await db.put("deletions", {
+    const operationId =
+      pending && !pending.completedAt
+        ? (pending.operationId ?? crypto.randomUUID())
+        : crypto.randomUUID();
+    const journal = {
       ...pending,
       key,
       userId,
       bookId,
+      operationId,
       offlineMediaUrl: existing?.offlineMediaUrl,
       offlineCoverUrl: existing?.offlineCoverUrl,
       offlineCoverThumbUrl: existing?.offlineCoverThumbUrl,
       clearPlaybackHistory:
         pending?.clearPlaybackHistory === true || options.clearPlaybackHistory === true,
-    });
+    };
+    delete journal.completedAt;
+    await db.put("deletions", journal);
     await completeOfflineDeletion(db, key);
   });
 }
@@ -90,14 +97,28 @@ async function completeOfflineDeletion(db: OfflineDb, key: string): Promise<void
   }
   await db.delete("downloads", key);
   if (pending) {
-    await db.put("deletions", {
-      ...pending,
-      offlineMediaUrl: undefined,
-      offlineCoverUrl: undefined,
-      offlineCoverThumbUrl: undefined,
-      clearPlaybackHistory: pending.clearPlaybackHistory,
-      completedAt: Date.now(),
-    });
+    // Account purge may have deleted this row while Cache Storage or history
+    // cleanup was awaited. Re-read and complete it in one transaction: a
+    // removed row stays removed, and a newer removal attempt is never marked
+    // complete using the older attempt's work.
+    const transaction = db.transaction("deletions", "readwrite");
+    const current = await transaction.store.get(key);
+    if (
+      current &&
+      (pending.operationId
+        ? current.operationId === pending.operationId
+        : current.operationId === undefined)
+    ) {
+      await transaction.store.put({
+        ...current,
+        offlineMediaUrl: undefined,
+        offlineCoverUrl: undefined,
+        offlineCoverThumbUrl: undefined,
+        clearPlaybackHistory: current.clearPlaybackHistory,
+        completedAt: Date.now(),
+      });
+    }
+    await transaction.done;
   }
 }
 

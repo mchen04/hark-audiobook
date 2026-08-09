@@ -71,3 +71,34 @@ it("journals permanent-book history cleanup and retries it after failure", async
   expect(cleanup.history).toHaveBeenCalledTimes(2);
   expect(await db.get("deletions", offlineBookKey(USER, BOOK))).toHaveProperty("completedAt");
 });
+
+it("does not recreate a deletion journal row removed by an account purge", async () => {
+  let releaseDelete!: () => void;
+  let deletionStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    deletionStarted = resolve;
+  });
+  const heldDelete = new Promise<void>((resolve) => {
+    releaseDelete = resolve;
+  });
+  vi.stubGlobal("caches", {
+    open: vi.fn(async () => ({
+      delete: vi.fn(async () => {
+        deletionStarted();
+        await heldDelete;
+        return true;
+      }),
+    })),
+  });
+
+  const removal = removeOfflineBook(USER, BOOK);
+  await started;
+
+  const db = await database();
+  const key = offlineBookKey(USER, BOOK);
+  await db.delete("deletions", key);
+  releaseDelete();
+  await removal;
+
+  expect(await db.get("deletions", key)).toBeUndefined();
+});

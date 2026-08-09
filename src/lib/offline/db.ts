@@ -209,6 +209,8 @@ export interface OfflineDatabase extends DBSchema {
       key: string;
       userId: string;
       bookId: string;
+      /** Identifies one removal attempt across retries and account-purge races. */
+      operationId?: string;
       offlineMediaUrl?: string;
       offlineCoverUrl?: string | null;
       offlineCoverThumbUrl?: string | null;
