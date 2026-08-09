@@ -70,6 +70,10 @@ restore live data from Neon snapshots or `pg_dump`, never from Drizzle metadata.
   authentication, imports, storage, service workers, or playback.
 - Media Session action support varies by browser; unsupported actions are
   feature-detected and skipped without affecting playback.
+- CI runs the 24 resume rows Playwright WebKit can exercise honestly. The full
+  `pnpm test:resume` command also runs the two real-iOS hidden-state rows and is
+  expected to label them `UNCOVERED` on this engine; use the physical-device
+  checklist rather than weakening or silently skipping that residual.
 - Browsers may evict Cache Storage under storage pressure; the app requests
   persistent storage when importing, clears stale download metadata when the
   matching media entry is gone, and surfaces an original-file reattach flow

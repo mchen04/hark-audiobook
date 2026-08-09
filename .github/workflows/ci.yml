@@ -51,7 +51,7 @@ jobs:
           - name: Sync integrity
             command: pnpm test:sync
           - name: Resume durability
-            command: pnpm exec playwright test --project=resume-durability
+            command: pnpm test:resume:ci
           - name: Launch performance
             command: pnpm test:e2e:launch
     steps:

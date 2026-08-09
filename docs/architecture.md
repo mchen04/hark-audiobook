@@ -34,11 +34,16 @@ The app accepts one MP3 as one audiobook. Every account is a solo private worksp
   the update lifecycle
 - Vitest for unit/integration logic, Playwright for the WebKit PWA flow and the
   launch/parity/sync projects, and `agent-browser` for end-to-end UI verification
-- GitHub Actions runs the non-browser gate and every Playwright project in
-  isolated jobs backed by local Postgres; browser failures retain visual traces
+- GitHub Actions runs the non-browser gate and every executable Playwright gate
+  in isolated jobs backed by local Postgres; browser failures retain visual traces
 - A docker-compose Postgres 18 on `127.0.0.1:54329` for every test suite, with a
   guard (`scripts/lib/assert-local-database.mjs`) that refuses a hosted
   `DATABASE_URL`
+
+The resume job intentionally runs the 24 rows this Playwright WebKit can
+exercise. The full 26-row command retains two real-iOS hidden-state assertions
+as honest `UNCOVERED` failures; the physical-device procedure lives in
+`docs/resume-durability-device-check.md`.
 
 ## Why this stack
 
