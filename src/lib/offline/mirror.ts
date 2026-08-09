@@ -1,6 +1,8 @@
 import type { IDBPTransaction } from "idb";
 
 import type { LibraryBook } from "@/domain/library";
+import type { PlayerBook } from "@/domain/player";
+import type { MediaFingerprintKind } from "@/lib/media-fingerprint";
 import { listLocalPlaybackStates } from "@/lib/playback-core";
 
 import {
@@ -70,6 +72,13 @@ export type MirrorLibraryQuery = {
   status?: MirrorStatus;
   tag?: string;
   sort?: MirrorSort;
+};
+
+export type MirrorPlayerBook = {
+  playerBook: PlayerBook;
+  mediaFingerprint: string;
+  mediaFingerprintKind: MediaFingerprintKind | null;
+  byteSize: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -602,6 +611,54 @@ function toLibraryBook(
     positionMs: state?.positionMs ?? null,
     completed: state?.completed ?? null,
     progressUpdatedAt: state?.updatedAt ?? null,
+  };
+}
+
+/**
+ * The metadata needed to render a cold offline `/books/:id` route, even when
+ * this device does not hold the audio. This lookup is deliberately independent
+ * of library filters: a deep link to an archived or filtered-out book still
+ * names that book and must not fall through to unrelated library chrome.
+ */
+export async function getMirrorPlayerBook(
+  userId: string,
+  bookId: string,
+): Promise<MirrorPlayerBook | null> {
+  const db = await database();
+  const transaction = db.transaction(["books", "chapters", "playbackStates"], "readonly");
+  const key = mirrorKey(userId, bookId);
+  const [book, chapters, state] = await Promise.all([
+    transaction.objectStore("books").get(key),
+    transaction.objectStore("chapters").index("by-user-book").getAll([userId, bookId]),
+    transaction.objectStore("playbackStates").get(key),
+    transaction.done,
+  ]);
+  if (!book?.media?.durationMs) return null;
+  const fingerprintKind = book.media.fingerprintKind;
+  return {
+    playerBook: {
+      id: book.bookId,
+      title: book.title,
+      author: book.author,
+      durationMs: book.media.durationMs,
+      mediaUrl: "",
+      coverUrl: null,
+      chapters: chapters.map((chapter) => ({
+        id: `${book.bookId}:${chapter.position}`,
+        position: chapter.position,
+        title: chapter.title,
+        startMs: chapter.startMs,
+        endMs: chapter.endMs,
+      })),
+      initialPositionMs: state?.positionMs ?? 0,
+      initialProgressOccurredAt: state?.eventOccurredAt ?? null,
+      initialPlaybackRate: state?.playbackRate ?? 1,
+      completed: state?.completed ?? false,
+    },
+    mediaFingerprint: book.media.fingerprint,
+    mediaFingerprintKind:
+      fingerprintKind === "sample-v1" || fingerprintKind === "sha256-v1" ? fingerprintKind : null,
+    byteSize: book.media.byteSize,
   };
 }
 

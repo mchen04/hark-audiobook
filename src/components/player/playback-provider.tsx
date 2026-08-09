@@ -13,7 +13,8 @@ import {
 
 import type { PlaybackHistoryEntry, PlaybackHistorySnapshot } from "@/domain/playback-history";
 import type { PlayerBook, PlayerChapter } from "@/domain/player";
-import { ACTIVE_USER_KEY, PROGRESS_CONFLICT_EVENT, UNLOAD_PLAYER_EVENT } from "@/lib/app-keys";
+import { rememberActiveUserId } from "@/lib/active-user";
+import { PROGRESS_CONFLICT_EVENT, UNLOAD_PLAYER_EVENT } from "@/lib/app-keys";
 import { createListeningTracker, queueListeningSession } from "@/lib/listening-tracker";
 import {
   markPausedNow,
@@ -113,7 +114,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
   }, [book]);
 
   useEffect(() => {
-    localStorage.setItem(ACTIVE_USER_KEY, userId);
+    rememberActiveUserId(userId);
   }, [userId]);
 
   useEffect(() => {

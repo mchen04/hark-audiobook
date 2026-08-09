@@ -6,6 +6,7 @@ import { database } from "./db";
 import {
   applyPullBatch,
   getMirrorContinueBook,
+  getMirrorPlayerBook,
   getSyncMeta,
   listMirrorBooks,
   listMirrorTagNames,
@@ -555,6 +556,22 @@ describe("local library reads", () => {
     expect(dune?.tags).toStrictEqual(["Sci-Fi"]);
     expect(dune?.durationMs).toBe(3_600_000);
     expect(dune?.positionMs).toBe(5_000);
+  });
+
+  it("builds a missing-media player route directly from the mirror", async () => {
+    const route = await getMirrorPlayerBook(USER_A, "book-attic");
+
+    expect(route).toMatchObject({
+      mediaFingerprint: "f".repeat(64),
+      mediaFingerprintKind: "sha256-v1",
+      byteSize: 1_000_000,
+      playerBook: {
+        id: "book-attic",
+        title: "Attic Notes",
+        durationMs: 3_600_000,
+        chapters: [{ position: 0, title: "Opening", startMs: 0, endMs: 3_600_000 }],
+      },
+    });
   });
 
   it("picks the most recently progressed unfinished book to continue", async () => {

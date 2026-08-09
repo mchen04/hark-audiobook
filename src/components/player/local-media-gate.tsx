@@ -44,7 +44,7 @@ export function LocalMediaGate({
   mediaFingerprint: string | null;
   mediaFingerprintKind: MediaFingerprintKind | null;
   byteSize: number | null;
-  historySnapshot: PlaybackHistorySnapshot;
+  historySnapshot?: PlaybackHistorySnapshot;
   autoplay: boolean;
   details: BookDetails | null;
   nextInCollection: NextInCollection | null;

@@ -20,6 +20,7 @@ import { useSearchParams } from "next/navigation";
 import { memo, useCallback, useDeferredValue, useEffect, useState } from "react";
 
 import { FullPlayer } from "@/components/player/full-player";
+import { LocalMediaGate } from "@/components/player/local-media-gate";
 import { useActiveUserId } from "@/components/use-active-user";
 import type { LibraryBook } from "@/domain/library";
 import { formatBytes } from "@/lib/format-bytes";
@@ -27,6 +28,7 @@ import { formatDurationRounded } from "@/lib/format-time";
 import { markLaunchPainted } from "@/lib/launch-revalidation";
 import type { OfflineBook } from "@/lib/offline/db";
 import { asOfflinePlayerBook } from "@/lib/offline/library";
+import { getMirrorPlayerBook, type MirrorPlayerBook } from "@/lib/offline/mirror";
 import { listBookIdsWithTranscripts } from "@/lib/offline/transcript-store";
 
 import { UploadBanners, useMp3Import } from "./library-upload";
@@ -68,6 +70,7 @@ const MISSING_MEDIA_HINT =
 
 export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
   const userId = useActiveUserId(serverUserId);
+  const searchParams = useSearchParams();
 
   const [query, setQuery] = useState("");
   // The input stays controlled and immediate; the listing reads the deferred
@@ -77,7 +80,7 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
   // The header's Downloads link is `?device=1`, so the facet follows the URL
   // until the user works the chip themselves — and follows it again the next
   // time that link is used.
-  const facetFromUrl = useSearchParams().get("device") === "1";
+  const facetFromUrl = searchParams.get("device") === "1";
   const [onDevice, setOnDevice] = useSeedFollowingToggle(facetFromUrl);
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [sort, setSort] = useState<SortOrder>("activity");
@@ -96,6 +99,11 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
   const books = snapshot?.books || [];
   const device: DeviceIndex = snapshot?.device || EMPTY_DEVICE_INDEX;
   const playing = fallbackBookId ? device.get(fallbackBookId) || null : null;
+  const [mirroredRoute, setMirroredRoute] = useState<{
+    bookId: string;
+    phase: "checking" | "ready" | "missing" | "unavailable";
+    book?: MirrorPlayerBook;
+  } | null>(null);
   const filterKey = JSON.stringify([deferredQuery, status, activeTag, sort, onDevice]);
   const { pages, showMore } = usePageWindow(filterKey);
   // A first launch on a device that has never synced holds an empty mirror, and
@@ -145,6 +153,37 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
     };
   }, [userId]);
 
+  useEffect(() => {
+    if (!userId || !fallbackBookId || playing) return;
+    let active = true;
+    void getMirrorPlayerBook(userId, fallbackBookId).then(
+      (book) => {
+        if (!active) return;
+        setMirroredRoute(
+          book
+            ? { bookId: fallbackBookId, phase: "ready", book }
+            : { bookId: fallbackBookId, phase: "missing" },
+        );
+      },
+      () => {
+        if (active) setMirroredRoute({ bookId: fallbackBookId, phase: "unavailable" });
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [fallbackBookId, playing, userId]);
+
+  useEffect(() => {
+    if (
+      fallbackBookId &&
+      mirroredRoute?.bookId === fallbackBookId &&
+      mirroredRoute.phase === "missing"
+    ) {
+      leavePlayer();
+    }
+  }, [fallbackBookId, leavePlayer, mirroredRoute]);
+
   const forgetDownload = useCallback(
     async (bookId: string) => {
       const removed = await removeDownload(bookId);
@@ -164,6 +203,41 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
         onBack={leavePlayer}
       />
     );
+  }
+
+  if (fallbackBookId) {
+    const route = mirroredRoute?.bookId === fallbackBookId ? mirroredRoute : null;
+    if (route?.phase === "ready" && route.book) {
+      return (
+        <LocalMediaGate
+          userId={userId!}
+          playerBook={route.book.playerBook}
+          mediaFingerprint={route.book.mediaFingerprint}
+          mediaFingerprintKind={route.book.mediaFingerprintKind}
+          byteSize={route.book.byteSize}
+          autoplay={searchParams.get("autoplay") === "1"}
+          details={null}
+          nextInCollection={null}
+        />
+      );
+    }
+    if (route?.phase === "missing") {
+      return null;
+    }
+    if (route?.phase === "unavailable") {
+      return (
+        <main className="local-media-gate">
+          <section>
+            <h1>This book is temporarily unavailable</h1>
+            <p>Hark could not read this device&apos;s saved library.</p>
+            <button type="button" className="secondary-button" onClick={leavePlayer}>
+              Back to library
+            </button>
+          </section>
+        </main>
+      );
+    }
+    return null;
   }
 
   // `snapshot` is null until this device's own library has been read, so

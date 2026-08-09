@@ -34,6 +34,7 @@ import { SEED_BOOKS, seedLibrary, waitForSeededMirror } from "./harness/library-
 
 const PHONE_VIEWPORT = { width: 393, height: 852 };
 const ON_DEVICE_BOOK = SEED_BOOKS.find((book) => book.onDevice)!;
+const OFF_DEVICE_BOOK = SEED_BOOKS.find((book) => !book.onDevice)!;
 
 let account: Account;
 let state: StorageState;
@@ -87,6 +88,10 @@ async function expectLibraryOnScreen(page: Page): Promise<void> {
   expect(new URL(page.url()).pathname, "the player URL was left behind").not.toMatch(/^\/books\//);
 }
 
+async function leavePlayerFromTopbar(page: Page): Promise<void> {
+  await page.locator(".player-topbar").getByText("Library", { exact: true }).click();
+}
+
 test("the system back button leaves the offline player for the library", async () => {
   const page = await launchLibrary();
   try {
@@ -113,6 +118,69 @@ test("the player's own Library button leaves a working history behind", async ()
     await page.goForward();
     expect(page.url()).toBe(bookUrl);
     await expect(page.getByRole("button", { name: /Library/ })).toBeVisible({ timeout: 30_000 });
+  } finally {
+    await page.close();
+  }
+});
+
+test("the online Library control replaces the player instead of only changing its chrome", async () => {
+  const page = await launchLibrary();
+  try {
+    await page.getByRole("link", { name: ON_DEVICE_BOOK.title, exact: true }).click();
+    await expect(page.locator(".player-page")).toBeVisible({ timeout: 60_000 });
+    await page.getByRole("button", { name: "Play" }).click();
+    await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+
+    await leavePlayerFromTopbar(page);
+
+    await expectLibraryOnScreen(page);
+    await expect(page.locator(".player-page")).toHaveCount(0);
+    await expect(page.getByRole("complementary", { name: "Now playing" })).toBeVisible();
+  } finally {
+    await page.close();
+  }
+});
+
+test("opening a missing book never hides the controls for the book still playing", async () => {
+  const page = await launchLibrary();
+  try {
+    await page.getByRole("link", { name: ON_DEVICE_BOOK.title, exact: true }).click();
+    await expect(page.getByRole("button", { name: "Play" })).toBeVisible({ timeout: 60_000 });
+    await page.getByRole("button", { name: "Play" }).click();
+    await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+
+    await leavePlayerFromTopbar(page);
+    await expectLibraryOnScreen(page);
+    await page.getByRole("link", { name: OFF_DEVICE_BOOK.title, exact: true }).click();
+
+    await expect(page.getByRole("heading", { name: OFF_DEVICE_BOOK.title })).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect(page.getByRole("button", { name: "Attach MP3" })).toBeVisible();
+    await expect(page.getByRole("complementary", { name: "Now playing" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+  } finally {
+    await page.close();
+  }
+});
+
+test("a cold offline route for missing audio renders the attach gate, not library chrome", async () => {
+  const page = await launchLibrary();
+  try {
+    const href = await page
+      .getByRole("link", { name: OFF_DEVICE_BOOK.title, exact: true })
+      .getAttribute("href");
+    expect(href).toMatch(/^\/books\//);
+
+    await cutNetwork(page);
+    await page.goto(`${device.origin}${href}`, { waitUntil: "domcontentloaded" });
+
+    await expect(page.getByRole("heading", { name: OFF_DEVICE_BOOK.title })).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect(page.getByRole("button", { name: "Attach MP3" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Back to library" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Library", exact: true })).toHaveCount(0);
   } finally {
     await page.close();
   }

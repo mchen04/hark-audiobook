@@ -24,7 +24,22 @@ const BOOK_ID = "11111111-2222-3333-4444-555555555555";
 const device = new Map([[BOOK_ID, { book: { id: BOOK_ID, title: "The Hobbit" } }]]);
 
 vi.mock("@/components/use-active-user", () => ({ useActiveUserId: () => "user-1" }));
-vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
+vi.mock("next/navigation", async () => {
+  const { useSyncExternalStore } = await import("react");
+  const subscribe = (notify: () => void) => {
+    window.addEventListener("popstate", notify);
+    return () => window.removeEventListener("popstate", notify);
+  };
+  return {
+    useSearchParams: () => new URLSearchParams(),
+    usePathname: () =>
+      useSyncExternalStore(
+        subscribe,
+        () => window.location.pathname,
+        () => "/library",
+      ),
+  };
+});
 vi.mock("next/link", () => ({
   default: ({ children, href }: { children: React.ReactNode; href: string }) => (
     <a href={href}>{children}</a>

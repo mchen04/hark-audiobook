@@ -1,4 +1,5 @@
 import { ACTIVE_USER_KEY } from "@/lib/app-keys";
+import { forgetActiveUserId } from "@/lib/active-user";
 import {
   listQueuedMutationUserIds,
   listQueuedMutations,
@@ -151,8 +152,7 @@ export async function purgeAccount(userId: string): Promise<void> {
 }
 
 function forgetActiveUser(userId: string): void {
-  if (typeof localStorage === "undefined") return;
-  if (localStorage.getItem(ACTIVE_USER_KEY) === userId) localStorage.removeItem(ACTIVE_USER_KEY);
+  forgetActiveUserId(userId);
 }
 
 /** One error when there is one, an aggregate when the sweep lost several. */

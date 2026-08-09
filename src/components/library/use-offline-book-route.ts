@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { usePathname } from "next/navigation";
 
 const BOOK_PATH = /^\/books\/([0-9a-fA-F-]{36})\/?$/;
 
@@ -21,23 +22,12 @@ export function useOfflineBookRoute(): {
   /** Returns to the library grid; see the history semantics below. */
   leavePlayer: () => void;
 } {
-  const [bookId, setBookId] = useState(bookIdFromUrl);
+  // Next's router owns every client navigation, including native history
+  // changes. Deriving from it avoids a second route state that can get stuck on
+  // the old book while the URL/header/mini-player have already moved on.
+  const bookId = bookIdFromPath(usePathname());
   /** Whether the library is one history entry back; see `leavePlayer`. */
   const [cameFromLibrary] = useState(openedFromLibrary);
-
-  /**
-   * The URL, not a click, is what decides whether the player or the grid is on
-   * screen here — so every way it can change has to be followed, and the back
-   * button changes it without a click. `AppShell` and `MiniPlayer` already
-   * follow it through `usePathname()`; a book id read only at mount would
-   * leave the player up under a header and a mini player that had gone back to
-   * library chrome.
-   */
-  useEffect(() => {
-    const follow = () => setBookId(bookIdFromUrl());
-    window.addEventListener("popstate", follow);
-    return () => window.removeEventListener("popstate", follow);
-  }, []);
 
   /**
    * Leaving the player is a real `back()` whenever there is something to go
@@ -54,16 +44,17 @@ export function useOfflineBookRoute(): {
       return;
     }
     window.history.replaceState(null, "", "/library");
-    setBookId(null);
+    // Native history calls are integrated with Next's router. The event also
+    // keeps non-Next consumers (and the DOM-level regression test) in step.
+    window.dispatchEvent(new PopStateEvent("popstate"));
   }, [cameFromLibrary]);
 
   return { bookId, leavePlayer };
 }
 
 /** The book this document was asked for, when the URL names one. */
-function bookIdFromUrl(): string | null {
-  if (typeof window === "undefined") return null;
-  return BOOK_PATH.exec(window.location.pathname)?.[1] || null;
+function bookIdFromPath(pathname: string): string | null {
+  return BOOK_PATH.exec(pathname)?.[1] || null;
 }
 
 /**
