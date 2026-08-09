@@ -37,6 +37,10 @@ export const auth = betterAuth({
   },
   rateLimit: {
     enabled: true,
+    // Vercel and any horizontally scaled deployment run more than one process.
+    // The default in-memory store gives every process a separate attempt
+    // budget; the existing Better Auth table is the shared enforcement point.
+    storage: "database",
     window: 60,
     max: 100,
     customRules: {

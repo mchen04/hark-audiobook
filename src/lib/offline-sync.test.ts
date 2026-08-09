@@ -704,6 +704,44 @@ describe("a delete supersedes an unsent registration of the same file", () => {
     ).toStrictEqual(["delete", "import"]);
   });
 
+  it("does not send a later re-import until the same file's delete has settled", async () => {
+    await mirrorBook("canonical-book");
+    await commitBookDeletion(ORIGIN, "canonical-book");
+    await queueRegistration("minted-after-the-delete");
+
+    let releaseDelete!: () => void;
+    const deleteResponse = new Promise<void>((resolve) => {
+      releaseDelete = resolve;
+    });
+    const events: string[] = [];
+    const fetchFn = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "DELETE") {
+        events.push("delete-started");
+        await deleteResponse;
+        events.push("delete-settled");
+        return new Response(null, { status: 200 });
+      }
+      events.push("import-sent");
+      return new Response(null, { status: 201 });
+    });
+
+    const replay = replayQueuedMutations(USER, fetchFn as typeof fetch);
+    await vi.waitFor(() => expect(events).toContain("delete-started"));
+    // Give every bounded worker a turn. The import must still be waiting on the
+    // earlier delete rather than racing it into a duplicate-fingerprint 409.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const beforeDeleteSettled = [...events];
+    releaseDelete();
+    await replay;
+
+    expect(
+      beforeDeleteSettled,
+      "the later import reached the server while deletion of the same fingerprint was live",
+    ).toStrictEqual(["delete-started"]);
+    expect(events).toStrictEqual(["delete-started", "delete-settled", "import-sent"]);
+    expect(await listQueuedMutations(USER)).toStrictEqual([]);
+  });
+
   it("leaves another file's registration alone", async () => {
     await mirrorBook("canonical-book");
     await commitImport(ORIGIN, "a".repeat(64), { bookId: "other-book", title: "Other" });
