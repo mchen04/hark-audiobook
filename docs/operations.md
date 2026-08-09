@@ -1,19 +1,21 @@
 # Operations
 
-Last reviewed: 2026-07-28
+Last reviewed: 2026-08-09
 
 ## Deployment shape
 
-- Single Next.js instance (`pnpm build && pnpm start`) behind HTTPS. The
-  service worker and installability require a secure origin (localhost counts
-  for development).
+- Next.js (`pnpm build && pnpm start`, or Vercel) behind HTTPS. The service
+  worker and installability require a secure origin (localhost counts for
+  development). Application instances are stateless; sessions, metadata, and
+  auth attempt budgets are shared through Postgres.
 - Set `BETTER_AUTH_URL` to the public origin; mutation requests from any other
   origin are rejected.
 - The server stores metadata only; audio bytes live in each device's browser
   storage. There is no object storage to provision.
-- Auth rate limiting is in-memory and assumes a single instance. Multi-instance
-  deployments need a shared store (Better Auth supports database storage at
-  ~2 extra database round trips per auth request).
+- Auth rate limiting uses Better Auth's database store and the `rate_limit`
+  table, so cold starts and multiple instances share one atomic per-IP/path
+  attempt budget. Do not change it back to the default memory store on a
+  horizontally scaled deployment.
 - Session validation is authoritative against Postgres so password resets and
   explicit revocations take effect immediately on every API route.
 - Postgres: Vercel runs `pnpm db:migrate` before its production build. Preview
@@ -71,6 +73,10 @@ restore live data from Neon snapshots or `pg_dump`, never from Drizzle metadata.
   instead of pretending the book is playable.
 - Playback actions are written to IndexedDB first and replayed after reconnect;
   both local and server stores retain only the newest 50 actions per audiobook.
+- `chapterline:active-user` is observed across tabs. Completing sign-out in one
+  tab revokes peer shells, stops their player, and redirects them to `/login`;
+  the parity gate waits beyond a heartbeat and proves no departed-account data
+  is recreated.
 
 ## Troubleshooting
 

@@ -2,8 +2,8 @@
 
 ## Status
 
-Decision record started 2026-07-09; last reconciled with the code on 2026-07-28
-after the resume-durability pass and repository-anatomy audit.
+Decision record started 2026-07-09; last reconciled with the code on 2026-08-09
+after the full-codebase UI, offline, sync, and authentication audit.
 Update this document whenever executable reality changes.
 
 `docs/local-first.md` is the design contract for that pass — what is mirrored,
@@ -34,6 +34,8 @@ The app accepts one MP3 as one audiobook. Every account is a solo private worksp
   the update lifecycle
 - Vitest for unit/integration logic, Playwright for the WebKit PWA flow and the
   launch/parity/sync projects, and `agent-browser` for end-to-end UI verification
+- GitHub Actions runs the non-browser gate and every Playwright project in
+  isolated jobs backed by local Postgres; browser failures retain visual traces
 - A docker-compose Postgres 18 on `127.0.0.1:54329` for every test suite, with a
   guard (`scripts/lib/assert-local-database.mjs`) that refuses a hosted
   `DATABASE_URL`
@@ -92,6 +94,13 @@ critical path.
   `playback_action_receipts` idempotency ledger are server-authoritative and are
   never mirrored: a device may not mint its own session, and only the server
   writes its own receipt ledger.
+- The active account is a subscribed browser external store, not a server prop
+  that stays authoritative forever. Storage events revoke peer tabs after
+  sign-out so a mounted player cannot retain or recreate the departed account.
+- A cached `/books/:id` fallback is resolved directly from mirrored book,
+  chapter, media, and progress metadata. Missing local audio renders the same
+  verified attach gate as the online route; it never falls through to library
+  chrome at a player URL.
 
 ## Media flow
 

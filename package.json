@@ -31,7 +31,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "verify:quick": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "verify:browser": "pnpm test:e2e:ios && pnpm test:e2e:parity && pnpm test:sync && pnpm exec playwright test --project=resume-durability && pnpm test:e2e:launch",
+    "verify": "pnpm verify:quick && pnpm verify:browser"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",

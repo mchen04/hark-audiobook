@@ -432,6 +432,10 @@ never reset the position.
 Storing the file's path cannot rescue this: `<input type="file">` yields a
 `File`, never a path, and File System Access is unavailable in Safari on iOS.
 Re-picking the file is the only recovery, which is why it must be lossless.
+The cold offline `/books/:id` route reads this metadata directly from the
+mirror, independent of the current library filters, and renders the attach gate
+even when the MP3 is absent. A player URL must never fall through to a library
+grid whose header and mini-player disagree with the route.
 
 ## 11. Account lifecycle
 
@@ -442,6 +446,12 @@ Purge runs on **both** sign-out and sign-in, and covers: every mirror store by
 `by-user` index, the outbox, Cache Storage entries for pages and media,
 localStorage keys for that user, and `ACTIVE_USER_KEY`. Purging on sign-in as
 well as sign-out is what protects against a crash between the two.
+
+`ACTIVE_USER_KEY` is also a cross-tab revocation boundary. Every mounted shell
+subscribes to its storage changes (plus a same-document event); removing it
+unmounts the account's providers, stops playback, and redirects the peer tab to
+`/login`. A stale server-rendered `userId` may bootstrap the device once, but it
+must never override a later removal from browser storage.
 
 The two purges have deliberately different targets:
 

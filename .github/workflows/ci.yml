@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify quick
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.6.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Prepare isolated test database
+        run: |
+          cp .env.test.example .env.test
+          pnpm db:test:up
+          cp .env.test .env.local
+      - run: pnpm verify:quick
+
+  browser:
+    name: Browser (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: iPhone WebKit
+            command: pnpm test:e2e:ios
+          - name: Offline parity
+            command: pnpm test:e2e:parity
+          - name: Sync integrity
+            command: pnpm test:sync
+          - name: Resume durability
+            command: pnpm exec playwright test --project=resume-durability
+          - name: Launch performance
+            command: pnpm test:e2e:launch
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.6.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install project-pinned browsers
+        run: pnpm exec playwright install --with-deps webkit chromium
+      - name: Prepare isolated test database
+        run: |
+          cp .env.test.example .env.test
+          pnpm db:test:up
+          cp .env.test .env.local
+      - name: Run ${{ matrix.name }} gate
+        run: ${{ matrix.command }}
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}-evidence
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
