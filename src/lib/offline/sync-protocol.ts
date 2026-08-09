@@ -55,6 +55,7 @@ export type PulledPlaybackState = {
   deviceId: string;
   deviceSequence: number;
   eventOccurredAt: string;
+  stateOccurredAt?: string;
   updatedAt: string;
 };
 

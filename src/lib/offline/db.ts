@@ -125,6 +125,7 @@ export type MirrorPlaybackState = {
   deviceId: string;
   deviceSequence: number;
   eventOccurredAt: string;
+  stateOccurredAt?: string;
   updatedAt: string;
 };
 

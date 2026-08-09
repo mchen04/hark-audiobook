@@ -204,7 +204,8 @@ describe("offline progress queue", () => {
       const body = JSON.parse(fetchFn.mock.calls[0]?.[1]?.body as string);
       expect(body.positionMs).toBe(5_000);
       expect(body.playbackRate).toBe(2);
-      expect(body.eventOccurredAt).toBe("2026-07-09T00:00:02.000Z");
+      expect(body.eventOccurredAt).toBe("2026-07-09T00:00:00.000Z");
+      expect(body.stateOccurredAt).toBe("2026-07-09T00:00:02.000Z");
       expect(body.deviceSequence).toBeGreaterThan(4);
     });
 
@@ -229,7 +230,8 @@ describe("offline progress queue", () => {
 
       const body = JSON.parse(fetchFn.mock.calls[0]?.[1]?.body as string);
       expect(body.completed).toBe(true);
-      expect(body.eventOccurredAt).toBe("2026-07-09T00:00:02.000Z");
+      expect(body.eventOccurredAt).toBe("2026-07-09T00:00:00.000Z");
+      expect(body.stateOccurredAt).toBe("2026-07-09T00:00:02.000Z");
       expect(body.deviceSequence).toBeGreaterThan(4);
     });
 

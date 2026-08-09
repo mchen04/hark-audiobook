@@ -238,6 +238,8 @@ export const playbackStates = pgTable(
     deviceId: varchar("device_id", { length: 100 }).notNull(),
     deviceSequence: bigint("device_sequence", { mode: "number" }).default(0).notNull(),
     eventOccurredAt: timestamp("event_occurred_at", { withTimezone: true }).notNull(),
+    /** Rate/completion ordering is independent from the listening position. */
+    stateOccurredAt: timestamp("state_occurred_at", { withTimezone: true }),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [

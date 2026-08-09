@@ -49,6 +49,8 @@ export type QueuedProgress = {
   playbackRate: number;
   completed: boolean;
   eventOccurredAt: string;
+  /** Clock for the rate/completion tuple, independent of the position clock. */
+  stateOccurredAt?: string;
 };
 
 /** The legacy v1–v3 record, read only by the v4 upgrade. */
@@ -215,6 +217,7 @@ export function progressPayload(entry: Omit<QueuedProgress, "userId">): Record<s
     playbackRate: entry.playbackRate,
     completed: entry.completed,
     eventOccurredAt: entry.eventOccurredAt,
+    ...(entry.stateOccurredAt ? { stateOccurredAt: entry.stateOccurredAt } : {}),
   };
 }
 

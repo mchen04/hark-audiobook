@@ -1,5 +1,5 @@
 import { PROGRESS_CONFLICT_EVENT } from "@/lib/app-keys";
-import { saveLocalPosition } from "@/lib/playback-core";
+import { saveLocalPlaybackState } from "@/lib/playback-core";
 
 import { database, type QueuedMutation, type QueuedProgress } from "./db";
 import {
@@ -323,12 +323,12 @@ export async function reconcileProgressConflict(
     playbackRate,
     eventOccurredAt,
   });
-  saveLocalPosition(
-    entry.userId,
-    entry.bookId,
+  saveLocalPlaybackState(entry.userId, entry.bookId, {
     positionMs,
-    eventOccurredAt ? Date.parse(eventOccurredAt) : Date.now(),
-  );
+    playbackRate,
+    completed,
+    occurredAt: eventOccurredAt ? Date.parse(eventOccurredAt) : Date.now(),
+  });
   if (typeof window !== "undefined") {
     window.dispatchEvent(
       new CustomEvent(PROGRESS_CONFLICT_EVENT, {

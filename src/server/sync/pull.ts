@@ -215,6 +215,7 @@ function toPulledPlaybackState(row: typeof playbackStates.$inferSelect): PulledP
     deviceId: row.deviceId,
     deviceSequence: row.deviceSequence,
     eventOccurredAt: row.eventOccurredAt.toISOString(),
+    stateOccurredAt: (row.stateOccurredAt ?? row.eventOccurredAt).toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
 }

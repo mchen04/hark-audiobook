@@ -3,7 +3,7 @@ import { and, eq, lt, sql } from "drizzle-orm";
 import { db } from "@/server/db/client";
 import { books, mediaAssets, playbackDeviceSequences, playbackStates } from "@/server/db/schema";
 
-import { decideProgressUpdate } from "./progress-policy";
+import { mergeProgressFields, type ProgressFieldState } from "./progress-policy";
 
 export type ProgressInput = {
   bookId: string;
@@ -13,14 +13,16 @@ export type ProgressInput = {
   playbackRate: number;
   completed: boolean;
   eventOccurredAt: Date;
+  stateOccurredAt?: Date;
 };
 
 type PlaybackStateRow = typeof playbackStates.$inferSelect;
 
 /**
  * The hottest write path (15s heartbeats plus every transport action), kept
- * to three statements inside the lock: ownership+existing in one read, then
- * the sequence claim and state upsert folded into one insert.
+ * under one per-book advisory lock. Device sequence claims and the merged
+ * state still land in one CTE, while position and rate/completion arbitrate on
+ * independent clocks.
  */
 export async function saveProgress(userId: string, input: ProgressInput) {
   return db.transaction(async (transaction) => {
@@ -39,6 +41,7 @@ export async function saveProgress(userId: string, input: ProgressInput) {
           deviceId: playbackStates.deviceId,
           deviceSequence: playbackStates.deviceSequence,
           eventOccurredAt: playbackStates.eventOccurredAt,
+          stateOccurredAt: playbackStates.stateOccurredAt,
           updatedAt: playbackStates.updatedAt,
         },
       })
@@ -52,9 +55,32 @@ export async function saveProgress(userId: string, input: ProgressInput) {
       .limit(1);
     if (!ownedBook) return { kind: "not-found" as const };
     const existing = ownedBook.state;
+    const existingFields: ProgressFieldState | null = existing
+      ? {
+          positionMs: existing.positionMs,
+          playbackRate: Number(existing.playbackRate),
+          completed: existing.completed,
+          eventOccurredAt: existing.eventOccurredAt,
+          stateOccurredAt: existing.stateOccurredAt,
+        }
+      : null;
+    const decisions = mergeProgressFields(
+      existingFields,
+      {
+        positionMs: input.positionMs,
+        playbackRate: input.playbackRate,
+        completed: input.completed,
+        eventOccurredAt: input.eventOccurredAt,
+        stateOccurredAt: input.stateOccurredAt ?? input.eventOccurredAt,
+      },
+      new Date(),
+      ownedBook.durationMs,
+    );
 
-    const decision = decideProgressUpdate(existing, input.eventOccurredAt, new Date());
-    if (!decision.accept) {
+    if (
+      (!decisions.position.accept && !decisions.state.accept) ||
+      (!existing && (!decisions.position.accept || !decisions.state.accept))
+    ) {
       // The sequence is still consumed so a replay of this event stays a
       // no-op instead of re-litigating the conflict later.
       const [sequenceClaim] = await transaction
@@ -76,10 +102,14 @@ export async function saveProgress(userId: string, input: ProgressInput) {
         })
         .returning({ lastSequence: playbackDeviceSequences.lastSequence });
       if (!sequenceClaim) return { kind: "duplicate" as const, state: existing };
-      return { kind: "conflict" as const, reason: decision.reason, state: existing };
+      return {
+        kind: "conflict" as const,
+        reason: !decisions.position.accept ? decisions.position.reason : decisions.state.reason,
+        state: existing,
+      };
     }
 
-    const positionMs = Math.min(Math.max(0, input.positionMs), ownedBook.durationMs);
+    const merged = decisions.merged;
     const saved = await transaction.execute<PlaybackStateRow>(sql`
       with claimed as (
         insert into ${playbackDeviceSequences} ("user_id", "book_id", "device_id", "last_sequence")
@@ -91,12 +121,13 @@ export async function saveProgress(userId: string, input: ProgressInput) {
       )
       insert into ${playbackStates} (
         "user_id", "book_id", "position_ms", "playback_rate", "completed",
-        "device_id", "device_sequence", "event_occurred_at", "updated_at"
+        "device_id", "device_sequence", "event_occurred_at", "state_occurred_at", "updated_at"
       )
-      select ${userId}, ${input.bookId}::uuid, ${positionMs}::bigint,
-        ${input.playbackRate.toFixed(2)}::numeric, ${input.completed}::boolean,
+      select ${userId}, ${input.bookId}::uuid, ${merged.positionMs}::bigint,
+        ${merged.playbackRate.toFixed(2)}::numeric, ${merged.completed}::boolean,
         ${input.deviceId}, ${input.deviceSequence}::bigint,
-        ${decision.occurredAt.toISOString()}::timestamptz, now()
+        ${merged.eventOccurredAt.toISOString()}::timestamptz,
+        ${merged.stateOccurredAt!.toISOString()}::timestamptz, now()
       from claimed
       on conflict ("user_id", "book_id") do update set
         "position_ms" = excluded."position_ms",
@@ -105,6 +136,7 @@ export async function saveProgress(userId: string, input: ProgressInput) {
         "device_id" = excluded."device_id",
         "device_sequence" = excluded."device_sequence",
         "event_occurred_at" = excluded."event_occurred_at",
+        "state_occurred_at" = excluded."state_occurred_at",
         "updated_at" = excluded."updated_at"
       returning
         "user_id" as "userId",
@@ -115,10 +147,18 @@ export async function saveProgress(userId: string, input: ProgressInput) {
         "device_id" as "deviceId",
         "device_sequence"::float8 as "deviceSequence",
         "event_occurred_at" as "eventOccurredAt",
+        "state_occurred_at" as "stateOccurredAt",
         "updated_at" as "updatedAt"
     `);
     const state = saved[0];
     if (!state) return { kind: "duplicate" as const, state: existing };
+    if (!decisions.position.accept || !decisions.state.accept) {
+      return {
+        kind: "conflict" as const,
+        reason: !decisions.position.accept ? "stale-position" : "stale-state",
+        state,
+      };
+    }
     return { kind: "saved" as const, state };
   });
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { decideProgressUpdate } from "./progress-policy";
+import { decideProgressUpdate, mergeProgressFields } from "./progress-policy";
 
 const now = new Date("2026-07-09T20:00:00.000Z");
 
@@ -35,4 +35,29 @@ describe("decideProgressUpdate", () => {
   it("rejects an invalid timestamp", () => {
     expect(decideProgressUpdate(null, new Date(Number.NaN), now).reason).toBe("invalid-time");
   });
+});
+
+it("merges a newer rate without rewinding a newer cross-device position", () => {
+  const result = mergeProgressFields(
+    {
+      positionMs: 50_000,
+      playbackRate: 1,
+      completed: false,
+      eventOccurredAt: new Date("2026-07-09T19:59:50.000Z"),
+      stateOccurredAt: new Date("2026-07-09T19:59:40.000Z"),
+    },
+    {
+      positionMs: 10_000,
+      playbackRate: 2,
+      completed: false,
+      eventOccurredAt: new Date("2026-07-09T19:59:30.000Z"),
+      stateOccurredAt: new Date("2026-07-09T19:59:55.000Z"),
+    },
+    now,
+    100_000,
+  );
+
+  expect(result.position.accept).toBe(false);
+  expect(result.state.accept).toBe(true);
+  expect(result.merged).toMatchObject({ positionMs: 50_000, playbackRate: 2 });
 });

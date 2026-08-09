@@ -214,9 +214,8 @@ async function supersedeStaleProgress(task: QueuedMutation): Promise<QueuedMutat
 
   // A later write of a DIFFERENT position may be a stale tab flushing an old
   // place. Only the moment that position was actually reached can outrank the
-  // queued one. At the SAME position, however, rate and completion are the
-  // user's whole new intent; `writtenAt` is the only clock that can distinguish
-  // that durable write from the row already in the outbox.
+  // queued one. At the SAME position, rate and completion have their own clock:
+  // promoting `writtenAt` to the POSITION clock rewound a newer device.
   if (positionChanged) {
     if (local.occurredAt <= queuedOccurredAt) return task;
   } else {
@@ -244,9 +243,10 @@ async function supersedeStaleProgress(task: QueuedMutation): Promise<QueuedMutat
       positionMs: localPosition,
       ...(typeof local.playbackRate === "number" ? { playbackRate: local.playbackRate } : {}),
       ...(typeof local.completed === "boolean" ? { completed: local.completed } : {}),
-      eventOccurredAt: new Date(
-        positionChanged ? local.occurredAt : local.writtenAt!,
-      ).toISOString(),
+      eventOccurredAt: positionChanged
+        ? new Date(local.occurredAt).toISOString()
+        : task.payload.eventOccurredAt,
+      stateOccurredAt: new Date(local.writtenAt ?? local.occurredAt).toISOString(),
     },
   };
 

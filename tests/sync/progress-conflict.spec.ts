@@ -88,9 +88,12 @@ async function serverState(bookId: string) {
       device_id: string;
       device_sequence: string;
       event_occurred_at: Date;
+      state_occurred_at: Date | null;
+      playback_rate: string;
     }[]
   >`
-    SELECT position_ms, completed, device_id, device_sequence, event_occurred_at
+    SELECT position_ms, completed, device_id, device_sequence, event_occurred_at,
+           state_occurred_at, playback_rate
     FROM playback_states WHERE book_id = ${bookId}::uuid
   `;
   return row
@@ -100,6 +103,8 @@ async function serverState(bookId: string) {
         deviceId: row.device_id,
         deviceSequence: Number(row.device_sequence),
         eventOccurredAt: row.event_occurred_at.toISOString(),
+        stateOccurredAt: row.state_occurred_at?.toISOString() ?? null,
+        playbackRate: Number(row.playback_rate),
       }
     : null;
 }
@@ -202,6 +207,55 @@ test("the older event loses, the server keeps the newer one, and the conflict is
         240_000,
       );
     }
+  } finally {
+    await a.context.close();
+    await b.context.close();
+  }
+});
+
+test("a newer rate-only recovery keeps the newer cross-device position", async ({ browser }) => {
+  const { a, b, bookId } = await setUp(browser);
+  try {
+    const now = Date.now();
+    const newerPositionAt = new Date(now - 60_000).toISOString();
+    const stalePositionAt = new Date(now - 120_000).toISOString();
+    const newerRateAt = new Date(now).toISOString();
+
+    await commit(a.page, {
+      kind: "progress",
+      bookId,
+      positionMs: 240_000,
+      playbackRate: 1,
+      completed: false,
+      eventOccurredAt: newerPositionAt,
+    });
+    await drainOutbox(a.page);
+
+    await goOffline(b.context, b.page);
+    await commit(b.page, {
+      kind: "progress",
+      bookId,
+      positionMs: 15_000,
+      playbackRate: 2,
+      completed: false,
+      eventOccurredAt: stalePositionAt,
+      stateOccurredAt: newerRateAt,
+    });
+    await goOnline(b.context, b.page);
+    await replay(b.page);
+
+    expect(await serverState(bookId)).toMatchObject({
+      positionMs: 240_000,
+      playbackRate: 2,
+      eventOccurredAt: newerPositionAt,
+      stateOccurredAt: newerRateAt,
+    });
+    expect(await outbox(b.page)).toStrictEqual([]);
+    expect((await observedConflicts(b.page)).at(-1)).toMatchObject({
+      bookId,
+      positionMs: 240_000,
+      playbackRate: 2,
+    });
   } finally {
     await a.context.close();
     await b.context.close();

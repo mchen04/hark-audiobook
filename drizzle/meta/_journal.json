@@ -183,6 +183,13 @@
       "when": 1786272219978,
       "tag": "0025_hot_rick_jones",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1786290296197,
+      "tag": "0026_brave_human_robot",
+      "breakpoints": true
     }
   ]
 }

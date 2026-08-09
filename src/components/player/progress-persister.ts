@@ -231,6 +231,7 @@ export function createProgressPersister({
     const playbackRate = getAudio()?.playbackRate || 1;
     const userId = getUserId();
     await withProgressMutationLock(activeBook.id, async () => {
+      const occurredAt = new Date().toISOString();
       const event = {
         bookId: activeBook.id,
         deviceId: getDeviceId(),
@@ -238,7 +239,8 @@ export function createProgressPersister({
         positionMs: Math.round(positionMs),
         playbackRate,
         completed: durableCompleted,
-        eventOccurredAt: new Date().toISOString(),
+        eventOccurredAt: occurredAt,
+        stateOccurredAt: occurredAt,
       };
 
       /**

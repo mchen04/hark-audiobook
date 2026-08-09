@@ -245,6 +245,7 @@ async function writePlaybackStates(
         deviceId: state.deviceId,
         deviceSequence: state.deviceSequence,
         eventOccurredAt: state.eventOccurredAt,
+        stateOccurredAt: state.stateOccurredAt ?? state.eventOccurredAt,
         updatedAt: state.updatedAt,
       };
       return store.put(record);
