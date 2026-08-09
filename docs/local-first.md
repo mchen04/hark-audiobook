@@ -208,8 +208,11 @@ same transaction that journals the delete: no window in which both rows exist,
 and no ordering left to get right. It links them two ways, because a user can be
 looking at either kind of row — by book id (a device-only book the library
 projects from a download record) and by fingerprint (read from the mirror, never
-sent on the wire). A registration queued _after_ a delete is kept: re-importing
-something you deleted is a new intent, not a stale one.
+sent on the wire). When a book route already knows the fingerprint but the
+mirror row is unavailable, that route carries the same value into the delete;
+otherwise deleting from the attach gate would lose the ordering key precisely
+when the mirror cannot supply it. A registration queued _after_ a delete is
+kept: re-importing something you deleted is a new intent, not a stale one.
 
 ### 5.5 When the server renames a book mid-flight
 
@@ -268,6 +271,13 @@ The repo already has a working model and this design adds no second one:
   `playback_action_receipts` is the durable idempotency ledger.
 - `src/server/playback/progress-policy.ts` and `listening-session-policy.ts`
   hold the rules. `PROGRESS_CONFLICT_EVENT` already surfaces conflicts to the UI.
+- Immediately before replay, a progress row is compared with the complete
+  durable local tuple. A different position may replace it only when that
+  position's `occurredAt` is newer, so a late stale-tab flush cannot move the
+  user backwards. At the same position, a changed playback rate or completion
+  flag may replace it only when `writtenAt` is newer than the queued row; the
+  replacement receives a fresh device sequence and uses that write time as its
+  event time.
 
 Per entity:
 
@@ -317,6 +327,10 @@ Icon tap → painted content:
 3. The client reads the mirror from IndexedDB and renders real book cards.
    `data-launch-ready` is set at this point, and **only** when real content or
    the genuine empty state is on screen — never when a skeleton mounts.
+   A cached `/books/:id` route also waits for that first device snapshot before
+   treating the temporary empty map as a miss. Once a book is active, unload
+   events are scoped by account and book id, so deleting some other missing
+   book cannot stop it.
 4. _After_ paint, revalidation runs: session check and `GET /api/sync/pull`.
    Results patch into the already-rendered list in place — no flash, no layout
    jump, no scroll reset.

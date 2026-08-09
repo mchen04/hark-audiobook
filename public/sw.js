@@ -103,18 +103,28 @@ function declareLaunchRoute(event) {
 // because a shell whose chunks are absent is a blank screen with extra steps.
 async function precacheShell() {
   const cache = await caches.open(CACHE_VERSION);
-  await cache.addAll(PRECACHE);
-  const offlinePage = await cache.match(OFFLINE_URL);
-  if (!offlinePage) throw new Error("The required offline page was not cached.");
+  // Fetch the candidate document without exposing it at either live navigation
+  // key. A refresh is only promotable after every chunk it names is cached; if
+  // one fetch fails, the previous document and all of its chunks remain a
+  // complete working set instead of becoming a shell that cannot boot.
+  const offlinePage = await fetch(OFFLINE_URL, { cache: "no-store" });
+  if (!offlinePage.ok) throw new Error("The required offline page could not be fetched.");
+  const html = await offlinePage.clone().text();
+  const assets = [...new Set(html.match(/\/_next\/static\/[^"'\s\\]+/g) || [])];
+  const supportingAssets = PRECACHE.filter((asset) => asset !== OFFLINE_URL);
+  await Promise.all([...supportingAssets, ...assets].map((asset) => cache.add(asset)));
+
+  // Both possible document keys are promoted only after the candidate asset
+  // set is complete. A process death between these two puts is still safe:
+  // old and new documents both reference chunks that remain present, and the
+  // superseded-chunk sweep does not begin until both puts finish.
+  await cache.put(OFFLINE_URL, offlinePage.clone());
   // The same bytes, stored a second time under the URL a launch actually asks
   // for, because the static route declared in `install` resolves by request URL
   // and a miss would go to the network. `serveNavigation` does not need this —
   // it maps /library onto the /offline entry itself — so this key exists purely
   // to make the declarative rule and the handler agree on one document.
   await cache.put(LAUNCH_URL, offlinePage.clone());
-  const html = await offlinePage.clone().text();
-  const assets = [...new Set(html.match(/\/_next\/static\/[^"'\s\\]+/g) || [])];
-  await Promise.all(assets.map((asset) => cache.add(asset)));
   await dropSupersededChunks(cache, assets);
 }
 

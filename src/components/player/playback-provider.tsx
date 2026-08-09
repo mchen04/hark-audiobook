@@ -14,7 +14,11 @@ import {
 import type { PlaybackHistoryEntry, PlaybackHistorySnapshot } from "@/domain/playback-history";
 import type { PlayerBook, PlayerChapter } from "@/domain/player";
 import { rememberActiveUserId } from "@/lib/active-user";
-import { PROGRESS_CONFLICT_EVENT, UNLOAD_PLAYER_EVENT } from "@/lib/app-keys";
+import {
+  PROGRESS_CONFLICT_EVENT,
+  UNLOAD_PLAYER_EVENT,
+  type UnloadPlayerDetail,
+} from "@/lib/app-keys";
 import { createListeningTracker, queueListeningSession } from "@/lib/listening-tracker";
 import {
   markPausedNow,
@@ -355,9 +359,14 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
   ]);
 
   useEffect(() => {
-    window.addEventListener(UNLOAD_PLAYER_EVENT, actions.unloadBook);
-    return () => window.removeEventListener(UNLOAD_PLAYER_EVENT, actions.unloadBook);
-  }, [actions]);
+    const unloadDeletedBook = (event: Event) => {
+      const detail = (event as CustomEvent<UnloadPlayerDetail>).detail;
+      if (detail?.userId !== userId || detail.bookId !== activeBookRef.current?.id) return;
+      actions.unloadBook();
+    };
+    window.addEventListener(UNLOAD_PLAYER_EVENT, unloadDeletedBook);
+    return () => window.removeEventListener(UNLOAD_PLAYER_EVENT, unloadDeletedBook);
+  }, [actions, userId]);
 
   useEffect(() => {
     // The ONE listener for a conflict another device won. Completion

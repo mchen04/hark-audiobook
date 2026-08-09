@@ -18,8 +18,9 @@ if (!constants || !functionSource || !sweepSource) {
 
 const createPrecacheShell = new Function(
   "caches",
+  "fetch",
   `${constants}; ${functionSource}; ${sweepSource}; return precacheShell;`,
-) as (cacheStorage: unknown) => () => Promise<void>;
+) as (cacheStorage: unknown, fetchFn: typeof fetch) => () => Promise<void>;
 
 describe("service-worker shell installation", () => {
   it("precaches the document a warm launch is served, under a purgeable name", async () => {
@@ -34,11 +35,14 @@ describe("service-worker shell installation", () => {
 
   it("caches every required chunk before installation succeeds", async () => {
     const cache = shellCache();
-    const precacheShell = createPrecacheShell({ open: vi.fn().mockResolvedValue(cache) });
+    const precacheShell = createPrecacheShell(
+      { open: vi.fn().mockResolvedValue(cache) },
+      shellFetch(),
+    );
 
     await precacheShell();
 
-    expect(cache.addAll).toHaveBeenCalledWith(["/offline", "/icons/icon-192.png"]);
+    expect(cache.add).toHaveBeenCalledWith("/icons/icon-192.png");
     expect(cache.add).toHaveBeenCalledWith("/_next/static/chunks/offline.js");
   });
 
@@ -48,7 +52,10 @@ describe("service-worker shell installation", () => {
     // set per deploy, against the same origin quota the downloaded audio
     // competes for — and that audio is the only copy in existence.
     const cache = shellCacheWithStaleChunk();
-    const precacheShell = createPrecacheShell({ open: vi.fn().mockResolvedValue(cache) });
+    const precacheShell = createPrecacheShell(
+      { open: vi.fn().mockResolvedValue(cache) },
+      shellFetch(),
+    );
 
     await precacheShell();
 
@@ -58,7 +65,10 @@ describe("service-worker shell installation", () => {
 
   it("never sweeps the shell document, the launch key or the icons", async () => {
     const cache = shellCacheWithStaleChunk();
-    const precacheShell = createPrecacheShell({ open: vi.fn().mockResolvedValue(cache) });
+    const precacheShell = createPrecacheShell(
+      { open: vi.fn().mockResolvedValue(cache) },
+      shellFetch(),
+    );
 
     await precacheShell();
 
@@ -80,7 +90,10 @@ describe("service-worker shell installation", () => {
     expect(constants).toContain(`const LAUNCH_URL = "${startUrl}"`);
 
     const cache = shellCache();
-    const precacheShell = createPrecacheShell({ open: vi.fn().mockResolvedValue(cache) });
+    const precacheShell = createPrecacheShell(
+      { open: vi.fn().mockResolvedValue(cache) },
+      shellFetch(),
+    );
 
     await precacheShell();
 
@@ -89,10 +102,43 @@ describe("service-worker shell installation", () => {
 
   it("rejects installation when a required chunk cannot be cached", async () => {
     const cache = shellCache();
-    cache.add.mockRejectedValueOnce(new Error("chunk unavailable"));
-    const precacheShell = createPrecacheShell({ open: vi.fn().mockResolvedValue(cache) });
+    cache.add.mockImplementation(async (asset: string) => {
+      if (asset.includes("offline.js")) throw new Error("chunk unavailable");
+    });
+    const precacheShell = createPrecacheShell(
+      { open: vi.fn().mockResolvedValue(cache) },
+      shellFetch(),
+    );
 
     await expect(precacheShell()).rejects.toThrow("chunk unavailable");
+  });
+
+  it("keeps the previous working document when a refreshed chunk is unavailable", async () => {
+    let offlineDocument = new Response(
+      '<script src="/_next/static/chunks/working-old.js"></script>',
+    );
+    const cache = shellCache();
+    cache.match.mockImplementation(async (url: string) =>
+      url === "/offline" ? offlineDocument.clone() : undefined,
+    );
+    cache.add.mockImplementation(async (asset: string) => {
+      if (asset.includes("unavailable-new.js")) throw new Error("new chunk unavailable");
+    });
+    cache.put.mockImplementation(async (url: string, response: Response) => {
+      if (url === "/offline") offlineDocument = response.clone();
+    });
+    const precacheShell = createPrecacheShell(
+      { open: vi.fn().mockResolvedValue(cache) },
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response('<script src="/_next/static/chunks/unavailable-new.js"></script>'),
+        ) as typeof fetch,
+    );
+
+    await expect(precacheShell()).rejects.toThrow("new chunk unavailable");
+
+    expect(await (await cache.match("/offline"))!.text()).toContain("working-old.js");
   });
 });
 
@@ -119,4 +165,12 @@ function shellCache() {
     keys: vi.fn().mockResolvedValue([]),
     delete: vi.fn().mockResolvedValue(true),
   };
+}
+
+function shellFetch() {
+  return vi
+    .fn()
+    .mockResolvedValue(
+      new Response('<script src="/_next/static/chunks/offline.js"></script>'),
+    ) as typeof fetch;
 }

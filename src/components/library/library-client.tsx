@@ -99,6 +99,7 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
   const books = snapshot?.books || [];
   const device: DeviceIndex = snapshot?.device || EMPTY_DEVICE_INDEX;
   const playing = fallbackBookId ? device.get(fallbackBookId) || null : null;
+  const snapshotReady = snapshot !== null;
   const [mirroredRoute, setMirroredRoute] = useState<{
     bookId: string;
     phase: "checking" | "ready" | "missing" | "unavailable";
@@ -154,7 +155,10 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
   }, [userId]);
 
   useEffect(() => {
-    if (!userId || !fallbackBookId || playing) return;
+    // `device` is deliberately empty while IndexedDB is still opening. That is
+    // not evidence that a cold-routed book is absent, so the slower mirror
+    // fallback must not race the device snapshot and navigate away first.
+    if (!userId || !fallbackBookId || playing || !snapshotReady) return;
     let active = true;
     void getMirrorPlayerBook(userId, fallbackBookId).then(
       (book) => {
@@ -172,17 +176,18 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
     return () => {
       active = false;
     };
-  }, [fallbackBookId, playing, userId]);
+  }, [fallbackBookId, playing, snapshotReady, userId]);
 
   useEffect(() => {
     if (
+      !playing &&
       fallbackBookId &&
       mirroredRoute?.bookId === fallbackBookId &&
       mirroredRoute.phase === "missing"
     ) {
       leavePlayer();
     }
-  }, [fallbackBookId, leavePlayer, mirroredRoute]);
+  }, [fallbackBookId, leavePlayer, mirroredRoute, playing]);
 
   const forgetDownload = useCallback(
     async (bookId: string) => {

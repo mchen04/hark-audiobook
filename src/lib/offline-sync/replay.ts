@@ -196,13 +196,33 @@ function replayFingerprint(mutation: QueuedMutation): string | null {
  */
 async function supersedeStaleProgress(task: QueuedMutation): Promise<QueuedMutation> {
   if (task.kind !== "progress") return task;
-  const queuedAt = Date.parse(String(task.payload.eventOccurredAt ?? ""));
+  const queuedOccurredAt = Date.parse(String(task.payload.eventOccurredAt ?? ""));
   const local = readLocalProgress(task.userId, task.entityId);
   // `occurredAt: 0` is a pre-v2 record that claims no moment at all, so it
   // cannot claim a later one — the same rule `localWinsOver` applies.
-  if (!local || !local.occurredAt || !Number.isFinite(queuedAt)) return task;
-  if (local.occurredAt <= queuedAt) return task;
-  if (Math.round(local.positionMs) === Number(task.payload.positionMs)) return task;
+  if (!local || !local.occurredAt || !Number.isFinite(queuedOccurredAt)) return task;
+
+  const localPosition = Math.round(local.positionMs);
+  const queuedPosition = Number(task.payload.positionMs);
+  const positionChanged = localPosition !== queuedPosition;
+  const rateChanged =
+    typeof local.playbackRate === "number" &&
+    local.playbackRate !== Number(task.payload.playbackRate);
+  const completionChanged =
+    typeof local.completed === "boolean" && local.completed !== task.payload.completed;
+  if (!positionChanged && !rateChanged && !completionChanged) return task;
+
+  // A later write of a DIFFERENT position may be a stale tab flushing an old
+  // place. Only the moment that position was actually reached can outrank the
+  // queued one. At the SAME position, however, rate and completion are the
+  // user's whole new intent; `writtenAt` is the only clock that can distinguish
+  // that durable write from the row already in the outbox.
+  if (positionChanged) {
+    if (local.occurredAt <= queuedOccurredAt) return task;
+  } else {
+    const newestQueuedMoment = Math.max(task.queuedAt, queuedOccurredAt);
+    if (!local.writtenAt || local.writtenAt <= newestQueuedMoment) return task;
+  }
 
   // Raised past the row being replaced, not merely minted. `nextDeviceSequence`
   // counts what THIS device has issued, and a queued row can outrank that
@@ -221,10 +241,12 @@ async function supersedeStaleProgress(task: QueuedMutation): Promise<QueuedMutat
     deviceSequence,
     payload: {
       ...task.payload,
-      positionMs: Math.round(local.positionMs),
+      positionMs: localPosition,
       ...(typeof local.playbackRate === "number" ? { playbackRate: local.playbackRate } : {}),
       ...(typeof local.completed === "boolean" ? { completed: local.completed } : {}),
-      eventOccurredAt: new Date(local.occurredAt).toISOString(),
+      eventOccurredAt: new Date(
+        positionChanged ? local.occurredAt : local.writtenAt!,
+      ).toISOString(),
     },
   };
 

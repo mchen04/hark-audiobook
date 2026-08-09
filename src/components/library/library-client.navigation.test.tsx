@@ -22,6 +22,8 @@ import { LibraryClient } from "./library-client";
 const BOOK_ID = "11111111-2222-3333-4444-555555555555";
 
 const device = new Map([[BOOK_ID, { book: { id: BOOK_ID, title: "The Hobbit" } }]]);
+const libraryState = vi.hoisted(() => ({ snapshot: null as unknown }));
+const { getMirrorPlayerBook } = vi.hoisted(() => ({ getMirrorPlayerBook: vi.fn() }));
 
 vi.mock("@/components/use-active-user", () => ({ useActiveUserId: () => "user-1" }));
 vi.mock("next/navigation", async () => {
@@ -57,6 +59,7 @@ vi.mock("@/components/player/full-player", () => ({
   ),
 }));
 vi.mock("@/lib/offline/library", () => ({ asOfflinePlayerBook: (record: unknown) => record }));
+vi.mock("@/lib/offline/mirror", () => ({ getMirrorPlayerBook }));
 vi.mock("@/lib/offline/transcript-store", () => ({
   listBookIdsWithTranscripts: async () => new Set<string>(),
 }));
@@ -64,13 +67,7 @@ vi.mock("@/lib/local-import", () => ({ importLocalMp3: async () => undefined }))
 vi.mock("@/lib/launch-revalidation", () => ({ markLaunchPainted: () => undefined }));
 vi.mock("./use-library-books", () => ({
   useLibraryBooks: () => ({
-    snapshot: {
-      books: [],
-      device,
-      libraryTotal: 1,
-      tags: [],
-      continueBook: null,
-    },
+    snapshot: libraryState.snapshot,
     preparing: false,
     firstSyncStatus: "done",
     unavailable: false,
@@ -99,6 +96,14 @@ function setReferrer(value: string) {
 beforeEach(() => {
   goTo("/library");
   setReferrer("");
+  libraryState.snapshot = {
+    books: [],
+    device,
+    libraryTotal: 1,
+    tags: [],
+    continueBook: null,
+  };
+  getMirrorPlayerBook.mockReset().mockResolvedValue(null);
 });
 
 afterEach(cleanup);
@@ -108,6 +113,32 @@ describe("LibraryClient URL following", () => {
     goTo(`/books/${BOOK_ID}`);
     render(<LibraryClient />);
     expect(screen.getByText("Now playing")).toBeInTheDocument();
+  });
+
+  it("waits for the device snapshot before deciding a cold book route is missing", async () => {
+    libraryState.snapshot = null;
+    goTo(`/books/${BOOK_ID}`);
+    const view = render(<LibraryClient />);
+
+    await act(async () => void (await Promise.resolve()));
+
+    expect(
+      getMirrorPlayerBook,
+      "the empty pre-snapshot device map was mistaken for evidence that the book was absent",
+    ).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe(`/books/${BOOK_ID}`);
+
+    libraryState.snapshot = {
+      books: [],
+      device,
+      libraryTotal: 1,
+      tags: [],
+      continueBook: null,
+    };
+    view.rerender(<LibraryClient />);
+
+    expect(screen.getByText("Now playing")).toBeInTheDocument();
+    expect(window.location.pathname).toBe(`/books/${BOOK_ID}`);
   });
 
   it("returns to the library when the back button leaves the book URL", () => {

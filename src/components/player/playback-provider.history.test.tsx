@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PlaybackHistoryEntry } from "@/domain/playback-history";
 import type { PlayerBook } from "@/domain/player";
+import { UNLOAD_PLAYER_EVENT } from "@/lib/app-keys";
 
 const { loadPlaybackHistory, storePlaybackAction, persistence } = vi.hoisted(() => {
   // Stable across renders, as the real hook's `useCallback`s are, so a durable
@@ -113,6 +114,7 @@ function HistoryHarness() {
       <output aria-label="history entries">
         {playback.history.map((entry) => entry.id).join(",")}
       </output>
+      <output aria-label="active book">{playback.book?.id || "none"}</output>
     </>
   );
 }
@@ -235,6 +237,27 @@ describe("playback action capture", () => {
       persistProgress.mock.calls.every(([source]) => typeof source === "string"),
       "a durable write reached the record without naming the mechanism that caused it",
     ).toBe(true);
+  });
+
+  it("ignores a delete-unload event for a different active book", async () => {
+    render(
+      <PlaybackProvider userId="user-1">
+        <HistoryHarness />
+      </PlaybackProvider>,
+    );
+    await waitFor(() => expect(screen.getByLabelText("active book")).toHaveTextContent("book-1"));
+    saveDurableState.mockClear();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(UNLOAD_PLAYER_EVENT, {
+          detail: { userId: "user-1", bookId: "book-2" },
+        }),
+      );
+    });
+
+    expect(screen.getByLabelText("active book")).toHaveTextContent("book-1");
+    expect(saveDurableState).not.toHaveBeenCalledWith("book-unload", expect.any(Number));
   });
 
   it("reconciles server history when the active book is loaded again", async () => {

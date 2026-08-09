@@ -3,7 +3,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { UNLOAD_PLAYER_EVENT } from "@/lib/app-keys";
+import { UNLOAD_PLAYER_EVENT, type UnloadPlayerDetail } from "@/lib/app-keys";
 import { saveLocalPlaybackState } from "@/lib/playback-core";
 
 const { commitBookDeletion, clearPlaybackHistoryForBook, removeOfflineBook, push, refresh } =
@@ -27,7 +27,8 @@ const POSITION_KEY = "chapterline:position:user-a:book-1";
 const MARKER_KEY = "chapterline:last-paused-at:user-a:book-1";
 
 describe("deleting a book", () => {
-  let unload: () => void;
+  let unload: EventListener;
+  let unloadDetails: UnloadPlayerDetail[];
 
   beforeEach(() => {
     const store = new Map<string, string>();
@@ -44,6 +45,7 @@ describe("deleting a book", () => {
     commitBookDeletion.mockReset().mockResolvedValue(undefined);
     clearPlaybackHistoryForBook.mockReset().mockResolvedValue(undefined);
     removeOfflineBook.mockReset().mockResolvedValue(undefined);
+    unloadDetails = [];
 
     /**
      * What the provider really does on this event. `unloadBook` makes the
@@ -52,7 +54,10 @@ describe("deleting a book", () => {
      * book it had just destroyed. The test has to reproduce that write or it
      * grades a cleanup with nothing to clean up.
      */
-    unload = () => saveLocalPlaybackState("user-a", "book-1", { positionMs: 42_000 });
+    unload = (event) => {
+      unloadDetails.push((event as CustomEvent<UnloadPlayerDetail>).detail);
+      saveLocalPlaybackState("user-a", "book-1", { positionMs: 42_000 });
+    };
     window.addEventListener(UNLOAD_PLAYER_EVENT, unload);
   });
 
@@ -61,9 +66,11 @@ describe("deleting a book", () => {
     vi.unstubAllGlobals();
   });
 
-  async function deleteThroughTheUi() {
+  async function deleteThroughTheUi(mediaFingerprint?: string) {
     const onError = vi.fn();
-    const { result } = renderHook(() => useDeleteBook("user-a", "book-1", onError));
+    const { result } = renderHook(() =>
+      useDeleteBook("user-a", "book-1", onError, mediaFingerprint),
+    );
     // First press arms the confirmation; second one deletes.
     await act(async () => void (await result.current.deleteBook()));
     await act(async () => void (await result.current.deleteBook()));
@@ -83,6 +90,7 @@ describe("deleting a book", () => {
     const onError = await deleteThroughTheUi();
 
     expect(commitBookDeletion).toHaveBeenCalledOnce();
+    expect(unloadDetails).toStrictEqual([{ userId: "user-a", bookId: "book-1" }]);
     expect(onError).not.toHaveBeenCalled();
     expect(
       localStorage.getItem(POSITION_KEY),
@@ -94,6 +102,16 @@ describe("deleting a book", () => {
       "the deleted book still has a pause marker; a re-import matched to the same book id by " +
         "fingerprint would inherit a smart rewind earned by the copy the user deleted",
     ).toBeNull();
+  });
+
+  it("carries a route-known fingerprint into a deletion when the mirror may be absent", async () => {
+    await deleteThroughTheUi("f".repeat(64));
+
+    expect(commitBookDeletion).toHaveBeenCalledWith(
+      { userId: "user-a", deviceId: "device-1" },
+      "book-1",
+      "f".repeat(64),
+    );
   });
 
   it("leaves other books and other accounts alone", async () => {

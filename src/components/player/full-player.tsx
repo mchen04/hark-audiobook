@@ -57,6 +57,7 @@ export function FullPlayer({
   onBack,
   autoplay = false,
   details = null,
+  mediaFingerprint = null,
   nextInCollection = null,
 }: {
   playerBook: PlayerBook;
@@ -72,6 +73,7 @@ export function FullPlayer({
   onBack?: () => void;
   autoplay?: boolean;
   details?: BookDetails | null;
+  mediaFingerprint?: string | null;
   nextInCollection?: NextInCollection | null;
 }) {
   const router = useRouter();
@@ -408,6 +410,7 @@ export function FullPlayer({
       {details && (
         <BookDetailsDialog
           details={details}
+          mediaFingerprint={mediaFingerprint}
           open={detailsOpen}
           onClose={() => setDetailsOpen(false)}
         />

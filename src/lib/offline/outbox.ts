@@ -328,11 +328,16 @@ export function commitImport(
  * never leaves the device: `toReplayRequest` sends a delete as a bodiless
  * DELETE, so no payload of this kind is ever serialized onto the wire.
  */
-export async function commitBookDeletion(origin: Origin, bookId: string) {
+export async function commitBookDeletion(
+  origin: Origin,
+  bookId: string,
+  knownFingerprint?: string | null,
+) {
   const db = await database();
   const book = await db.get("books", mirrorKey(origin.userId, bookId));
+  const fingerprint = knownFingerprint || book?.media?.fingerprint;
   return commitDistinctEvent(origin, "delete", bookId, {
-    ...(book?.media ? { fingerprint: book.media.fingerprint } : {}),
+    ...(fingerprint ? { fingerprint } : {}),
   });
 }
 

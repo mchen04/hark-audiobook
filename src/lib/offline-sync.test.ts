@@ -124,6 +124,7 @@ describe("offline progress queue", () => {
     }
 
     afterEach(() => {
+      vi.useRealTimers();
       vi.unstubAllGlobals();
     });
 
@@ -179,6 +180,80 @@ describe("offline progress queue", () => {
       await replayQueuedMutations("user-a", fetchFn as typeof fetch);
 
       expect(JSON.parse(fetchFn.mock.calls[0]?.[1]?.body as string).positionMs).toBe(15_245);
+    });
+
+    it("replays a newer durable playback-rate change at the same position", async () => {
+      const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-07-09T00:00:01.000Z"));
+      await queueProgress(
+        progressEntry({ deviceSequence: 4, positionMs: 5_000, playbackRate: 1.5 }),
+      );
+      clock.mockRestore();
+      withLocalStorage({
+        [KEY]: JSON.stringify({
+          positionMs: 5_000,
+          occurredAt: Date.parse("2026-07-09T00:00:00.000Z"),
+          writtenAt: Date.parse("2026-07-09T00:00:02.000Z"),
+          playbackRate: 2,
+          completed: false,
+        }),
+      });
+      const fetchFn = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+
+      await replayQueuedMutations("user-a", fetchFn as typeof fetch);
+
+      const body = JSON.parse(fetchFn.mock.calls[0]?.[1]?.body as string);
+      expect(body.positionMs).toBe(5_000);
+      expect(body.playbackRate).toBe(2);
+      expect(body.eventOccurredAt).toBe("2026-07-09T00:00:02.000Z");
+      expect(body.deviceSequence).toBeGreaterThan(4);
+    });
+
+    it("replays a newer durable completion change at the same position", async () => {
+      const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-07-09T00:00:01.000Z"));
+      await queueProgress(
+        progressEntry({ deviceSequence: 4, positionMs: 5_000, completed: false }),
+      );
+      clock.mockRestore();
+      withLocalStorage({
+        [KEY]: JSON.stringify({
+          positionMs: 5_000,
+          occurredAt: Date.parse("2026-07-09T00:00:00.000Z"),
+          writtenAt: Date.parse("2026-07-09T00:00:02.000Z"),
+          playbackRate: 1.5,
+          completed: true,
+        }),
+      });
+      const fetchFn = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+
+      await replayQueuedMutations("user-a", fetchFn as typeof fetch);
+
+      const body = JSON.parse(fetchFn.mock.calls[0]?.[1]?.body as string);
+      expect(body.completed).toBe(true);
+      expect(body.eventOccurredAt).toBe("2026-07-09T00:00:02.000Z");
+      expect(body.deviceSequence).toBeGreaterThan(4);
+    });
+
+    it("does not let a later stale-tab flush replace a newer queued position", async () => {
+      const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-07-09T00:00:01.000Z"));
+      await queueProgress(progressEntry({ deviceSequence: 4, positionMs: 15_245 }));
+      clock.mockRestore();
+      withLocalStorage({
+        [KEY]: JSON.stringify({
+          positionMs: 3_231,
+          occurredAt: Date.parse("2026-07-08T23:59:00.000Z"),
+          writtenAt: Date.parse("2026-07-09T00:00:02.000Z"),
+          playbackRate: 2,
+          completed: false,
+        }),
+      });
+      const fetchFn = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+
+      await replayQueuedMutations("user-a", fetchFn as typeof fetch);
+
+      const body = JSON.parse(fetchFn.mock.calls[0]?.[1]?.body as string);
+      expect(body.positionMs).toBe(15_245);
+      expect(body.playbackRate).toBe(1.5);
+      expect(body.deviceSequence).toBe(4);
     });
   });
 
@@ -740,6 +815,37 @@ describe("a delete supersedes an unsent registration of the same file", () => {
     ).toStrictEqual(["delete-started"]);
     expect(events).toStrictEqual(["delete-started", "delete-settled", "import-sent"]);
     expect(await listQueuedMutations(USER)).toStrictEqual([]);
+  });
+
+  it("serializes a later re-import when the route knows a fingerprint absent from the mirror", async () => {
+    await commitBookDeletion(ORIGIN, "canonical-book", FINGERPRINT);
+    await queueRegistration("minted-after-the-delete");
+
+    let releaseDelete!: () => void;
+    const deleteResponse = new Promise<void>((resolve) => {
+      releaseDelete = resolve;
+    });
+    const events: string[] = [];
+    const fetchFn = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "DELETE") {
+        events.push("delete-started");
+        await deleteResponse;
+        events.push("delete-settled");
+        return new Response(null, { status: 200 });
+      }
+      events.push("import-sent");
+      return new Response(null, { status: 201 });
+    });
+
+    const replay = replayQueuedMutations(USER, fetchFn as typeof fetch);
+    await vi.waitFor(() => expect(events).toContain("delete-started"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const beforeDeleteSettled = [...events];
+    releaseDelete();
+    await replay;
+
+    expect(beforeDeleteSettled).toStrictEqual(["delete-started"]);
+    expect(events).toStrictEqual(["delete-started", "delete-settled", "import-sent"]);
   });
 
   it("leaves another file's registration alone", async () => {

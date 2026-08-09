@@ -186,6 +186,10 @@ Writes go through the outbox (`src/lib/offline-sync/`, database
   `archive`, `delete`, `history`. `MUTATION_COALESCING` states the policy per
   kind: progress collapses to the highest device sequence, renames/archive/tag
   and collection edges replace, and `import`/`delete`/`history` never coalesce.
+- Replay reconciles the complete local playback tuple before sending. A newer
+  position is ordered by `occurredAt`; a same-position rate or completion
+  change is ordered by `writtenAt`. Either replacement mints a fresh device
+  sequence, while a late write of an older position remains stale.
 - **Retry on launch and reconnect, never in the background.** iOS will not wake
   a closed PWA, so the queue drains only while the app is open, and no UI
   implies otherwise.
@@ -225,7 +229,10 @@ renders no user rows.
 - Install precaches the shell plus the `/_next/static` chunks parsed out of it,
   because a shell whose chunks are missing is a blank screen with extra steps.
   A deployment renames those chunks without changing `sw.js`, so the page posts
-  `REFRESH_SHELL` once it has gone idle after launch.
+  `REFRESH_SHELL` once it has gone idle after launch. Refresh first fetches and
+  caches every asset named by the candidate document, then promotes that
+  document at both navigation keys, and only then sweeps old chunks. A failed
+  asset fetch therefore leaves the previous document and chunk set live.
 - Revalidation (`src/lib/launch-revalidation.ts`) waits for the render that sets
   `data-launch-ready`, then for 500ms of quiet and an idle callback, before it
   touches the network. A device that has never completed a pull is the one

@@ -185,3 +185,53 @@ test("a cold offline route for missing audio renders the attach gate, not librar
     await page.close();
   }
 });
+
+test("a cold offline route waits for its on-device book before deciding it is missing", async () => {
+  const page = await launchLibrary();
+  try {
+    const href = await page
+      .getByRole("link", { name: ON_DEVICE_BOOK.title, exact: true })
+      .getAttribute("href");
+    expect(href).toMatch(/^\/books\//);
+
+    await cutNetwork(page);
+    await page.goto(`${device.origin}${href}`, { waitUntil: "domcontentloaded" });
+
+    await expect(page.locator(".player-page")).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByRole("button", { name: /Library/ })).toBeVisible();
+    expect(new URL(page.url()).pathname).toBe(href);
+    await expect(page.getByRole("heading", { name: "Library", exact: true })).toHaveCount(0);
+  } finally {
+    await page.close();
+  }
+});
+
+test("deleting a missing book does not unload the different book still playing", async () => {
+  const page = await launchLibrary();
+  try {
+    await page.getByRole("link", { name: ON_DEVICE_BOOK.title, exact: true }).click();
+    await expect(page.getByRole("button", { name: "Play" })).toBeVisible({ timeout: 60_000 });
+    await page.getByRole("button", { name: "Play" }).click();
+    await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+
+    await leavePlayerFromTopbar(page);
+    await expectLibraryOnScreen(page);
+    await page.getByRole("link", { name: OFF_DEVICE_BOOK.title, exact: true }).click();
+    await expect(page.getByRole("button", { name: "Attach MP3" })).toBeVisible({
+      timeout: 60_000,
+    });
+
+    await page.getByRole("button", { name: "Delete this book" }).click();
+    await page.getByRole("button", { name: "Tap again to permanently delete" }).click();
+
+    await expectLibraryOnScreen(page);
+    await expect(page.getByRole("complementary", { name: "Now playing" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+    await expect(page.locator("audio")).toHaveCount(1);
+    expect(await page.locator("audio").evaluate((audio: HTMLAudioElement) => audio.paused)).toBe(
+      false,
+    );
+  } finally {
+    await page.close();
+  }
+});

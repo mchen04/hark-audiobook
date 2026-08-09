@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { UNLOAD_PLAYER_EVENT } from "@/lib/app-keys";
+import { UNLOAD_PLAYER_EVENT, type UnloadPlayerDetail } from "@/lib/app-keys";
 import { replayQueuedMutations } from "@/lib/offline-sync";
 import { removeOfflineBook } from "@/lib/offline/deletion-journal";
 import { commitBookDeletion } from "@/lib/offline/outbox";
@@ -20,7 +20,12 @@ import { clearPlaybackHistoryForBook } from "@/lib/playback-history";
  * durable *before* this device destroys the only copy of the audio, so the
  * server can never be left holding a book whose bytes are already gone.
  */
-export function useDeleteBook(userId: string, bookId: string, onError: (message: string) => void) {
+export function useDeleteBook(
+  userId: string,
+  bookId: string,
+  onError: (message: string) => void,
+  mediaFingerprint?: string | null,
+) {
   const router = useRouter();
   const [deleting, setDeleting] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -32,14 +37,16 @@ export function useDeleteBook(userId: string, bookId: string, onError: (message:
     }
     setDeleting(true);
     try {
-      await commitBookDeletion({ userId, deviceId: getDeviceId() }, bookId);
+      await commitBookDeletion({ userId, deviceId: getDeviceId() }, bookId, mediaFingerprint);
     } catch {
       setDeleting(false);
       setConfirming(false);
       onError("This device could not record the deletion. Try again.");
       return;
     }
-    window.dispatchEvent(new Event(UNLOAD_PLAYER_EVENT));
+    window.dispatchEvent(
+      new CustomEvent<UnloadPlayerDetail>(UNLOAD_PLAYER_EVENT, { detail: { userId, bookId } }),
+    );
     // AFTER the unload, never before. `UNLOAD_PLAYER_EVENT` is dispatched
     // synchronously and `unloadBook` makes the position durable on its way out
     // — correct for leaving a player, wrong for a book that is being destroyed.

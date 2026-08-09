@@ -54,7 +54,12 @@ export function LocalMediaGate({
   const [checkAttempt, setCheckAttempt] = useState(0);
   // The book must stay deletable even when this device lacks the audio,
   // otherwise a book imported elsewhere could never be removed from here.
-  const { deleteBook, deleting, deleteLabel } = useDeleteBook(userId, playerBook.id, setError);
+  const { deleteBook, deleting, deleteLabel } = useDeleteBook(
+    userId,
+    playerBook.id,
+    setError,
+    mediaFingerprint,
+  );
   const inputRef = useRef<HTMLInputElement>(null);
   const readyMediaUrl = state.phase === "ready" ? state.mediaUrl : null;
   const readyCoverUrl = state.phase === "ready" ? state.coverUrl : null;
@@ -150,6 +155,7 @@ export function LocalMediaGate({
         historySnapshot={historySnapshot}
         autoplay={autoplay}
         details={details}
+        mediaFingerprint={mediaFingerprint}
         nextInCollection={nextInCollection}
       />
     );

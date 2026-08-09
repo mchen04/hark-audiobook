@@ -84,10 +84,11 @@ restore live data from Neon snapshots or `pg_dump`, never from Drizzle metadata.
 ## Troubleshooting
 
 - **Stale UI after deploy**: the service worker takes over on the next
-  navigation (skipWaiting + clients.claim); hashed chunks keep old pages
-  working. If a client ever shows chunk 404s, one reload fixes it — that state
-  only arises when the server was restarted mid-deploy against a half-written
-  `.next`.
+  navigation (skipWaiting + clients.claim). A shell refresh promotes the new
+  document only after all of its hashed chunks are cached, so a transient chunk
+  failure keeps the previous working shell. If a development client sees a
+  chunk 404 after `.next` was replaced under a running server, restart that
+  server and reload once.
 - **Import fails with "not a valid MP3"**: the file must be a real MPEG
   Layer 3 file; renamed non-MP3s are rejected by the in-browser parser.
 - **"This device does not have enough free storage"**: the import is bounded
