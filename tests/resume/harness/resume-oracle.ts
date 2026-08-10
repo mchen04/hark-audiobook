@@ -433,6 +433,8 @@ export function buildLongMp3(repeat = FIXTURE_REPEAT, tailPadding = 0, title?: s
  */
 const RESTORE_PATH = "/__resume-oracle-restore__";
 const RESTORE_TITLE = "resume-oracle-restore";
+const SHELL_GENERATION_HEADER = "x-chapterline-shell-generation";
+const SHELL_GENERATION_PREFIX = "chapterline-staged-shell-";
 
 const LIFECYCLE_KEY = "resume-oracle:lifecycle";
 
@@ -2083,6 +2085,65 @@ async function settlePlayer(page: Page): Promise<void> {
  * mirror record the card is rendered from (full resolution), and this device's
  * own local position key. A row where they disagree is the interesting row.
  */
+async function gotoLibraryForShelf(page: Page, origin: string): Promise<void> {
+  const target = `${origin}/library`;
+  const restoreUrl = `${origin}${RESTORE_PATH}`;
+  const beganOnRestoreStub =
+    ENGINE === "webkit" &&
+    page.url() === restoreUrl &&
+    (await page.title().catch(() => null)) === RESTORE_TITLE;
+  if (!beganOnRestoreStub) {
+    await page.goto(target, { waitUntil: "domcontentloaded", timeout: 90_000 });
+    return;
+  }
+
+  const pageErrors = new Set<string>();
+  const capturePageError = (error: Error) => pageErrors.add(error.message);
+  page.on("pageerror", capturePageError);
+  try {
+    try {
+      await page.goto(target, { waitUntil: "domcontentloaded", timeout: 90_000 });
+      return;
+    } catch (error) {
+      const interrupted = String(error).includes("Frame load interrupted");
+      const serviceWorkerHostClosed =
+        pageErrors.has("Service Worker context closed") && pageErrors.has("Cannot load .");
+      const restoreStubSurvived =
+        !page.isClosed() &&
+        !crashed.get(page)?.yes &&
+        page.url() === restoreUrl &&
+        (await page.title().catch(() => null)) === RESTORE_TITLE;
+      if (!interrupted || !serviceWorkerHostClosed || !restoreStubSurvived) throw error;
+
+      // Playwright/WebKit can put the service worker in an indistinguishable
+      // WebContent process that the oracle's hard kill takes down with the page.
+      // The first provisional load then receives a cached response but loses
+      // its worker before committing. Retry only that exact engine failure,
+      // after proving neither the restore page nor the audiobook bytes changed.
+      await assertDeviceHasItsBooks(page, [...(fixture?.books.keys() ?? [])]);
+      console.log(
+        "[resume-oracle] WebKit closed the service-worker host during the first post-kill " +
+          "library load; the restore stub and media survived, so the unchanged load was retried once",
+      );
+      const response = await page.goto(target, {
+        waitUntil: "domcontentloaded",
+        timeout: 90_000,
+      });
+      const generation = response?.headers()[SHELL_GENERATION_HEADER];
+      expect(
+        generation,
+        "INSTRUMENT: the post-kill retry did not come from the cached shell, so an online server " +
+          "fallback would be masquerading as a recovered device launch",
+      ).toMatch(new RegExp(`^${SHELL_GENERATION_PREFIX}`));
+      await page.waitForFunction(() => navigator.serviceWorker.controller !== null, undefined, {
+        timeout: 60_000,
+      });
+    }
+  } finally {
+    page.off("pageerror", capturePageError);
+  }
+}
+
 async function readShelf(
   page: Page,
   origin: string,
@@ -2091,7 +2152,7 @@ async function readShelf(
   userId: string,
   durationMs: number,
 ): Promise<ShelfReading> {
-  await page.goto(`${origin}/library`, { waitUntil: "domcontentloaded", timeout: 90_000 });
+  await gotoLibraryForShelf(page, origin);
   await page.waitForSelector("[data-launch-ready]", { state: "attached", timeout: 90_000 });
   await expect(
     page.getByRole("link", { name: title, exact: true }).first(),
