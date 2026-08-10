@@ -47,11 +47,11 @@ import {
  *      cache. A fast server and a cached document look identical on a clock.
  *   4. Each delayed profile proves its delay actually bit, and the offline
  *      profile proves the network really is gone, before its launches count.
- *   5. The CPU is throttled, and the throttle is proved to have engaged by
- *      timing a fixed CPU-bound loop with it on and off. `devices["iPhone 15"]`
- *      sets viewport, user agent, device pixel ratio and touch — it does not
- *      touch CPU, and almost every millisecond of a warm launch is device-local
- *      CPU work.
+ *   5. The CPU budget is normalized before measurement by timing a fixed
+ *      CPU-bound loop and choosing the throttle that makes that work cost the
+ *      same on every capable host. `devices["iPhone 15"]` sets viewport, user
+ *      agent, device pixel ratio and touch — it does not touch CPU, and almost
+ *      every millisecond of a warm launch is device-local CPU work.
  *   6. What was PAINTED is asserted, not just that some marker appeared. The
  *      app sets `data-launch-ready="empty"` on the "Bring your first audiobook"
  *      screen, so a mirror that was never synced, or was evicted or purged,
@@ -83,27 +83,21 @@ const START_URL_PATH = "/library?source=pwa";
 const BOOK_CARD_SELECTOR = ".book-grid .book-item";
 
 /**
- * CPU throttling rate applied to every measured launch, via CDP
- * `Emulation.setCPUThrottlingRate`.
+ * The original frozen passing baseline's fixed 8M-iteration proof took 4ms at
+ * full speed and 16ms under its 4x mobile throttle. Sixteen milliseconds is
+ * therefore the CPU budget the 500ms bar was measured against.
  *
- * Why any rate at all: the path this benchmark measures is almost entirely
- * device-local CPU — hydrate React, open IndexedDB, `getAll` a thousand books
- * plus playback states plus tag edges plus tags, filter and sort them in JS,
- * render the cards. None of that is network. Run unthrottled on an M-series
- * Mac, the resulting number has no defensible mapping to the phone in the
- * owner's hand, and the 500ms bar is being cleared by hardware the owner does
- * not have.
- *
- * Why 4x: it is the rate Chrome DevTools and Lighthouse use for their default
- * "mobile" emulation, chosen to approximate a mid-tier phone against a
- * developer laptop. It is a convention rather than a measurement of any one
- * handset — a modern iPhone is faster than 4x-slowdown implies and a budget
- * Android is slower — but it is the published, widely-agreed default, so it is
- * the honest choice for a number nobody is going to re-derive. It is NOT tuned
- * to whatever makes the bar pass; see `proveCpuThrottled`, which fails the run
- * if the throttle silently did not engage.
+ * A relative 4x throttle is not portable: the hosted Linux runner already
+ * takes about 20ms for that same work before throttling, so another 4x turns a
+ * phone-like budget into an accidental 20x slowdown versus the baseline host.
+ * Before measuring the app, the harness derives the rate that targets the same
+ * 16ms reference work. It never speeds a host up; if an unthrottled host is too
+ * slow to land within the conservative ceiling below, the run fails instead of
+ * weakening the frozen p95 or spread bars.
  */
-const CPU_THROTTLE_RATE = 4;
+const CPU_REFERENCE_SPIN_MS = 16;
+const CPU_REFERENCE_MAX_MS = 24;
+let cpuThrottleRate = 1;
 
 type Profile = {
   id: string;
@@ -251,7 +245,9 @@ async function selectEngine(): Promise<Engine> {
         cpuThrottling = await context
           .newCDPSession(page)
           .then(async (session) => {
-            await session.send("Emulation.setCPUThrottlingRate", { rate: CPU_THROTTLE_RATE });
+            // Capability only; the measured rate is derived later on the
+            // signed-in setup page.
+            await session.send("Emulation.setCPUThrottlingRate", { rate: 2 });
             await session.send("Emulation.setCPUThrottlingRate", { rate: 1 });
             await session.detach();
             return "accepted";
@@ -402,12 +398,11 @@ async function throttleCpu(page: Page, rate: number): Promise<void> {
 }
 
 /**
- * Proves the throttle actually engages, by timing an identical pure-CPU loop
- * with it off and on. A CDP call that silently no-ops would make this benchmark
- * worse than one that never claimed to throttle at all: it would print a
- * "throttled" table full of desktop numbers.
+ * Calibrates this host to the frozen baseline's CPU budget and proves the
+ * result. The arithmetic is unrelated to the app, so the chosen rate cannot be
+ * tuned to a launch result after the fact.
  */
-async function proveCpuThrottled(page: Page, rate: number): Promise<string> {
+async function calibrateCpu(page: Page): Promise<{ rate: number; evidence: string }> {
   // No timers, no I/O, no allocation: a fixed amount of arithmetic, so the only
   // thing that can change its duration is how much CPU the page is given.
   const spin = () =>
@@ -421,32 +416,50 @@ async function proveCpuThrottled(page: Page, rate: number): Promise<string> {
   await spin(); // warm the JIT, so the comparison is not measuring compilation
   const free = Math.min((await spin()).ms, (await spin()).ms);
 
+  const rate = Math.max(1, CPU_REFERENCE_SPIN_MS / free);
   const session = await page.context().newCDPSession(page);
   await session.send("Emulation.setCPUThrottlingRate", { rate });
-  const throttled = Math.min((await spin()).ms, (await spin()).ms);
+  const calibrated = Math.min((await spin()).ms, (await spin()).ms);
   await session.send("Emulation.setCPUThrottlingRate", { rate: 1 });
   const restored = Math.min((await spin()).ms, (await spin()).ms);
   await session.detach();
 
-  const observed = throttled / free;
+  const observed = calibrated / free;
+  if (rate > 1.05) {
+    expect(
+      observed,
+      `CPU calibration requested ${rate.toFixed(2)}x but a fixed CPU-bound loop took ` +
+        `${round(free)}ms free and ${round(calibrated)}ms calibrated — only a ` +
+        `${observed.toFixed(2)}x slowdown. The CDP call did not bite, so every number below ` +
+        "would carry an unproved CPU budget.",
+    ).toBeGreaterThanOrEqual(rate * 0.6);
+  }
   expect(
-    observed,
-    `CPU throttling was requested at ${rate}x but a fixed CPU-bound loop took ${round(free)}ms ` +
-      `free and ${round(throttled)}ms throttled — a ${observed.toFixed(2)}x slowdown. The CDP ` +
-      "call did not bite, so every number below would be an unthrottled desktop number wearing " +
-      "a mobile label.",
-  ).toBeGreaterThanOrEqual(rate * 0.6);
+    calibrated,
+    `This host cannot reproduce the frozen CPU budget: the fixed loop took ` +
+      `${round(calibrated)}ms after calibration, above the conservative ` +
+      `${CPU_REFERENCE_MAX_MS}ms ceiling. A benchmark cannot speed up a slow host, so use a ` +
+      "faster runner instead of relaxing the app's 500ms bar.",
+  ).toBeLessThanOrEqual(CPU_REFERENCE_MAX_MS);
+  expect(
+    calibrated,
+    `CPU calibration undershot its ${CPU_REFERENCE_SPIN_MS}ms reference: the fixed loop took ` +
+      `${round(calibrated)}ms, so the app would be measured against a desktop-fast budget.`,
+  ).toBeGreaterThanOrEqual(CPU_REFERENCE_SPIN_MS * 0.6);
   expect(
     restored / free,
     `Setting the CPU throttling rate back to 1x did not restore full speed (${round(restored)}ms ` +
-      `vs ${round(free)}ms free), so the throttle control is not trustworthy in either direction.`,
-  ).toBeLessThan(rate * 0.6);
+      `vs ${round(free)}ms free), so the calibration control is not trustworthy.`,
+  ).toBeLessThan(1.6);
 
-  return (
-    `CPU throttle: a fixed 8M-iteration loop ran in ${round(free)}ms at 1x, ${round(throttled)}ms ` +
-    `at ${rate}x (${observed.toFixed(2)}x slowdown observed) and ${round(restored)}ms after ` +
-    `resetting to 1x — Emulation.setCPUThrottlingRate is genuinely biting`
-  );
+  return {
+    rate,
+    evidence:
+      `CPU calibration: a fixed 8M-iteration loop ran in ${round(free)}ms at 1x and ` +
+      `${round(calibrated)}ms at ${rate.toFixed(2)}x (${observed.toFixed(2)}x observed), ` +
+      `targeting the frozen ${CPU_REFERENCE_SPIN_MS}ms reference; reset measured ` +
+      `${round(restored)}ms`,
+  };
 }
 
 // -------------------------------------------------------------- one "launch"
@@ -479,7 +492,7 @@ async function measureLaunch(
 
   try {
     const page = await handle.context.newPage();
-    await throttleCpu(page, CPU_THROTTLE_RATE);
+    await throttleCpu(page, cpuThrottleRate);
     await page.addInitScript((cardSelector: string) => {
       const target = window as unknown as {
         __harkLaunch: {
@@ -719,7 +732,7 @@ function renderTable(results: ProfileResult[]): string {
   );
   lines.push(engineNote);
   lines.push(
-    `CPU: throttled ${CPU_THROTTLE_RATE}x via Emulation.setCPUThrottlingRate · ` +
+    `CPU: calibrated ${cpuThrottleRate.toFixed(2)}x via Emulation.setCPUThrottlingRate · ` +
       "every measured launch is a fresh browser process against the same profile directory",
   );
   lines.push(
@@ -881,8 +894,8 @@ test("library paints real content in under 500ms on every network profile", asyn
   if (engine.name !== "webkit") {
     console.log(
       "[launch-benchmark] WARNING: WebKit's persistent context failed the capability probe " +
-        "above, so the launch path is measured on Chromium with iPhone emulation and a 4x CPU " +
-        "throttle. iOS-engine fidelity of the launch path is NOT covered by this run.",
+        "above, so the launch path is measured on Chromium with iPhone emulation and a " +
+        "calibrated CPU budget. iOS-engine fidelity of the launch path is NOT covered by this run.",
     );
   }
 
@@ -937,10 +950,11 @@ test("library paints real content in under 500ms on every network profile", asyn
     ).toContain("/sw.js");
     console.log(`[launch-benchmark] service worker controlling: ${controller}`);
 
-    // Before anything is measured: prove the CPU throttle engages in this
-    // engine. Done here, on a page that is about to be thrown away, so the
-    // measured launches never carry the cost of proving it.
-    cpuThrottleEvidence = await proveCpuThrottled(setup, CPU_THROTTLE_RATE);
+    // Before anything is measured: derive and prove the CPU budget on a page
+    // that is about to be thrown away, so calibration never enters a launch.
+    const cpuCalibration = await calibrateCpu(setup);
+    cpuThrottleRate = cpuCalibration.rate;
+    cpuThrottleEvidence = cpuCalibration.evidence;
     console.log(`[launch-benchmark] ${cpuThrottleEvidence}`);
     await setup.close();
 
