@@ -463,19 +463,55 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/")) {
-    event.respondWith(
-      currentShellAssetCache().then(async (cache) => {
-        // Prefer the canonical generation. The cross-cache fallback is for a
-        // retained older client lazily requesting one of its own chunks.
-        const cached = (await cache.match(request)) || (await caches.match(request));
-        if (cached) return cached;
-        const response = await fetch(request);
-        if (response.ok) await cache.put(request, response.clone());
-        return response;
-      }),
-    );
+    event.respondWith(serveShellAsset(request, url.pathname));
   }
 });
+
+async function serveShellAsset(request, pathname) {
+  // Turbopack uses one bootstrap pathname for every module worker and puts the
+  // actual entry chunks in the URL fragment. Fragments never reach HTTP or
+  // Cache Storage. A cached Response retains the first worker's response URL;
+  // returning it directly can therefore make a later worker boot that entry.
+  if (isTurbopackWorkerBootstrap(pathname)) {
+    return serveTurbopackWorkerBootstrap(request);
+  }
+
+  const cache = await currentShellAssetCache();
+  // Prefer the canonical generation. The cross-cache fallback is for a
+  // retained older client lazily requesting one of its own chunks.
+  const cached = (await cache.match(request)) || (await caches.match(request));
+  if (cached) return cached;
+  const response = await fetch(request);
+  if (response.ok) await cache.put(request, response.clone());
+  return response;
+}
+
+async function serveTurbopackWorkerBootstrap(request) {
+  const cache = await currentShellAssetCache();
+  const cached = (await cache.match(request)) || (await caches.match(request));
+  if (cached) return detachResponseUrl(cached);
+
+  const response = await fetch(request);
+  if (response.ok) await cache.put(request, response.clone());
+  return detachResponseUrl(response);
+}
+
+async function detachResponseUrl(response) {
+  const headers = new Headers(response.headers);
+  // `arrayBuffer()` exposes decoded bytes. Reusing transport encoding or the
+  // encoded length would corrupt the reconstructed JavaScript response.
+  headers.delete("Content-Encoding");
+  headers.delete("Content-Length");
+  return new Response(await response.arrayBuffer(), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function isTurbopackWorkerBootstrap(pathname) {
+  return /^\/_next\/static\/chunks\/turbopack-worker-[^/]+\.js$/.test(pathname);
+}
 
 /** Runtime-warmed chunks join the generation the canonical launch key names. */
 async function currentShellAssetCache() {

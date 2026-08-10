@@ -1,0 +1,50 @@
+diff --git a/dist/modules/src/mp3/mp3-muxer.js b/dist/modules/src/mp3/mp3-muxer.js
+index 74c24c3cfdbdf2ec8956a50d2852fc334baf04d9..d10d1b765111c79636a82e92c5b5b30c757c0200 100644
+--- a/dist/modules/src/mp3/mp3-muxer.js
++++ b/dist/modules/src/mp3/mp3-muxer.js
+@@ -96,10 +96,14 @@ export class Mp3Muxer extends Muxer {
+     }
+     async finalize() {
+         const release = await this.mutex.acquire();
+-        if (!this.xingFrameData && this.format._options.xingHeader === false) {
+-            // MP3 has no container-level header, so the Xing frame is the only thing we could have synthesized
+-            throw new Error('Cannot finalize an empty MP3 file: not a single packet was added and the Xing header is disabled, so'
+-                + ' there\'s no frame we could write.');
++        if (this.format._options.xingHeader === false) {
++            if (this.frameCount === 0) {
++                // MP3 has no container-level header, so an append-only output needs at least one encoded frame.
++                throw new Error('Cannot finalize an empty MP3 file: not a single packet was added and the Xing header is disabled,'
++                    + ' so there\'s no frame we could write.');
++            }
++            release();
++            return;
+         }
+         if (!this.xingFrameData) {
+             // Not a single packet came in, so let's write a lone Xing frame; that way, the file is still a valid
+diff --git a/src/mp3/mp3-muxer.ts b/src/mp3/mp3-muxer.ts
+index 1eea0c429d3f50bb4f1018379e3fe3f6867b1428..7f88b6387d5a34e48ee7449d35afb8de77fd647f 100644
+--- a/src/mp3/mp3-muxer.ts
++++ b/src/mp3/mp3-muxer.ts
+@@ -132,12 +132,16 @@ export class Mp3Muxer extends Muxer {
+ 	async finalize() {
+ 		const release = await this.mutex.acquire();
+ 
+-		if (!this.xingFrameData && this.format._options.xingHeader === false) {
+-			// MP3 has no container-level header, so the Xing frame is the only thing we could have synthesized
+-			throw new Error(
+-				'Cannot finalize an empty MP3 file: not a single packet was added and the Xing header is disabled, so'
+-				+ ' there\'s no frame we could write.',
+-			);
++		if (this.format._options.xingHeader === false) {
++			if (this.frameCount === 0) {
++				// MP3 has no container-level header, so an append-only output needs at least one encoded frame.
++				throw new Error(
++					'Cannot finalize an empty MP3 file: not a single packet was added and the Xing header is disabled,'
++					+ ' so there\'s no frame we could write.',
++				);
++			}
++			release();
++			return;
+ 		}
+ 
+ 		if (!this.xingFrameData) {

@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
 import { File as NodeFile } from "node:buffer";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 import { strToU8, zipSync } from "fflate";
 import { describe, expect, it } from "vitest";
@@ -31,6 +33,16 @@ describe("document detection", () => {
 });
 
 describe("local document extraction", () => {
+  it("preserves the chapter boundaries used by the browser import holdout", async () => {
+    const source = readFileSync(
+      path.resolve(__dirname, "../../../tests/fixtures/documents/tiny-book.txt"),
+    );
+
+    const document = await extractDocument(sourceFile([source], "tiny-book.txt"));
+
+    expect(document.chapters.map(({ title }) => title)).toEqual(["Chapter One", "Chapter Two"]);
+  });
+
   it("turns Markdown headings into ordered chapters", async () => {
     const document = await extractDocument(
       sourceFile(["# Opening\n\nFirst paragraph.\n\n## Next\n\nSecond paragraph."], "notes.md"),

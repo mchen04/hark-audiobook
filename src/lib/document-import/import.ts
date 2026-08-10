@@ -142,6 +142,7 @@ export async function importLocalDocument(
       }
 
       onProgress(93, "Encoding the final audio");
+      audioSource.close();
       await output.finalize();
       const durationMs = samplesToMilliseconds(totalSamples);
       // Rounding adjacent sample positions independently is monotonic, and the
@@ -205,15 +206,9 @@ export async function importLocalDocument(
 
 async function ensureMp3Encoder(): Promise<void> {
   mp3EncoderReady ??= (async () => {
-    if (
-      !(await canEncodeAudio("mp3", {
-        numberOfChannels: 1,
-        sampleRate: KESTREL_SAMPLE_RATE,
-        quality: MP3_QUALITY,
-      }))
-    ) {
-      registerMp3Encoder();
-    }
+    // Some Chromium builds report native MP3 encoding support but never emit
+    // a packet. Prefer Mediabunny's deterministic LAME worker on every device.
+    registerMp3Encoder();
     if (
       !(await canEncodeAudio("mp3", {
         numberOfChannels: 1,
