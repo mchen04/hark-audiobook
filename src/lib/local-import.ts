@@ -1,9 +1,11 @@
 import { interpretMp3Metadata, InvalidMp3Error, type ParsedMp3 } from "@/domain/mp3";
+import type { LocalBookRegistration } from "@/domain/local-book";
 import type { PlayerBook, PlayerChapter } from "@/domain/player";
 import type { BookTranscript } from "@/domain/transcript";
 import { throwIfAborted } from "@/lib/abort";
 import { fingerprintMedia } from "@/lib/media-fingerprint";
 import { storeLocalBookMedia, withLocalMediaSlot } from "@/lib/offline/media-store";
+import { projectLocalBookRegistration } from "@/lib/offline/local-import-mirror";
 import { commitImport } from "@/lib/offline/outbox";
 import { storeBookTranscript } from "@/lib/offline/transcript-store";
 import { getDeviceId } from "@/lib/playback-core";
@@ -16,21 +18,7 @@ export type ParsedLocalMp3 = ParsedMp3 & {
   transcriptDiagnostic: string | null;
 };
 
-export type LocalBookRegistration = {
-  bookId: string;
-  fileName: string;
-  mimeType: string;
-  byteSize: number;
-  durationMs: number;
-  fingerprint: string;
-  fingerprintKind: "sha256-v1";
-  renditionKey: string;
-  title: string;
-  author: string;
-  narrator: string | null;
-  chapterDiagnostic: string | null;
-  chapters: Array<Pick<PlayerChapter, "position" | "title" | "startMs" | "endMs">>;
-};
+export type { LocalBookRegistration } from "@/domain/local-book";
 
 export type RegisteredLocalBook = {
   bookId: string;
@@ -260,10 +248,13 @@ export async function registerLocalBook(
   if (!response) {
     // The outbox is the durable write. Airplane-mode imports keep the id the
     // device already minted and register when the connection returns.
+    await projectLocalBookRegistration(userId, registration);
     return { bookId: registration.bookId, canonicalBook: null };
   }
   if (response.ok) {
     const { bookId } = (await response.json()) as { bookId: string };
+    if (!bookId) throw new Error("The audiobook registration returned no book id.");
+    await projectLocalBookRegistration(userId, { ...registration, bookId });
     return { bookId, canonicalBook: null };
   }
 
@@ -275,9 +266,16 @@ export async function registerLocalBook(
   // A fingerprint match means this exact source already owns a book. Attach
   // this device's audio to that identity rather than creating a second card.
   if (response.status === 409 && payload?.existingBookId) {
+    const canonicalBook =
+      payload.playerBook?.id === payload.existingBookId ? payload.playerBook : null;
+    await projectLocalBookRegistration(
+      userId,
+      { ...registration, bookId: payload.existingBookId },
+      canonicalBook,
+    );
     return {
       bookId: payload.existingBookId,
-      canonicalBook: payload.playerBook || null,
+      canonicalBook,
     };
   }
   throw new Error(payload?.error || "The audiobook could not be imported.");

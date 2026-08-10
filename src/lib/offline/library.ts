@@ -25,6 +25,7 @@ import {
   removeOfflineBook,
   retryPendingOfflineDeletions,
 } from "./deletion-journal";
+import { rekeyMirroredLocalBook } from "./local-import-mirror";
 import { deleteAllTranscriptsForUser } from "./transcript-store";
 
 export async function listOfflineBooks(userId: string): Promise<OfflineBook[]> {
@@ -176,11 +177,10 @@ async function setMediaMissingSince(
  * - `cacheEntries.bookId` and the transcript keys travel with it, so the
  *   eviction sweep and the account purge still find the rows they own.
  *
- * Interruption-safe by construction. The move is ONE IndexedDB transaction
- * across the three stores, so it either happened or did not; either way the
- * queued registration is only settled after this returns, and a replay that
- * runs again gets the same deterministic 409 and the same canonical id. Running
- * it twice is a no-op.
+ * Interruption-safe by construction. The byte identity and mirror identity
+ * each move in one IndexedDB transaction, and the queued registration settles
+ * only after both return. A stop between them leaves the registration queued;
+ * replay gets the same deterministic 409 and finishes the idempotent move.
  */
 export async function reattachLocalBookIdentity(
   userId: string,
@@ -192,6 +192,7 @@ export async function reattachLocalBookIdentity(
   const db = await database();
   const fromKey = offlineBookKey(userId, fromBookId);
   const toKey = offlineBookKey(userId, toBookId);
+  const canonicalBook = toCanonicalBook(canonical);
 
   // Exactly one lock is taken, and it is the SOURCE's. The import holds that
   // same lock across its whole local write (`media-store.ts#withLocalMediaSlot`),
@@ -224,9 +225,10 @@ export async function reattachLocalBookIdentity(
       await db.delete("downloads", fromKey);
       return true;
     }
-    await rekeyLocalBook(db, userId, fromBookId, toBookId, toCanonicalBook(canonical));
+    await rekeyLocalBook(db, userId, fromBookId, toBookId, canonicalBook);
     return false;
   });
+  await rekeyMirroredLocalBook(userId, fromBookId, toBookId, canonicalBook);
   // Outside the lock: the journal takes it again for every entry it completes.
   // A failure here is not a failed merge — the download record is already gone
   // and the journal row is what owns those bytes now, exactly as it does for

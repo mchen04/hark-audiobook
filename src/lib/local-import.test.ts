@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import "fake-indexeddb/auto";
 import { IDBFactory as FakeIDBFactory } from "fake-indexeddb";
 
+import { database, mirrorKey } from "@/lib/offline/db";
+
 // An import journals its registration in the outbox before it touches the
 // network, so the module under test needs the two browser globals that write
 // reaches for: IndexedDB for the queue, and localStorage for the device id it
@@ -73,6 +75,10 @@ describe("local MP3 import", () => {
       undefined,
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    const db = await database();
+    expect(
+      (await db.getAllFromIndex("books", "by-user", "mobile-user")).map((book) => book.bookId),
+    ).toStrictEqual(["existing-book"]);
   });
 
   it("uses canonical synced state when reattaching an existing book", async () => {
@@ -112,6 +118,12 @@ describe("local MP3 import", () => {
       { key: expect.stringMatching(/^mobile-user:[0-9a-f-]{36}$/) },
       undefined,
     );
+    const db = await database();
+    expect(await db.get("books", mirrorKey("mobile-user", canonical.id))).toMatchObject({
+      title: "Edited title",
+      author: "Edited author",
+      media: { durationMs: 8_000 },
+    });
   });
 
   it("keeps recoverable metadata when device storage fails", async () => {
@@ -128,6 +140,48 @@ describe("local MP3 import", () => {
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    const db = await database();
+    expect(await db.get("books", mirrorKey("mobile-user", "new-book"))).toMatchObject({
+      bookId: "new-book",
+      title: "Mobile PWA Fixture",
+    });
+  });
+
+  it("projects an offline import so its player route can resolve immediately", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new TypeError("offline"));
+    const file = new File([new Uint8Array([7, 8, 9])], "offline%20fixture.mp3", {
+      type: "audio/mpeg",
+    });
+
+    await importLocalMp3("mobile-user", file, vi.fn());
+
+    const storedBook = storeLocalBookMedia.mock.calls[0]![1];
+    const db = await database();
+    const [book, chapters] = await Promise.all([
+      db.get("books", mirrorKey("mobile-user", storedBook.id)),
+      db.getAllFromIndex("chapters", "by-user-book", ["mobile-user", storedBook.id]),
+    ]);
+    expect(book).toMatchObject({
+      bookId: storedBook.id,
+      title: "Mobile PWA Fixture",
+      author: "Ada Mobile",
+      media: {
+        originalFilename: "offline%20fixture.mp3",
+        mimeType: "audio/mpeg",
+        byteSize: 3,
+        fingerprintKind: "sha256-v1",
+        renditionKey: "source-v1",
+        durationMs: 8_000,
+      },
+    });
+    expect(chapters).toEqual([
+      expect.objectContaining({
+        bookId: storedBook.id,
+        position: 0,
+        startMs: 0,
+        endMs: 8_000,
+      }),
+    ]);
   });
 });
 

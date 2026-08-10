@@ -368,9 +368,11 @@ function abortQuietly(transaction: MirrorPatchTransaction): void {
 /**
  * The local projection of each mutation kind.
  *
- * `import` and `history` have none: an import has no book id until the server
- * assigns one, and playback history is not mirrored at all (section 2). Both
- * still go through the outbox, which is what makes them durable.
+ * `import` and `history` have no automatic projection. Registration is
+ * projected explicitly by `registerLocalBook` after it knows whether the
+ * device-minted id was accepted, remained offline, or resolved to a canonical
+ * duplicate. Playback history is not mirrored at all (section 2). Both still
+ * go through the outbox, which is what makes them durable.
  *
  * Every projection that touches a book's children also bumps that book's
  * `updatedAt`, mirroring the server rule from section 3 — otherwise the local

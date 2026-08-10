@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import "fake-indexeddb/auto";
 import { IDBFactory as FakeIDBFactory } from "fake-indexeddb";
 
-import { database, MEDIA_CACHE, offlineBookKey } from "./db";
+import { database, MEDIA_CACHE, mirrorKey, offlineBookKey } from "./db";
 import { removeOfflineBook } from "./deletion-journal";
+import { projectLocalBookRegistration } from "./local-import-mirror";
 import {
   getOfflineBook,
   listOfflineBooks,
@@ -115,6 +116,24 @@ async function storeBook(
   return { offlineMediaUrl, coverUrl, urls };
 }
 
+async function projectBook(bookId: string) {
+  await projectLocalBookRegistration(USER, {
+    bookId,
+    fileName: "offline-book.txt",
+    mimeType: "text/plain",
+    byteSize: 128,
+    durationMs: 600_000,
+    fingerprint: "a".repeat(64),
+    fingerprintKind: "sha256-v1",
+    renditionKey: "kestrel-test-v1",
+    title: "Offline import",
+    author: "Author",
+    narrator: "Kestrel",
+    chapterDiagnostic: null,
+    chapters: [{ position: 0, title: "One", startMs: 0, endMs: 600_000 }],
+  });
+}
+
 async function mediaSnapshot(): Promise<Record<string, string>> {
   const cache = caches.raw.get(MEDIA_CACHE);
   const snapshot: Record<string, string> = {};
@@ -141,6 +160,7 @@ async function transcriptKeys(): Promise<string[]> {
 describe("reattaching an offline import to the book the server already has", () => {
   it("moves the identity and leaves every stored byte exactly where it was", async () => {
     const { offlineMediaUrl } = await storeBook(MINTED);
+    await projectBook(MINTED);
     const before = await mediaSnapshot();
 
     await reattachLocalBookIdentity(USER, MINTED, CANONICAL);
@@ -161,6 +181,23 @@ describe("reattaching an offline import to the book the server already has", () 
       "Cache Storage changed. A multi-gigabyte audiobook must never be copied or deleted to " +
         "rename it — the only copy of the file lives here.",
     ).toStrictEqual(before);
+
+    const db = await database();
+    const [sourceMirror, targetMirror, targetChapters] = await Promise.all([
+      db.get("books", mirrorKey(USER, MINTED)),
+      db.get("books", mirrorKey(USER, CANONICAL)),
+      db.getAllFromIndex("chapters", "by-user-book", [USER, CANONICAL]),
+    ]);
+    expect(sourceMirror, "the device-minted mirror aggregate survived reconciliation").toBe(
+      undefined,
+    );
+    expect(targetMirror).toMatchObject({
+      bookId: CANONICAL,
+      media: { renditionKey: "kestrel-test-v1" },
+    });
+    expect(targetChapters).toEqual([
+      expect.objectContaining({ bookId: CANONICAL, position: 0, endMs: 600_000 }),
+    ]);
   });
 
   it("takes the cache journal with it so the sweep and the purge still find the bytes", async () => {
@@ -235,6 +272,8 @@ describe("reattaching an offline import to the book the server already has", () 
   it("keeps the copy already filed under the canonical id and drops the duplicate", async () => {
     const canonical = await storeBook(CANONICAL, { title: "The one that stays" });
     const duplicate = await storeBook(MINTED, { title: "Second import of the same file" });
+    await projectBook(CANONICAL);
+    await projectBook(MINTED);
 
     await reattachLocalBookIdentity(USER, MINTED, CANONICAL);
 
@@ -252,6 +291,11 @@ describe("reattaching an offline import to the book the server already has", () 
       Object.fromEntries(canonical.urls.map((url) => [url, CANONICAL])),
     );
     expect(await transcriptKeys()).toStrictEqual([`${USER}:${CANONICAL}:000000`]);
+    const db = await database();
+    expect(
+      (await db.getAllFromIndex("books", "by-user", USER)).map((book) => book.bookId),
+      "the abandoned device id still has a library card after duplicate media was removed",
+    ).toStrictEqual([CANONICAL]);
   });
 
   it("never deletes the audio when the canonical id has a record but no bytes", async () => {
