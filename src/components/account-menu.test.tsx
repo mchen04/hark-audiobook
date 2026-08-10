@@ -60,6 +60,7 @@ describe("account menu sign-out", () => {
       "the sign-out call site cleared the key the purge needs to read",
     ).not.toContain(ACTIVE_USER_KEY);
     expect(router.replace).toHaveBeenCalledWith("/login");
+    expect(router.refresh).not.toHaveBeenCalled();
     removeItem.mockRestore();
   });
 

@@ -35,7 +35,6 @@ export function AccountMenu({ email }: AccountMenuProps) {
 
   function leave() {
     router.replace("/login");
-    router.refresh();
   }
 
   return (

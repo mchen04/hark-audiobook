@@ -190,14 +190,22 @@ export async function listProgressNormalizations(
 
 export async function listProgressNormalizationUserIds(): Promise<string[]> {
   const db = await database();
-  const index = db.transaction("normalizations").store.index("by-user");
-  const users: string[] = [];
-  let cursor = await index.openKeyCursor(null, "nextunique");
+  const transaction = db.transaction("normalizations", "readonly");
+  // WebKit can reject an index key cursor opened immediately after this
+  // database's first upgrade with `UnknownError: Unable to open cursor`. The
+  // request rejection is observed by the caller, but `idb` also exposes the
+  // resulting transaction abort through `done`; claim that promise now so it
+  // cannot surface later as an unrelated unhandled `AbortError`.
+  const done = transaction.done;
+  void done.catch(() => undefined);
+  const users = new Set<string>();
+  let cursor = await transaction.store.openCursor();
   while (cursor) {
-    users.push(String(cursor.key));
+    if (cursor.value.userId) users.add(cursor.value.userId);
     cursor = await cursor.continue();
   }
-  return users;
+  await done;
+  return [...users];
 }
 
 function applyNormalization(userId: string, bookId: string, normalization: PlaybackNormalization) {
