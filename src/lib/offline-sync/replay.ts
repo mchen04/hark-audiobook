@@ -1,4 +1,5 @@
 import { readLocalProgress } from "@/lib/playback-core";
+import { ensurePermanentOfflineBookDeletion } from "@/lib/offline/deletion-fence";
 import { singleFlight } from "@/lib/single-flight";
 import { withKeyedLock } from "@/lib/keyed-lock";
 import { runBounded } from "@/lib/run-bounded";
@@ -337,6 +338,12 @@ async function replayMutation(snapshot: QueuedMutation, fetchFn: typeof fetch): 
       // merge it back onto the doomed id or undo the user's delete. Keep the
       // import untouched; the next drain retries the predecessor first.
       return;
+    }
+    if (task.kind === "delete") {
+      // A crash can land the outbox row before the separate offline database
+      // receives its marker. Never make the delete server-visible until the
+      // durable local fence has been repaired.
+      await ensurePermanentOfflineBookDeletion(task.userId, task.entityId);
     }
     const { url, init } = toReplayRequest(task);
     const response = await fetchFn(url, init);

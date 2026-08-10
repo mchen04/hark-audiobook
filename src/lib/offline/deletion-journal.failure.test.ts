@@ -13,6 +13,7 @@ vi.mock("@/lib/playback-history", () => ({
 }));
 
 import { database, offlineBookKey } from "./db";
+import { ensurePermanentOfflineBookDeletion } from "./deletion-fence";
 import {
   removeOfflineBook,
   retryAllPendingOfflineDeletions,
@@ -76,6 +77,40 @@ it("journals permanent-book history cleanup and retries it after failure", async
   expect(await db.get("deletions", offlineBookKey(USER, BOOK))).toHaveProperty("completedAt");
 });
 
+it("persists a permanent deletion fence before waiting for the media lock", async () => {
+  let releaseLock!: () => void;
+  let lockRequested!: () => void;
+  const requested = new Promise<void>((resolve) => {
+    lockRequested = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+  vi.stubGlobal("navigator", {
+    locks: {
+      request: vi.fn(async (_name: string, operation: () => Promise<unknown>) => {
+        lockRequested();
+        await held;
+        return operation();
+      }),
+    },
+  });
+
+  const removal = removeOfflineBook(USER, BOOK, { clearPlaybackHistory: true });
+  await requested;
+  const db = await database();
+  const markerBeforeLock = await db.get("deletions", offlineBookKey(USER, BOOK));
+  releaseLock();
+  await removal;
+
+  expect(markerBeforeLock).toMatchObject({
+    userId: USER,
+    bookId: BOOK,
+    clearPlaybackHistory: true,
+  });
+  expect(markerBeforeLock).not.toHaveProperty("completedAt");
+});
+
 it("does not recreate a deletion journal row removed by an account purge", async () => {
   let releaseDelete!: () => void;
   let deletionStarted!: () => void;
@@ -124,4 +159,22 @@ it("keeps permanent-book tombstones after completed cleanup", async () => {
     clearPlaybackHistory: true,
     completedAt: expect.any(Number),
   });
+});
+
+it("a retry reclaims media committed by the writer that previously held the lock", async () => {
+  const deleted = vi.fn(async () => true);
+  vi.stubGlobal("caches", { open: vi.fn(async () => ({ delete: deleted })) });
+  await ensurePermanentOfflineBookDeletion(USER, BOOK);
+  const db = await database();
+  const key = offlineBookKey(USER, BOOK);
+  const existing = (await db.get("downloads", key))!;
+  await db.put("downloads", {
+    ...existing,
+    offlineMediaUrl: "/offline-media/committed-after-fence",
+  });
+
+  await retryPendingOfflineDeletions(USER);
+
+  expect(deleted).toHaveBeenCalledWith("/offline-media/committed-after-fence");
+  expect(await db.get("downloads", key)).toBeUndefined();
 });

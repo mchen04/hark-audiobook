@@ -9,6 +9,7 @@ import {
   getOfflineBook,
   listOfflineBooks,
   listStoredOfflineBooks,
+  listVisibleStoredOfflineBooks,
   reattachLocalBookIdentity,
 } from "./library";
 
@@ -565,5 +566,21 @@ describe("a Cache Storage wipe that keeps the cache names", () => {
     ).toBeUndefined();
     expect(await transcriptKeys()).toStrictEqual([]);
     expect(await cacheEntryOwners()).toStrictEqual({});
+  });
+
+  it("hides permanently deleted media while cleanup is still waiting", async () => {
+    await storeBook(CANONICAL);
+    const db = await database();
+    await db.put("deletions", {
+      key: offlineBookKey(USER, CANONICAL),
+      userId: USER,
+      bookId: CANONICAL,
+      operationId: crypto.randomUUID(),
+      clearPlaybackHistory: true,
+    });
+
+    await expect(listStoredOfflineBooks(USER)).resolves.toHaveLength(1);
+    await expect(listVisibleStoredOfflineBooks(USER)).resolves.toStrictEqual([]);
+    await expect(getOfflineBook(USER, CANONICAL)).resolves.toBeUndefined();
   });
 });

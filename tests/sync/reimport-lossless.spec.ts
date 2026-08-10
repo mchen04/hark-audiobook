@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -47,6 +47,7 @@ const DEVICE = "device-reimport-00001";
 const OFFLINE_DEVICE = "device-reimport-00002";
 const DELETE_REIMPORT_DEVICE = "device-reimport-00003";
 const STALE_ATTACH_DEVICE = "device-reimport-00004";
+const CRASH_DELETE_DEVICE = "device-reimport-00005";
 const SAVED_POSITION_MS = 4_500;
 
 let session: { account: Account; storageState: StorageState } | null = null;
@@ -427,6 +428,181 @@ test("a stale player cannot attach audio after another tab permanently deletes t
     await context.close();
   }
 });
+
+test("a tab closed while permanent cleanup waits cannot resurrect local media", async ({
+  browser,
+}) => {
+  session ??= await sharedSession(browser);
+  const { account, storageState } = session;
+  await resetAccount(account.userId);
+
+  const { context, page: deletingTab } = await openDevice(
+    browser,
+    CRASH_DELETE_DEVICE,
+    storageState,
+  );
+  try {
+    await deletingTab.goto(`${APP_ORIGIN}/library`, { waitUntil: "domcontentloaded" });
+    await deletingTab.waitForSelector("[data-launch-ready]", {
+      state: "attached",
+      timeout: 60_000,
+    });
+    await attachDriver(deletingTab, account, CRASH_DELETE_DEVICE);
+
+    const bytes = readFileSync(FIXTURE);
+    await importThroughUi(deletingTab, path.basename(FIXTURE), bytes);
+    await expect(deletingTab.getByRole("link", { name: FIXTURE_TITLE, exact: true })).toBeVisible({
+      timeout: 60_000,
+    });
+    await drainOutbox(deletingTab);
+    expect(await pull(deletingTab)).toBe("applied");
+    const server = await readServerState(account.userId);
+    const bookId = [...server.booksByFingerprint.values()][0]?.bookId;
+    expect(bookId).toBeTruthy();
+
+    const before = await deletionState(deletingTab, account.userId, bookId!);
+    expect(before.download?.offlineMediaUrl).toBeTruthy();
+    const lockName = `chapterline-media:${account.userId}:${bookId}`;
+
+    const holder = await context.newPage();
+    await holder.goto(`${APP_ORIGIN}/library`, { waitUntil: "domcontentloaded" });
+    await holder.waitForSelector("[data-launch-ready]", { state: "attached", timeout: 60_000 });
+    await attachDriver(holder, account, CRASH_DELETE_DEVICE);
+    await holder.evaluate((name) => {
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const state = {
+        acquired: false,
+        release: () => release(),
+      };
+      const target = window as typeof window & { __heldMediaLock?: typeof state };
+      target.__heldMediaLock = state;
+      void navigator.locks.request(name, async () => {
+        state.acquired = true;
+        await held;
+      });
+    }, lockName);
+    await holder.waitForFunction(
+      () =>
+        (
+          window as typeof window & {
+            __heldMediaLock?: { acquired: boolean };
+          }
+        ).__heldMediaLock?.acquired === true,
+    );
+
+    await deletingTab.getByRole("link", { name: FIXTURE_TITLE, exact: true }).click();
+    await deletingTab.waitForURL(/\/books\//, { timeout: 30_000 });
+    await deletingTab.getByRole("button", { name: "Details" }).click();
+    const dialog = deletingTab.getByRole("dialog");
+    await dialog.getByRole("button", { name: "Delete this book" }).click();
+    await dialog.getByRole("button", { name: "Tap again to permanently delete" }).click();
+
+    await expect
+      .poll(
+        async () => {
+          const state = await deletionState(holder, account.userId, bookId!);
+          return {
+            download: !!state.download,
+            mirrorBook: state.mirrorBook,
+            permanentFence: state.deletion?.clearPlaybackHistory === true,
+            cleanupComplete: state.deletion?.completedAt !== undefined,
+          };
+        },
+        { timeout: 30_000, message: "deletion did not fence media before waiting on the lock" },
+      )
+      .toStrictEqual({
+        download: true,
+        mirrorBook: false,
+        permanentFence: true,
+        cleanupComplete: false,
+      });
+
+    // This is the crash window: the delete intent and mirror removal are both
+    // durable, but byte cleanup cannot enter its lock. Closing this tab must
+    // leave enough journal state for another launch to finish the operation.
+    await deletingTab.close();
+    await holder.evaluate(() => {
+      (
+        window as typeof window & {
+          __heldMediaLock?: { release: () => void };
+        }
+      ).__heldMediaLock?.release();
+    });
+    await holder.reload({ waitUntil: "domcontentloaded" });
+    await holder.waitForSelector("[data-launch-ready]", { state: "attached", timeout: 60_000 });
+    await attachDriver(holder, account, CRASH_DELETE_DEVICE);
+
+    await expect(holder.locator("article.book-item", { hasText: FIXTURE_TITLE })).toHaveCount(0);
+    await expect
+      .poll(
+        async () => {
+          const state = await deletionState(holder, account.userId, bookId!);
+          return {
+            download: !!state.download,
+            mirrorBook: state.mirrorBook,
+            permanentFence: state.deletion?.clearPlaybackHistory === true,
+            cleanupComplete: state.deletion?.completedAt !== undefined,
+          };
+        },
+        { timeout: 30_000, message: "a relaunched tab did not finish the journaled cleanup" },
+      )
+      .toStrictEqual({
+        download: false,
+        mirrorBook: false,
+        permanentFence: true,
+        cleanupComplete: true,
+      });
+    expect(await playable(holder, bookId!)).toStrictEqual({
+      record: false,
+      media: false,
+      byteSize: null,
+    });
+    expect(await mediaCacheEntries(holder)).toBe(0);
+
+    await drainOutbox(holder);
+    expect(await pull(holder)).toBe("applied");
+    expect((await readServerState(account.userId)).booksByFingerprint.size).toBe(0);
+  } finally {
+    await context.close();
+  }
+});
+
+async function deletionState(page: Page, userId: string, bookId: string) {
+  return page.evaluate(
+    async ({ userId: ownerId, bookId: targetBookId }) => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open("chapterline-offline-v1");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      try {
+        const key = `${ownerId}:${targetBookId}`;
+        const transaction = db.transaction(["downloads", "deletions", "books"]);
+        const read = <T>(request: IDBRequest<T>) =>
+          new Promise<T>((resolve, reject) => {
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+        const [download, deletion, mirrorBook] = await Promise.all([
+          read<{ offlineMediaUrl: string } | undefined>(
+            transaction.objectStore("downloads").get(key),
+          ),
+          read<{ clearPlaybackHistory?: boolean; completedAt?: number } | undefined>(
+            transaction.objectStore("deletions").get(key),
+          ),
+          read<unknown>(transaction.objectStore("books").get(key)),
+        ]);
+        return { download, deletion, mirrorBook: mirrorBook !== undefined };
+      } finally {
+        db.close();
+      }
+    },
+    { userId, bookId },
+  );
+}
 
 /**
  * Eviction recovery when the network cannot serve the app's own code.

@@ -471,7 +471,7 @@ describe("optimistic mirror projection", () => {
     expect((await db.get("books", mirrorKey(USER, BOOK)))!.searchText).toContain("moby dick");
   });
 
-  it("removes the whole aggregate on a delete without touching media", async () => {
+  it("fences media before removing the whole aggregate without touching its bytes", async () => {
     await seedBook();
     const db = await database();
     await db.put("chapters", {
@@ -497,6 +497,11 @@ describe("optimistic mirror projection", () => {
 
     expect(await db.get("books", mirrorKey(USER, BOOK))).toBeUndefined();
     expect(await db.get("chapters", `${USER}:${BOOK}:000000`)).toBeUndefined();
+    expect(await db.get("deletions", `${USER}:${BOOK}`)).toMatchObject({
+      userId: USER,
+      bookId: BOOK,
+      clearPlaybackHistory: true,
+    });
     // The audio is the only copy that exists anywhere; sync bookkeeping must
     // never be what removes it.
     expect(await db.get("downloads", `${USER}:${BOOK}`)).toBeDefined();
@@ -508,6 +513,25 @@ describe("optimistic mirror projection", () => {
 // ---------------------------------------------------------------------------
 
 describe("idempotent replay", () => {
+  it("repairs a missing permanent deletion fence before sending a queued delete", async () => {
+    await commitBookDeletion(DEVICE, BOOK);
+    const db = await database();
+    await db.delete("deletions", `${USER}:${BOOK}`);
+    let fenceAtFetch: unknown;
+    const applied = vi.fn(async () => {
+      fenceAtFetch = await db.get("deletions", `${USER}:${BOOK}`);
+      return new Response(null, { status: 200 });
+    });
+
+    await replayQueuedMutations(USER, applied as unknown as typeof fetch);
+
+    expect(fenceAtFetch).toMatchObject({
+      userId: USER,
+      bookId: BOOK,
+      clearPlaybackHistory: true,
+    });
+  });
+
   it("reuses one mutation id across every retry", async () => {
     const { queued } = await commitHistoryEvent(DEVICE, BOOK, {
       action: "seek",

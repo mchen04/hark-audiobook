@@ -6,7 +6,7 @@ import type { LibraryBook } from "@/domain/library";
 import { afterLaunchPaint } from "@/lib/launch-revalidation";
 import { database, mirrorKeyTail, type OfflineBook } from "@/lib/offline/db";
 import { removeOfflineBook } from "@/lib/offline/deletion-journal";
-import { listOfflineBooks, listStoredOfflineBooks } from "@/lib/offline/library";
+import { listOfflineBooks, listVisibleStoredOfflineBooks } from "@/lib/offline/library";
 import {
   applyPullBatch,
   getMirrorContinueBook,
@@ -360,7 +360,7 @@ async function readOverview(
     listMirrorTagNames(userId),
     getMirrorContinueBook(userId),
     readMirrorBookIds(userId),
-    listStoredOfflineBooks(userId),
+    listVisibleStoredOfflineBooks(userId),
   ]);
   const deviceOnly = records.filter((record) => !mirrorIds.has(record.book.id)).length;
   return { libraryTotal: mirrorIds.size + deviceOnly, tags, continueBook };
@@ -380,7 +380,7 @@ async function readListing(
       tag: filters.tag || undefined,
       sort: filters.sort,
     }),
-    listStoredOfflineBooks(userId),
+    listVisibleStoredOfflineBooks(userId),
     readMirrorBookIds(userId),
   ]);
   const device: DeviceIndex = new Map(

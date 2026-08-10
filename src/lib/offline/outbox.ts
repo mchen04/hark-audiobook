@@ -27,6 +27,7 @@ import {
   type MirrorTag,
   type OfflineDatabase,
 } from "./db";
+import { ensurePermanentOfflineBookDeletion } from "./deletion-fence";
 
 /**
  * Journal intent, then act.
@@ -82,9 +83,12 @@ export type CommitResult = {
 export async function commitMutation(
   mutation: QueuedMutation,
   patch: MirrorPatch | null = mirrorPatchFor(mutation),
+  afterQueue?: () => Promise<void>,
 ): Promise<CommitResult> {
   assertAccountWritable(mutation.userId);
   const { queued, changed } = await queueMutationWithOutcome(mutation);
+  assertAccountWritable(mutation.userId);
+  await afterQueue?.();
   assertAccountWritable(mutation.userId);
   // A fully superseded event changes neither durable row. Progress can instead
   // contribute one independently newer field to an older sequence envelope;
@@ -110,9 +114,17 @@ async function applyMirrorPatch(userId: string, patch: MirrorPatch): Promise<voi
   }
 }
 
-export function commitDraft(draft: MutationDraft, patch?: MirrorPatch | null) {
+export function commitDraft(
+  draft: MutationDraft,
+  patch?: MirrorPatch | null,
+  afterQueue?: () => Promise<void>,
+) {
   const mutation = buildMutation(draft);
-  return commitMutation(mutation, patch === undefined ? mirrorPatchFor(mutation) : patch);
+  return commitMutation(
+    mutation,
+    patch === undefined ? mirrorPatchFor(mutation) : patch,
+    afterQueue,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -303,18 +315,23 @@ function commitDistinctEvent(
   kind: "import" | "delete" | "history",
   entityId: string,
   payload: Record<string, unknown>,
+  afterQueue?: () => Promise<void>,
 ) {
   const mutationId = newMutationId();
-  return commitDraft({
-    key: eventMutationKey(origin.userId, kind, entityId, mutationId),
-    userId: origin.userId,
-    kind,
-    entityId,
-    payload,
-    mutationId,
-    deviceId: origin.deviceId,
-    deviceSequence: 0,
-  });
+  return commitDraft(
+    {
+      key: eventMutationKey(origin.userId, kind, entityId, mutationId),
+      userId: origin.userId,
+      kind,
+      entityId,
+      payload,
+      mutationId,
+      deviceId: origin.deviceId,
+      deviceSequence: 0,
+    },
+    undefined,
+    afterQueue,
+  );
 }
 
 export function commitImport(
@@ -345,9 +362,15 @@ export async function commitBookDeletion(
   const book = await db.get("books", mirrorKey(origin.userId, bookId));
   const fingerprint = knownFingerprint || book?.media?.fingerprint;
   const renditionKey = knownRenditionKey || book?.media?.renditionKey || "source-v1";
-  return commitDistinctEvent(origin, "delete", bookId, {
-    ...(fingerprint ? { fingerprint, renditionKey } : {}),
-  });
+  return commitDistinctEvent(
+    origin,
+    "delete",
+    bookId,
+    {
+      ...(fingerprint ? { fingerprint, renditionKey } : {}),
+    },
+    () => ensurePermanentOfflineBookDeletion(origin.userId, bookId),
+  );
 }
 
 export function commitHistoryEvent(origin: Origin, bookId: string, event: Record<string, unknown>) {

@@ -25,6 +25,7 @@ import {
   removeOfflineBook,
   retryPendingOfflineDeletions,
 } from "./deletion-journal";
+import { isPermanentOfflineDeletion } from "./deletion-fence";
 import { rekeyMirroredLocalBook } from "./local-import-mirror";
 import { deleteAllTranscriptsForUser } from "./transcript-store";
 
@@ -52,6 +53,24 @@ export async function listStoredOfflineBooks(userId: string): Promise<OfflineBoo
 }
 
 /**
+ * Paint-path records, excluding books whose permanent deletion is already
+ * durable but whose byte cleanup is still waiting on another tab's lock.
+ */
+export async function listVisibleStoredOfflineBooks(userId: string): Promise<OfflineBook[]> {
+  const db = await database();
+  const transaction = db.transaction(["downloads", "deletions"]);
+  const [records, deletions] = await Promise.all([
+    transaction.objectStore("downloads").index("by-user").getAll(userId),
+    transaction.objectStore("deletions").index("by-user").getAll(userId),
+  ]);
+  await transaction.done;
+  const permanentlyDeleted = new Set(
+    deletions.filter(isPermanentOfflineDeletion).map((entry) => entry.bookId),
+  );
+  return records.filter((record) => !permanentlyDeleted.has(record.book.id));
+}
+
+/**
  * One download record exactly as stored — no deletion retry, no reconcile, no
  * Cache Storage read at all.
  *
@@ -73,11 +92,17 @@ export async function getOfflineBook(userId: string, bookId: string) {
     await applyPendingProgressNormalizations(userId, bookId);
     const db = await database();
     const key = offlineBookKey(userId, bookId);
-    const record = await db.get("downloads", key);
-    if (!record) return undefined;
+    const [record, deletion] = await Promise.all([
+      db.get("downloads", key),
+      db.get("deletions", key),
+    ]);
+    if (!record || isPermanentOfflineDeletion(deletion)) return undefined;
 
     const cache = await caches.open(MEDIA_CACHE);
     const reconciled = await reconcileOfflineRecord(db, cache, record);
+    // The marker can land while Cache Storage is being read. Check once more
+    // before handing bytes to the player so that transition is never exposed.
+    if (isPermanentOfflineDeletion(await db.get("deletions", key))) return undefined;
     return reconciled;
   } catch {
     throw new OfflineStorageUnavailableError();
