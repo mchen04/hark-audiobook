@@ -87,9 +87,15 @@ describe("generated media streaming", () => {
       `${record.offlineMediaUrl}/chunk/0`,
       `${record.offlineMediaUrl}/chunk/1`,
     ]);
-    expect(
-      new Uint8Array(await cache.get(`${record.offlineMediaUrl}/chunk/0`)!.arrayBuffer()),
-    ).toEqual(bytes.subarray(0, 4 * 1024 * 1024));
+    const firstChunk = new Uint8Array(
+      await cache.get(`${record.offlineMediaUrl}/chunk/0`)!.arrayBuffer(),
+    );
+    const secondChunk = new Uint8Array(
+      await cache.get(`${record.offlineMediaUrl}/chunk/1`)!.arrayBuffer(),
+    );
+    expect(firstChunk).toHaveLength(4 * 1024 * 1024);
+    expect(firstChunk.every((byte) => byte === 7)).toBe(true);
+    expect(secondChunk).toEqual(new Uint8Array([7, 7, 7]));
     expect(await cache.get(record.offlineMediaUrl)!.json()).toMatchObject({
       format: "chapterline-chunked-media-v1",
       byteSize: bytes.length,
