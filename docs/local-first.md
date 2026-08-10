@@ -440,7 +440,11 @@ also made §10's eviction recovery unreachable exactly when it is needed. So:
 
 Anything new on a path that must work offline gets the same audit: every
 `await import(` and every `new Worker(` is a network dependency until proven
-otherwise.
+otherwise. The production build therefore emits a checked dependency-closure
+manifest for document adapters, Kestrel, ONNX, MP3 encoding, and the shared
+Turbopack worker bootstrap. Shell promotion caches that manifest's files as one
+generation; after the exact model marker exists it carries the pinned ONNX
+Runtime module and WASM forward too.
 
 ## 9. One library UI
 

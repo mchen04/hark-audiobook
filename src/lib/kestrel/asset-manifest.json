@@ -73,6 +73,24 @@
       "sha256": "c1a03390ade32bcfc4c4143796f7510c0fec06b59d42840591ad4721fe93caf4"
     }
   ],
+  "runtimeAssets": [
+    {
+      "id": "ortModule",
+      "source": "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs",
+      "target": "public/models/kestrel/ort-wasm-simd-threaded.asyncify.7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655.mjs",
+      "url": "/models/kestrel/ort-wasm-simd-threaded.asyncify.7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655.mjs",
+      "byteSize": 47507,
+      "sha256": "7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655"
+    },
+    {
+      "id": "ortWasm",
+      "source": "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm",
+      "target": "public/models/kestrel/ort-wasm-simd-threaded.asyncify.7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a.wasm",
+      "url": "/models/kestrel/ort-wasm-simd-threaded.asyncify.7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a.wasm",
+      "byteSize": 24254953,
+      "sha256": "7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a"
+    }
+  ],
   "pdfWorker": {
     "source": "node_modules/pdfjs-dist/build/pdf.worker.min.mjs",
     "target": "public/pdf.worker.51a2fd1ea47f1a9b0814e65e0c336c739c54957795ee774e8f93cb81e8028dd1.min.mjs",

@@ -28,7 +28,8 @@ contract for that is `docs/local-first.md`.
   plays as one chapter with an honest diagnostic). Documents are extracted by
   format-specific local adapters, narrated by Kestrel Fast through WebGPU with
   a WASM fallback, and progressively encoded as MP3. The pinned model bundle is
-  downloaded and integrity-checked once; source and generated audio stay local.
+  downloaded and integrity-checked once; its pinned browser runtime is cached
+  with the offline shell, and source plus generated audio stay local.
 - **Play**: persistent player with chapters, scrubbing, configurable skip
   intervals, 0.5x–3x speed, sleep timer (presets, custom minutes, end of
   chapter), a 50-action playback history, finished/restart state, and
@@ -69,7 +70,8 @@ contract for that is `docs/local-first.md`.
 - **Own your data**: JSON export of all metadata/progress and full account
   deletion (rows and this device's local data — the audio files were always
   yours). A first document narration downloads about 39 MB of public Kestrel
-  weights; later narrations reuse the verified on-device bundle.
+  weights plus a 24 MB pinned browser runtime; later narrations reuse the
+  verified on-device bundle and cached runtime.
 
 ## Local setup
 

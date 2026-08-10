@@ -15,7 +15,11 @@ if (exporterDigest !== manifest.kestrelExporter.sha256) {
   throw new Error("Kestrel's exporter does not match its pinned asset manifest.");
 }
 
-const assets = [...manifest.assets.filter((asset) => asset.source), manifest.pdfWorker];
+const assets = [
+  ...manifest.assets.filter((asset) => asset.source),
+  ...manifest.runtimeAssets,
+  manifest.pdfWorker,
+];
 
 for (const asset of assets) {
   const source = resolve(asset.source);

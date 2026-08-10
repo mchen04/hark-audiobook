@@ -3,6 +3,7 @@ import * as ort from "onnxruntime-web/webgpu";
 import { KESTREL_ASSETS, loadKestrelAssets } from "./assets";
 import { KESTREL_SAMPLE_RATE, renderKestrelAudio } from "./dsp";
 import { configureKestrelFftRuntime } from "./fft";
+import { ORT_RUNTIME_ASSETS } from "./manifest";
 import type { KestrelWorkerRequest, KestrelWorkerResponse } from "./protocol";
 import { prepareKestrelText, type KestrelTextChunk } from "./text";
 
@@ -87,6 +88,11 @@ async function initializeSessions(requestId: number): Promise<Sessions> {
   // cross-origin-isolation-only pthreads add overhead without more parallelism.
   ort.env.wasm.proxy = false;
   ort.env.wasm.numThreads = 1;
+  const { ortModule, ortWasm } = ORT_RUNTIME_ASSETS;
+  ort.env.wasm.wasmPaths = {
+    mjs: new URL(ortModule.url, globalThis.location.origin).href,
+    wasm: new URL(ortWasm.url, globalThis.location.origin).href,
+  };
 
   const assets = await loadKestrelAssets(({ loadedBytes, totalBytes }) =>
     post({

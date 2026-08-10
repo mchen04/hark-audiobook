@@ -14,10 +14,14 @@ Last reviewed: 2026-08-10
   each device's browser storage. Public Kestrel weights are fetched directly by
   the browser and verified against the pinned manifest. There is no object
   storage or hosted inference service to provision.
-- `pnpm build` verifies the pinned exporter script and committed browser assets
-  without network access. Before changing Kestrel graphs or model pins, run
-  `pnpm verify:kestrel-export`; it downloads only the exact public weight commit
-  into an isolated temporary directory and requires byte-for-byte ONNX output.
+- `pnpm build` verifies and copies the pinned exporter/runtime assets without
+  network access, then writes `public/chapterline-runtime-assets.json` from the
+  built lazy document/worker dependency closure. A missing extractor, encoder,
+  worker bootstrap, or ONNX marker fails the build instead of shipping a shell
+  that only narrates while online. Before changing Kestrel graphs or model pins,
+  run `pnpm verify:kestrel-export`; it downloads only the exact public weight
+  commit into an isolated temporary directory and requires byte-for-byte ONNX
+  output.
 - Auth rate limiting uses an app-owned atomic database adapter over the
   `rate_limit` table, so cold starts and multiple instances share one
   per-IP/path attempt budget. Its cleanup retention is derived from every
@@ -103,10 +107,10 @@ restore live data from Neon snapshots or `pg_dump`, never from Drizzle metadata.
 
 - **Stale UI after deploy**: the service worker takes over on the next
   navigation (skipWaiting + clients.claim). A shell refresh promotes the new
-  document only after all of its hashed chunks are cached, so a transient chunk
-  failure keeps the previous working shell. If a development client sees a
-  chunk 404 after `.next` was replaced under a running server, restart that
-  server and reload once.
+  document only after its HTML chunks and generated document-runtime manifest
+  are fully cached, so a transient chunk failure keeps the previous working
+  shell. If a development client sees a chunk 404 after `.next` was replaced
+  under a running server, restart that server and reload once.
 - **Import fails with "not a valid MP3"**: the file must be a real MPEG Layer 3
   file. Document imports support PDF, EPUB, DOCX, TXT, Markdown, and HTML;
   scanned PDFs require OCR before Hark can narrate them. Sources are bounded to

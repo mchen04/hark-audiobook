@@ -10,6 +10,7 @@ export default defineConfig([
     "coverage/**",
     "public/sw.js",
     "public/pdf.worker.*.min.mjs",
+    "public/models/kestrel/ort-wasm-simd-threaded.asyncify.*",
     "test-results/**",
   ]),
 ]);

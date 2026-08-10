@@ -43,3 +43,14 @@ export const KESTREL_ASSET_MANIFEST: readonly KestrelAsset[] = manifest.assets.m
 });
 
 export const PDF_WORKER_ASSET = manifest.pdfWorker;
+
+function runtimeAsset(id: "ortModule" | "ortWasm") {
+  const asset = manifest.runtimeAssets.find((candidate) => candidate.id === id);
+  if (!asset) throw new Error(`Kestrel's ${id} runtime asset is missing.`);
+  return asset;
+}
+
+export const ORT_RUNTIME_ASSETS = {
+  ortModule: runtimeAsset("ortModule"),
+  ortWasm: runtimeAsset("ortWasm"),
+};

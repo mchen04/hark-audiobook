@@ -61,6 +61,18 @@ const RUNTIME_ASSETS = [
   "/models/kestrel/kissfft.c1a03390ade32bcfc4c4143796f7510c0fec06b59d42840591ad4721fe93caf4.wasm",
   "/pdf.worker.51a2fd1ea47f1a9b0814e65e0c336c739c54957795ee774e8f93cb81e8028dd1.min.mjs",
 ];
+// ORT is larger than the app shell and is useless before Kestrel's weights have
+// been downloaded. First narration runtime-caches these content-addressed
+// files; later shell generations carry them forward only while the matching
+// verified model bundle is present.
+const MODEL_RUNTIME_ASSETS = [
+  "/models/kestrel/ort-wasm-simd-threaded.asyncify.7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655.mjs",
+  "/models/kestrel/ort-wasm-simd-threaded.asyncify.7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a.wasm",
+];
+const KESTREL_BUNDLE_CACHE = "hark-kestrel-bundle-ebfe37d8a8771780";
+const KESTREL_VERIFIED_URL =
+  "/__hark/kestrel-bundle/ebfe37d8a87717801af2619f5dbb22901557028821aa22809ffdf20f4aae7ac4/verified";
+const BUILD_RUNTIME_MANIFEST_URL = "/chapterline-runtime-assets.json";
 const PRECACHE = [OFFLINE_URL, "/icons/icon-192.png", ...RUNTIME_ASSETS];
 /**
  * How long a navigation the shell cannot answer may wait on the network.
@@ -159,8 +171,17 @@ async function stageShell() {
     if (!offlinePage.ok) throw new Error("The required offline page could not be fetched.");
     const html = await offlinePage.clone().text();
     const assets = [...new Set(html.match(/\/_next\/static\/[^"'\s\\]+/g) || [])];
+    const [buildRuntimeAssets, hasKestrelBundle] = await Promise.all([
+      loadBuildRuntimeAssets(),
+      hasVerifiedKestrelBundle(),
+    ]);
     const supportingAssets = PRECACHE.filter((asset) => asset !== OFFLINE_URL);
-    await Promise.all([...supportingAssets, ...assets].map((asset) => stage.add(asset)));
+    await addShellAssets(stage, [
+      ...supportingAssets,
+      ...assets,
+      ...buildRuntimeAssets,
+      ...(hasKestrelBundle ? MODEL_RUNTIME_ASSETS : []),
+    ]);
 
     // `text()` decoded any content encoding. Reusing Content-Encoding or the
     // encoded Content-Length on this new response would make the cached HTML
@@ -184,6 +205,49 @@ async function stageShell() {
     await caches.delete(stageName).catch(() => undefined);
     throw error;
   }
+}
+
+/** Load the post-build dependency closure for document extraction and workers. */
+async function loadBuildRuntimeAssets() {
+  const response = await fetch(BUILD_RUNTIME_MANIFEST_URL, { cache: "no-store" });
+  if (!response.ok) throw new Error("The document runtime manifest could not be fetched.");
+  const manifest = await response.json();
+  if (manifest?.version !== 1 || !Array.isArray(manifest.assets)) {
+    throw new Error("The document runtime manifest is invalid.");
+  }
+  const assets = [...new Set(manifest.assets)];
+  if (
+    assets.length === 0 ||
+    assets.some(
+      (asset) =>
+        typeof asset !== "string" ||
+        !/^\/_next\/static\/chunks\/[A-Za-z0-9_.-]+\.(?:js|css)$/.test(asset),
+    )
+  ) {
+    throw new Error("The document runtime manifest contains an invalid asset.");
+  }
+  return assets;
+}
+
+async function hasVerifiedKestrelBundle() {
+  if (!(await caches.keys()).includes(KESTREL_BUNDLE_CACHE)) return false;
+  const bundle = await caches.open(KESTREL_BUNDLE_CACHE);
+  return Boolean(await bundle.match(KESTREL_VERIFIED_URL));
+}
+
+/** Bound install concurrency so a mobile browser is not handed dozens of fetches. */
+async function addShellAssets(cache, candidates) {
+  const assets = [...new Set(candidates)];
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(6, assets.length) }, async () => {
+      for (;;) {
+        const index = next++;
+        if (index >= assets.length) return;
+        await cache.add(assets[index]);
+      }
+    }),
+  );
 }
 
 /** Stage an install without making its document visible to the old worker. */
@@ -328,7 +392,8 @@ async function preserveLegacyShellAssets(cacheNames) {
       if (
         !pathname.startsWith("/_next/static/") &&
         !pathname.startsWith("/icons/") &&
-        !RUNTIME_ASSETS.includes(pathname)
+        !RUNTIME_ASSETS.includes(pathname) &&
+        !MODEL_RUNTIME_ASSETS.includes(pathname)
       )
         continue;
       const response = await legacy.match(request);
@@ -480,7 +545,8 @@ self.addEventListener("fetch", (event) => {
   if (
     url.pathname.startsWith("/_next/static/") ||
     url.pathname.startsWith("/icons/") ||
-    RUNTIME_ASSETS.includes(url.pathname)
+    RUNTIME_ASSETS.includes(url.pathname) ||
+    MODEL_RUNTIME_ASSETS.includes(url.pathname)
   ) {
     event.respondWith(serveShellAsset(request, url.pathname));
   }

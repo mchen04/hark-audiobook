@@ -129,14 +129,15 @@ critical path.
    SHA-256 identifies the exact bytes without buffering the book in memory.
 2. Document import routes the source to a lazy PDF/EPUB/DOCX/text adapter, then
    a book-scoped Kestrel worker synthesizes it through WebGPU or WASM. Public
-   weights, ONNX graphs, voice data, FFT runtime, and PDF worker are pinned by
-   one manifest. That manifest keeps the model commit separate from the hashed
-   exporter script and its exact Python/ONNX/NumPy environment; the build checks
-   provenance locally, while `pnpm verify:kestrel-export` downloads the pinned
-   weights and reproduces every graph byte-for-byte. Format-specific source and
-   expanded-text limits are enforced before expensive parsing, and reads plus
-   unzip workers are abortable. The deterministic extraction/sentence-splitter
-   revisions are part of rendition identity. Generated PCM is encoded
+   weights, ONNX graphs, voice data, FFT runtime, PDF worker, and ONNX Runtime
+   browser module are pinned by one manifest. That manifest keeps the model
+   commit separate from the hashed exporter script and its exact
+   Python/ONNX/NumPy environment; the build checks provenance locally, while
+   `pnpm verify:kestrel-export` downloads the pinned weights and reproduces
+   every graph byte-for-byte. Format-specific source and expanded-text limits
+   are enforced before expensive parsing, and reads plus unzip workers are
+   abortable. The deterministic extraction/sentence-splitter revisions are part
+   of rendition identity. Generated PCM is encoded
    progressively into the same chunked MP3 store, so neither a source-sized nor
    audiobook-sized audio buffer is required. Navigation/account changes abort
    extraction, hashing, worker, encoder, and partial storage as one import job.
@@ -265,19 +266,23 @@ renders no user rows.
   and an auth page gets a self-contained notice rather than being bounced back
   to `/login` forever.
 - Install precaches the shell and every parsed `/_next/static` chunk into a
-  unique immutable generation, but leaves the active document untouched. It
-  records a durable ready pointer outside the live cache; activation claims the
-  clients before promoting that generation, so the old worker can never serve
-  a new document whose chunks only the new handler can find. A deployment also
-  prompts the active page to post `REFRESH_SHELL` after launch goes idle. Both
-  paths publish `/library?source=pwa` as the single commit point only after the
-  generation is complete, so a failed asset fetch leaves the previous shell
-  live. Cleanup deletes whole unreferenced generations rather than individual
-  chunks. It retains generations named by either live document, a pending
-  install, or a durable lease for a live window; long-lived offline tabs can
-  therefore lazy-load their original chunks across any number of refreshes,
-  while closed-window leases and their generations are reclaimed on the next
-  sweep.
+  unique immutable generation, but leaves the active document untouched. The
+  post-build runtime manifest adds the complete lazy document-import, module
+  worker, MP3 encoder, and ONNX dependency closure that HTML cannot reveal. If
+  the exact Kestrel bundle marker already exists, the generation also carries
+  the pinned ONNX Runtime module and WASM; the first narration runtime-caches
+  those files. Install records a durable ready pointer outside the live cache;
+  activation claims the clients before promoting that generation, so the old
+  worker can never serve a new document whose chunks only the new handler can
+  find. A deployment also prompts the active page to post `REFRESH_SHELL` after
+  launch goes idle. Both paths publish `/library?source=pwa` as the single
+  commit point only after the generation is complete, so a failed asset fetch
+  leaves the previous shell live. Cleanup deletes whole unreferenced
+  generations rather than individual chunks. It retains generations named by
+  either live document, a pending install, or a durable lease for a live window;
+  long-lived offline tabs can therefore lazy-load their original chunks across
+  any number of refreshes, while closed-window leases and their generations are
+  reclaimed on the next sweep.
 - Revalidation (`src/lib/launch-revalidation.ts`) waits for the render that sets
   `data-launch-ready`, then for 500ms of quiet and an idle callback, before it
   touches the network. A device that has never completed a pull is the one
