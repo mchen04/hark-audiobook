@@ -1405,20 +1405,16 @@ async function restoreCaches(page: Page, snapshot: CacheSnapshot): Promise<void>
  *
  * WHY THIS EXISTS, and why it is checked before the app is allowed to run.
  *
- * `reconcileOfflineRecord` (`src/lib/offline/library.ts`) is a ONE-WAY DOOR: on
- * every `/library` visit and every player open, a download record whose media
- * URL is not in Cache Storage is deleted from IndexedDB along with its
- * transcript. That is correct product behaviour — a record pointing at bytes
- * that are gone is a lie — but it means one instant of an un-restored Cache
- * Storage permanently un-downloads the book, and putting the bytes back
- * afterwards does not bring the record back. MEASURED: C2 and X1 failed at
- * their FIRST `openPlayer` with "this device does not currently have it" for a
- * book whose bytes had gone missing several scenarios earlier; the failing row
- * was only where the damage surfaced, which is the worst possible place to
+ * `reconcileOfflineRecord` (`src/lib/offline/library.ts`) deliberately preserves
+ * a download record when its Cache Storage entry cannot be read, but the player
+ * still cannot mount until those bytes are available. MEASURED: C2 and X1
+ * failed at their FIRST `openPlayer` with "this device does not currently have
+ * it" for media WebKit had discarded several scenarios earlier; the failing
+ * row was only where the damage surfaced, which is the worst possible place to
  * learn about it.
  *
- * Read on the restore stub, which runs no app code, so asking the question
- * cannot itself trigger the deletion it is asking about.
+ * Read on the restore stub, which runs no app code, so the inventory describes
+ * the test device before launch reconciliation can mark an entry as missing.
  */
 type MediaInventoryEntry = { title: string; url: string; bytes: number };
 
@@ -1464,9 +1460,9 @@ async function readMediaInventory(page: Page): Promise<MediaInventoryEntry[]> {
 
 /**
  * Refuses to hand the app a device whose download records point at bytes that
- * are not there. See `readMediaInventory`: letting it through would silently
- * and permanently un-download the book, and the red would land on whichever
- * scenario happened to open it next.
+ * are not there. See `readMediaInventory`: letting it through would make the
+ * player unavailable, and the red would land on whichever scenario happened
+ * to open that book next instead of at the cache loss.
  */
 async function assertDeviceHasItsBooks(page: Page, expectedTitles: string[]): Promise<void> {
   const inventory = await readMediaInventory(page);
@@ -1474,20 +1470,18 @@ async function assertDeviceHasItsBooks(page: Page, expectedTitles: string[]): Pr
   expect(
     broken,
     "INSTRUMENT: this device holds download records whose audio bytes are not readable out of " +
-      `Cache Storage (${JSON.stringify(broken)}). The app's own reconcile would now delete those ` +
-      'records permanently, and the book would present as "this device does not currently have ' +
-      'it" for the rest of the run. The harness failed to carry the bytes across a renderer ' +
-      "death; this is not the product losing a book.",
+      `Cache Storage (${JSON.stringify(broken)}). The player would present as "this device does ` +
+      'not currently have it", so no resume position could be measured. The harness failed to ' +
+      "carry the bytes across a renderer death; this is not a valid product row.",
   ).toStrictEqual([]);
   const present = new Set(inventory.map((entry) => entry.title));
   const gone = expectedTitles.filter((title) => !present.has(title));
   expect(
     gone,
     `INSTRUMENT: the books ${JSON.stringify(gone)} are no longer downloaded on this device at ` +
-      `all (it holds ${JSON.stringify([...present])}). A book can only leave the download store ` +
-      "by being reconciled away against a Cache Storage that did not have its bytes, so the " +
-      "harness lost them earlier in this run. Every row from here on would be measuring a phone " +
-      "that does not have the audiobook.",
+      `all (it holds ${JSON.stringify([...present])}). This fixture imported every expected book ` +
+      "and no scenario intentionally removes one, so every later row would be measuring a phone " +
+      "that does not have the audiobook it claims to test.",
   ).toStrictEqual([]);
 }
 
@@ -1511,8 +1505,8 @@ let lastMediaSnapshot: CacheSnapshot | null = null;
  *   C1's last cycle ends on a SIGKILL; `healDevice` relaunches, restores both
  *   caches, and READS THEM BACK — 33 shell entries and 6 media entries, every
  *   body the right length. Its page then closes. C2's first look at the same
- *   device, seconds later, finds the cache NAMES still listed and BOTH CACHES
- *   AT ZERO ENTRIES: `{"chapterline-shell-v6":0,"chapterline-media-v2":0}`.
+ *   device, seconds later, finds the cache NAMES still listed and both caches
+ *   at zero entries.
  *
  * That was measured from two different pages at once (a page held open across
  * the whole sequence and a freshly opened one) and both read zero, so it is the
@@ -1522,11 +1516,9 @@ let lastMediaSnapshot: CacheSnapshot | null = null;
  * so this is specific to the real thing and cannot be worked around by
  * arranging pages.
  *
- * The consequence is not recoverable by waiting, because
- * `reconcileOfflineRecord` deletes a download record whose bytes are missing
- * the moment the app looks — see `readMediaInventory`. So the bytes go back
- * BEFORE the app is allowed to look, from the last snapshot taken, and the
- * result is verified rather than assumed.
+ * Waiting does not make the bytes return, and the player correctly refuses to
+ * mount without them. So the bytes go back BEFORE the app is allowed to look,
+ * from the last snapshot taken, and the result is verified rather than assumed.
  *
  * THE REPAIR IS DELIBERATELY NARROW. It only fires when EVERY download record
  * on the device has unreadable bytes, which is the signature of the engine
@@ -2004,7 +1996,19 @@ async function openPlayer(
   bookId: string,
   title?: string,
 ): Promise<void> {
-  await page.goto(`${origin}/library`, { waitUntil: "domcontentloaded", timeout: 90_000 });
+  const current = new URL(page.url());
+  const expectedOrigin = new URL(origin).origin;
+  // A relaunch reads the shelf before opening the player, so it is already on
+  // a launch-ready library page here. Reloading that same page is not part of
+  // the user's journey, and Playwright/WebKit can discard its ephemeral Cache
+  // Storage during this kind of churn. Measured: the restore verified all 14
+  // media manifests and chunks; two consecutive `/library` navigations then
+  // preceded a missing-media gate. The trace did not sample between those two
+  // navigations, so it only proves that the second one was artificial and
+  // widened the loss window. Reuse the page whose shelf was actually observed.
+  if (current.origin !== expectedOrigin || current.pathname !== "/library") {
+    await page.goto(`${origin}/library`, { waitUntil: "domcontentloaded", timeout: 90_000 });
+  }
   await page.waitForSelector("[data-launch-ready]", { state: "attached", timeout: 90_000 });
   if (title) {
     await tapIntoPlayer(page, title);
@@ -2034,24 +2038,33 @@ async function settlePlayer(page: Page): Promise<void> {
   //
   // A bare timeout would say "the player never came up", which is a product
   // claim. Read the page before making it.
-  await page
-    .getByRole("button", { name: /^(Play|Pause)$/ })
-    .waitFor({ state: "visible", timeout: 90_000 })
-    .catch(async (error: unknown) => {
-      const url = page.url();
-      const body = await page
-        .locator("body")
-        .innerText()
-        .catch(() => "(unreadable)");
-      throw new Error(
-        `the player never became ready at ${url}. Page said: ${body.slice(0, 400)}\n` +
-          `(original: ${String(error).slice(0, 200)})`,
-      );
-    });
-  await expect(
-    page.getByRole("button", { name: /^(Play|Pause)$/ }),
-    "the player never came up, so no position could be read",
-  ).toBeVisible({ timeout: 90_000 });
+  const transport = page.getByRole("button", { name: /^(Play|Pause)$/ });
+  const missingMedia = page.getByText(/this device does not currently have it/).first();
+  if (
+    !(await transport.isVisible().catch(() => false)) &&
+    (await missingMedia.isVisible().catch(() => false))
+  ) {
+    const inventory = await readMediaInventory(page).catch(() => []);
+    throw new Error(
+      "INSTRUMENT: the resume device reached the missing-media gate after its cache snapshot " +
+        `had been restored. Inventory: ${JSON.stringify(inventory)}. No position can be ` +
+        "measured; investigate cache durability before reading this as a resume failure.",
+    );
+  }
+  await transport.waitFor({ state: "visible", timeout: 90_000 }).catch(async (error: unknown) => {
+    const url = page.url();
+    const body = await page
+      .locator("body")
+      .innerText()
+      .catch(() => "(unreadable)");
+    throw new Error(
+      `the player never became ready at ${url}. Page said: ${body.slice(0, 400)}\n` +
+        `(original: ${String(error).slice(0, 200)})`,
+    );
+  });
+  await expect(transport, "the player never came up, so no position could be read").toBeVisible({
+    timeout: 90_000,
+  });
   await page.waitForFunction(
     () => {
       const audio = document.querySelector("audio");
