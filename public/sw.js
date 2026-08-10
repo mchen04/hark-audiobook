@@ -159,7 +159,7 @@ function declareLaunchRoute(event) {
 // served — so its static chunks are captured here at install time rather than
 // left to lazy runtime caching. Installation fails if any of them is missing,
 // because a shell whose chunks are absent is a blank screen with extra steps.
-async function stageShell() {
+async function stageShell(candidate) {
   const stageName = `${STAGING_CACHE_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const stage = await caches.open(stageName);
 
@@ -167,21 +167,8 @@ async function stageShell() {
     // Fetch and validate the whole candidate without exposing it at a live
     // navigation key. Required chunks and both document copies land in the
     // candidate's immutable cache before promotion starts.
-    const offlinePage = await fetch(OFFLINE_URL, { cache: "no-store" });
-    if (!offlinePage.ok) throw new Error("The required offline page could not be fetched.");
-    const html = await offlinePage.clone().text();
-    const assets = [...new Set(html.match(/\/_next\/static\/[^"'\s\\]+/g) || [])];
-    const [buildRuntimeAssets, hasKestrelBundle] = await Promise.all([
-      loadBuildRuntimeAssets(),
-      hasVerifiedKestrelBundle(),
-    ]);
-    const supportingAssets = PRECACHE.filter((asset) => asset !== OFFLINE_URL);
-    await addShellAssets(stage, [
-      ...supportingAssets,
-      ...assets,
-      ...buildRuntimeAssets,
-      ...(hasKestrelBundle ? MODEL_RUNTIME_ASSETS : []),
-    ]);
+    const { offlinePage, html, assets } = candidate || (await loadShellCandidate());
+    await addShellAssets(stage, assets);
 
     // `text()` decoded any content encoding. Reusing Content-Encoding or the
     // encoded Content-Length on this new response would make the cached HTML
@@ -205,6 +192,64 @@ async function stageShell() {
     await caches.delete(stageName).catch(() => undefined);
     throw error;
   }
+}
+
+/** Fetch one internally consistent shell document and dependency closure. */
+async function loadShellCandidate() {
+  const offlinePage = await fetch(OFFLINE_URL, { cache: "no-store" });
+  if (!offlinePage.ok) throw new Error("The required offline page could not be fetched.");
+  const html = await offlinePage.clone().text();
+  const documentAssets = [...new Set(html.match(/\/_next\/static\/[^"'\s\\]+/g) || [])];
+  const [buildRuntimeAssets, hasKestrelBundle] = await Promise.all([
+    loadBuildRuntimeAssets(),
+    hasVerifiedKestrelBundle(),
+  ]);
+  const supportingAssets = PRECACHE.filter((asset) => asset !== OFFLINE_URL);
+  return {
+    offlinePage,
+    html,
+    assets: [
+      ...new Set([
+        ...supportingAssets,
+        ...documentAssets,
+        ...buildRuntimeAssets,
+        ...(hasKestrelBundle ? MODEL_RUNTIME_ASSETS : []),
+      ]),
+    ],
+  };
+}
+
+/** Avoid copying an unchanged build's full runtime closure after every launch. */
+async function liveShellMatches(candidate) {
+  const live = await caches.open(CACHE_VERSION);
+  const [offlineDocument, launchDocument] = await Promise.all([
+    live.match(OFFLINE_URL),
+    live.match(LAUNCH_URL),
+  ]);
+  if (!offlineDocument || !launchDocument) return false;
+
+  const generation = launchDocument.headers.get(SHELL_GENERATION_HEADER);
+  if (
+    !generation?.startsWith(STAGING_CACHE_PREFIX) ||
+    offlineDocument.headers.get(SHELL_GENERATION_HEADER) !== generation
+  ) {
+    return false;
+  }
+
+  const [offlineHtml, launchHtml] = await Promise.all([
+    offlineDocument.text(),
+    launchDocument.text(),
+  ]);
+  if (offlineHtml !== candidate.html || launchHtml !== candidate.html) return false;
+
+  const generationCache = await caches.open(generation);
+  const cachedPaths = new Set(
+    (await generationCache.keys()).map((request) => {
+      const url = new URL(request.url);
+      return `${url.pathname}${url.search}`;
+    }),
+  );
+  return candidate.assets.every((asset) => cachedPaths.has(asset));
 }
 
 /** Load the post-build dependency closure for document extraction and workers. */
@@ -260,7 +305,12 @@ async function prepareInstalledShell() {
 
 /** Active-worker refreshes can stage and promote under the same event. */
 async function precacheShell() {
-  const stageName = await stageShell();
+  const candidate = await loadShellCandidate();
+  if (await liveShellMatches(candidate)) {
+    await Promise.allSettled([dropSupersededShellStages(), dropLegacyShellCaches()]);
+    return;
+  }
+  const stageName = await stageShell(candidate);
   const cleanupSafe = await promoteShell(stageName);
   if (cleanupSafe) {
     await Promise.allSettled([dropSupersededShellStages(), dropLegacyShellCaches()]);

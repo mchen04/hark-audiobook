@@ -17,6 +17,8 @@ function extractFunction(name: string) {
 }
 
 const stageSource = extractFunction("stageShell");
+const candidateSource = extractFunction("loadShellCandidate");
+const liveMatchSource = extractFunction("liveShellMatches");
 const runtimeAssetsSource = extractFunction("loadBuildRuntimeAssets");
 const verifiedBundleSource = extractFunction("hasVerifiedKestrelBundle");
 const addAssetsSource = extractFunction("addShellAssets");
@@ -40,6 +42,8 @@ if (
   !testKestrelVerifiedUrl ||
   !routeSource ||
   !stageSource ||
+  !candidateSource ||
+  !liveMatchSource ||
   !runtimeAssetsSource ||
   !verifiedBundleSource ||
   !addAssetsSource ||
@@ -95,7 +99,8 @@ function createShellFunctions(
     "caches",
     "fetch",
     "self",
-    `${constants}; ${stageSource}; ${runtimeAssetsSource}; ${verifiedBundleSource}; ` +
+    `${constants}; ${stageSource}; ${candidateSource}; ${liveMatchSource}; ` +
+      `${runtimeAssetsSource}; ${verifiedBundleSource}; ` +
       `${addAssetsSource}; ${installSource}; ${precacheSource}; ${promoteSource}; ` +
       `${leaseSource}; ${retainedSource}; ${preserveLegacySource}; ${sweepSource}; ` +
       `${legacySweepSource}; ${activateSource}; ${queueSource}; ` +
@@ -175,6 +180,17 @@ describe("service-worker shell generations", () => {
     expect(storage.has(generation!, "/_next/static/chunks/candidate.js")).toBe(true);
     expect(await storage.document(LAUNCH_URL)).toContain("candidate.js");
     expect(await storage.document(OFFLINE_URL)).toContain("candidate.js");
+  });
+
+  it("does not restage an unchanged shell after launch", async () => {
+    const storage = namedShellStorage();
+    const shell = createShellFunctions(storage.cacheStorage, shellFetch("candidate.js"));
+
+    await shell.precacheShell();
+    const generation = await storage.liveGeneration();
+    await shell.precacheShell();
+
+    expect(storage.stageNames()).toStrictEqual([generation]);
   });
 
   it("claims clients before an installed generation becomes live", async () => {
