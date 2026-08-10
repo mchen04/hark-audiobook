@@ -137,6 +137,25 @@ describe("generated media streaming", () => {
       createStreamedLocalBookMedia("user", "minted", 3, { key: "user:someone-else" } as MediaSlot),
     ).rejects.toThrow(/slot is not held/i);
   });
+
+  it("does not let stale regeneration resurrect a permanently deleted book", async () => {
+    await markPermanentlyDeleted("user", "deleted");
+
+    await expect(
+      withLocalMediaSlot("user", "deleted", async (slot) => {
+        const stream = await createStreamedLocalBookMedia("user", "deleted", 3, slot);
+        const writer = stream.writable.getWriter();
+        await writer.write(new Uint8Array([1, 2, 3]));
+        await writer.close();
+        return stream.commit(book("deleted"), slot);
+      }),
+    ).rejects.toThrow(/book was deleted/i);
+
+    expect(
+      await (await database()).get("downloads", offlineBookKey("user", "deleted")),
+    ).toBeUndefined();
+    expect(fakeCacheStorage.stores.get(MEDIA_CACHE)?.store.size ?? 0).toBe(0);
+  });
 });
 
 describe("imported media streaming", () => {
@@ -183,7 +202,38 @@ describe("imported media streaming", () => {
     expect(fakeCacheStorage.stores.get(MEDIA_CACHE)!.store.size).toBe(0);
     expect(await (await database()).getAllFromIndex("cacheEntries", "by-user", "user")).toEqual([]);
   });
+
+  it("does not let a stale MP3 attachment resurrect a permanently deleted book", async () => {
+    await markPermanentlyDeleted("user", "deleted");
+
+    await expect(
+      storeLocalBookMedia(
+        "user",
+        book("deleted"),
+        new File([new Uint8Array([1, 2, 3])], "same.mp3"),
+        null,
+      ),
+    ).rejects.toThrow(/book was deleted/i);
+
+    expect(
+      await (await database()).get("downloads", offlineBookKey("user", "deleted")),
+    ).toBeUndefined();
+    expect(fakeCacheStorage.stores.get(MEDIA_CACHE)?.store.size ?? 0).toBe(0);
+  });
 });
+
+async function markPermanentlyDeleted(userId: string, bookId: string): Promise<void> {
+  await (
+    await database()
+  ).put("deletions", {
+    key: offlineBookKey(userId, bookId),
+    userId,
+    bookId,
+    operationId: crypto.randomUUID(),
+    clearPlaybackHistory: true,
+    completedAt: Date.now() - 60_000,
+  });
+}
 
 function book(id: string) {
   return {

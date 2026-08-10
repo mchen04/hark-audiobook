@@ -66,7 +66,10 @@ export async function retryAllPendingOfflineDeletions(): Promise<void> {
   await Promise.allSettled(
     pending.map((entry) =>
       entry.completedAt
-        ? entry.completedAt < now - 24 * 60 * 60_000
+        ? // A permanent book deletion is also a durable liveness fence. A stale
+          // player tab must never be able to attach bytes under that dead id;
+          // account purge removes the marker with the rest of the user's data.
+          !entry.clearPlaybackHistory && entry.completedAt < now - 24 * 60 * 60_000
           ? db.delete("deletions", entry.key)
           : Promise.resolve()
         : withMediaWriteLock(entry.key, () => completeOfflineDeletion(db, entry.key)),

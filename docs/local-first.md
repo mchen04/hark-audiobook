@@ -228,6 +228,12 @@ minted id and audio immediately but leaves registration to replay. It must not
 accept a 409 for the doomed id and attach fresh bytes to a book replay is about
 to delete.
 
+Permanent deletion also leaves an identity-only device tombstone after cache
+cleanup completes. Ordinary remove-download receipts expire, but this marker
+lasts until account data is purged: a player tab opened before deletion cannot
+later attach or regenerate audio under the dead book id and make it reappear as
+a device-only card.
+
 ### 5.5 When the server renames a book mid-flight
 
 A registration queued offline carries the id this device minted. If the server

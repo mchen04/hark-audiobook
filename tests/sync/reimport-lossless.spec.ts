@@ -46,6 +46,7 @@ const FIXTURE_TITLE = "iPhone Downloads Test";
 const DEVICE = "device-reimport-00001";
 const OFFLINE_DEVICE = "device-reimport-00002";
 const DELETE_REIMPORT_DEVICE = "device-reimport-00003";
+const STALE_ATTACH_DEVICE = "device-reimport-00004";
 const SAVED_POSITION_MS = 4_500;
 
 let session: { account: Account; storageState: StorageState } | null = null;
@@ -343,6 +344,85 @@ test("re-importing while its predecessor delete is in flight keeps the replaceme
     });
     expect(local.books.filter((book) => book.media?.fingerprint === fingerprint)).toHaveLength(1);
     await expect(page.locator("article.book-item", { hasText: FIXTURE_TITLE })).toHaveCount(1);
+  } finally {
+    await context.close();
+  }
+});
+
+test("a stale player cannot attach audio after another tab permanently deletes the book", async ({
+  browser,
+}) => {
+  session ??= await sharedSession(browser);
+  const { account, storageState } = session;
+  await resetAccount(account.userId);
+
+  const { context, page: stalePlayer } = await openDevice(
+    browser,
+    STALE_ATTACH_DEVICE,
+    storageState,
+  );
+  try {
+    await stalePlayer.goto(`${APP_ORIGIN}/library`, { waitUntil: "domcontentloaded" });
+    await stalePlayer.waitForSelector("[data-launch-ready]", {
+      state: "attached",
+      timeout: 60_000,
+    });
+    await attachDriver(stalePlayer, account, STALE_ATTACH_DEVICE);
+
+    const bytes = readFileSync(FIXTURE);
+    await importThroughUi(stalePlayer, path.basename(FIXTURE), bytes);
+    await expect(stalePlayer.getByRole("link", { name: FIXTURE_TITLE, exact: true })).toBeVisible({
+      timeout: 60_000,
+    });
+    await drainOutbox(stalePlayer);
+    expect(await pull(stalePlayer)).toBe("applied");
+    const initial = await readServerState(account.userId);
+    const bookId = [...initial.booksByFingerprint.values()][0]?.bookId;
+    expect(bookId).toBeTruthy();
+
+    expect((await evictAudio(stalePlayer)).removedCaches.length).toBeGreaterThan(0);
+    await stalePlayer.goto(`${APP_ORIGIN}/books/${bookId}`, { waitUntil: "domcontentloaded" });
+    await expect(stalePlayer.getByRole("button", { name: "Attach MP3" })).toBeVisible({
+      timeout: 60_000,
+    });
+
+    const deletingTab = await context.newPage();
+    await deletingTab.goto(`${APP_ORIGIN}/library`, { waitUntil: "domcontentloaded" });
+    await deletingTab.waitForSelector("[data-launch-ready]", {
+      state: "attached",
+      timeout: 60_000,
+    });
+    await deletingTab.getByRole("link", { name: FIXTURE_TITLE, exact: true }).click();
+    await deletingTab.waitForURL(/\/books\//, { timeout: 30_000 });
+    await deletingTab.getByRole("button", { name: "Delete this book" }).click();
+    await deletingTab.getByRole("button", { name: "Tap again to permanently delete" }).click();
+    await deletingTab.waitForURL(/\/library$/, { timeout: 30_000 });
+    await expect(deletingTab.locator("article.book-item")).toHaveCount(0);
+
+    await stalePlayer.setInputFiles('input[aria-label^="Attach "]', {
+      name: path.basename(FIXTURE),
+      mimeType: "audio/mpeg",
+      buffer: bytes,
+    });
+    await expect(
+      stalePlayer.getByText("This book was deleted, so its audio was not saved."),
+    ).toBeVisible({
+      timeout: 30_000,
+    });
+    await attachDriver(stalePlayer, account, STALE_ATTACH_DEVICE);
+    expect(await playable(stalePlayer, bookId!)).toStrictEqual({
+      record: false,
+      media: false,
+      byteSize: null,
+    });
+    expect((await mirror(stalePlayer)).downloads).toStrictEqual([]);
+
+    await stalePlayer.goto(`${APP_ORIGIN}/library`, { waitUntil: "domcontentloaded" });
+    await stalePlayer.waitForSelector("[data-launch-ready]", {
+      state: "attached",
+      timeout: 60_000,
+    });
+    await expect(stalePlayer.locator("article.book-item")).toHaveCount(0);
   } finally {
     await context.close();
   }

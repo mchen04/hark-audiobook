@@ -112,9 +112,7 @@ async function storeLocalBookMediaWithinFence(
   const startedAt = Date.now();
   const write = async () => {
     const pending = await (await database()).get("deletions", key);
-    if (pending?.completedAt && pending.completedAt >= startedAt) {
-      throw new Error("This download was removed while it was being saved.");
-    }
+    if (deletionBlocksMediaWrite(pending, startedAt)) throw deletedBookMediaError();
     return storeLocalBookMediaUnlocked(userId, book, file, artwork, onProgress, startedAt, signal);
   };
   return holdsMediaSlot(slot, key) ? write() : withMediaWriteLock(key, write);
@@ -138,6 +136,8 @@ export async function createStreamedLocalBookMedia(
   assertAccountWritable(userId);
   const sourceKey = offlineBookKey(userId, bookId);
   if (!holdsMediaSlot(slot, sourceKey)) throw new Error("The generated media slot is not held.");
+  const deletion = await (await database()).get("deletions", sourceKey);
+  if (deletion?.clearPlaybackHistory) throw deletedBookMediaError();
   await ensureStorageCapacity(estimatedBytes);
   if (navigator.storage?.persist) await navigator.storage.persist().catch(() => false);
 
@@ -304,12 +304,12 @@ async function commitChunkedMedia(
   const { userId, db, cache, offlineMediaUrl } = writer;
   const key = offlineBookKey(userId, book.id);
   const pending = await db.get("deletions", key);
-  if (pending?.completedAt && pending.completedAt >= startedAt) {
+  if (deletionBlocksMediaWrite(pending, startedAt)) {
     await writer.cleanup();
     for (const url of [cover.url, cover.thumbUrl]) {
       if (url) await deleteJournaledCacheEntry(db, cache, url).catch(() => false);
     }
-    throw new Error("This download was removed while it was being saved.");
+    throw deletedBookMediaError();
   }
 
   const record: OfflineBook = {
@@ -355,6 +355,20 @@ async function commitChunkedMedia(
     }
     throw offlineStorageError(error);
   }
+}
+
+function deletionBlocksMediaWrite(
+  deletion: { clearPlaybackHistory?: boolean; completedAt?: number } | undefined,
+  startedAt: number,
+): boolean {
+  return Boolean(
+    deletion?.clearPlaybackHistory ||
+    (deletion?.completedAt !== undefined && deletion.completedAt >= startedAt),
+  );
+}
+
+function deletedBookMediaError(): Error {
+  return new Error("This book was deleted, so its audio was not saved.");
 }
 
 async function storeLocalBookMediaUnlocked(

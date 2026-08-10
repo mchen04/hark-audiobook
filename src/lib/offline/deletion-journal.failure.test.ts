@@ -13,7 +13,11 @@ vi.mock("@/lib/playback-history", () => ({
 }));
 
 import { database, offlineBookKey } from "./db";
-import { removeOfflineBook, retryPendingOfflineDeletions } from "./deletion-journal";
+import {
+  removeOfflineBook,
+  retryAllPendingOfflineDeletions,
+  retryPendingOfflineDeletions,
+} from "./deletion-journal";
 
 const USER = "user-a";
 const BOOK = "book-a";
@@ -101,4 +105,23 @@ it("does not recreate a deletion journal row removed by an account purge", async
   await removal;
 
   expect(await db.get("deletions", key)).toBeUndefined();
+});
+
+it("keeps permanent-book tombstones after completed cleanup", async () => {
+  const db = await database();
+  const key = offlineBookKey(USER, BOOK);
+  await db.put("deletions", {
+    key,
+    userId: USER,
+    bookId: BOOK,
+    clearPlaybackHistory: true,
+    completedAt: Date.now() - 25 * 60 * 60_000,
+  });
+
+  await retryAllPendingOfflineDeletions();
+
+  expect(await db.get("deletions", key)).toMatchObject({
+    clearPlaybackHistory: true,
+    completedAt: expect.any(Number),
+  });
 });
