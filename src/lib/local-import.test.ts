@@ -3,6 +3,8 @@ import "fake-indexeddb/auto";
 import { IDBFactory as FakeIDBFactory } from "fake-indexeddb";
 
 import { database, mirrorKey } from "@/lib/offline/db";
+import { commitBookDeletion } from "@/lib/offline/outbox";
+import { listQueuedMutations, withMediaRegistrationLock } from "@/lib/offline-sync";
 
 // An import journals its registration in the outbox before it touches the
 // network, so the module under test needs the two browser globals that write
@@ -128,6 +130,72 @@ describe("local MP3 import", () => {
       author: "Edited author",
       media: { durationMs: 8_000 },
     });
+  });
+
+  it("does not register a re-import while the same rendition still has a pending delete", async () => {
+    const fingerprint = "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81";
+    await commitBookDeletion(
+      { userId: "mobile-user", deviceId: "device-1" },
+      "doomed-book",
+      fingerprint,
+      "source-v1",
+    );
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        Response.json({ error: "duplicate", existingBookId: "doomed-book" }, { status: 409 }),
+      );
+    const file = new File([new Uint8Array([1, 2, 3])], "replacement.mp3", {
+      type: "audio/mpeg",
+    });
+
+    await importLocalMp3("mobile-user", file, vi.fn());
+
+    expect(fetchMock, "live registration bypassed the pending delete").not.toHaveBeenCalled();
+    expect(storeLocalBookMedia.mock.calls[0]![1].id).not.toBe("doomed-book");
+  });
+
+  it("does not let live registration overtake replay for the same rendition", async () => {
+    const identity = {
+      fingerprint: "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
+      renditionKey: "source-v1",
+    };
+    const events: string[] = [];
+    let releaseReplay!: () => void;
+    let markReplayStarted!: () => void;
+    const replayStarted = new Promise<void>((resolve) => {
+      markReplayStarted = resolve;
+    });
+    const replay = withMediaRegistrationLock("mobile-user", identity, async () => {
+      events.push("delete-started");
+      markReplayStarted();
+      await new Promise<void>((resolve) => {
+        releaseReplay = resolve;
+      });
+      events.push("delete-settled");
+    });
+    await replayStarted;
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      events.push("import-sent");
+      const registration = JSON.parse(String(init?.body)) as { bookId: string };
+      return Response.json({ bookId: registration.bookId }, { status: 201 });
+    });
+    const importing = importLocalMp3(
+      "mobile-user",
+      new File([new Uint8Array([1, 2, 3])], "replacement.mp3", { type: "audio/mpeg" }),
+      vi.fn(),
+    );
+    await vi.waitFor(async () => {
+      expect((await listQueuedMutations("mobile-user")).some((row) => row.kind === "import")).toBe(
+        true,
+      );
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    releaseReplay();
+
+    await Promise.all([replay, importing]);
+    expect(events).toStrictEqual(["delete-started", "delete-settled", "import-sent"]);
   });
 
   it("keeps recoverable metadata when device storage fails", async () => {

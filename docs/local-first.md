@@ -221,7 +221,12 @@ Fingerprint alone is not enough: deleting rendition A must not erase a queued
 replacement B. When a book route already knows the tuple but the mirror row is
 unavailable, that route carries both values into the delete. A registration
 queued _after_ a delete is kept: re-importing something you deleted is a new
-intent, not a stale one.
+intent, not a stale one. Its live registration optimization uses the same
+fingerprint/rendition lock as replay and rechecks the outbox inside that lock.
+When the predecessor delete is still queued, the device keeps the replacement's
+minted id and audio immediately but leaves registration to replay. It must not
+accept a 409 for the doomed id and attach fresh bytes to a book replay is about
+to delete.
 
 ### 5.5 When the server renames a book mid-flight
 

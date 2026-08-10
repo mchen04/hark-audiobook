@@ -50,6 +50,11 @@ export {
   type ReplayRequest,
 } from "./offline-sync/replay";
 export {
+  hasPendingDeleteForMediaRegistration,
+  withMediaRegistrationLock,
+  type MediaRegistrationIdentity,
+} from "./offline-sync/media-registration-guard";
+export {
   duplicateProgressRetryFloor,
   reconcileAcceptedProgress,
   reconcileAcceptedProgressWithStatus,

@@ -4,10 +4,11 @@ import { withKeyedLock } from "@/lib/keyed-lock";
 import { runBounded } from "@/lib/run-bounded";
 
 import { database, type QueuedMutation, type SyncDb } from "./db";
+import { queuedMediaRegistrationIdentity } from "./media-registration-identity";
 import {
-  queuedMediaRegistrationIdentity,
-  sameQueuedMediaRegistration,
-} from "./media-registration-identity";
+  hasPendingDeleteForMediaRegistration,
+  withMediaRegistrationLock,
+} from "./media-registration-guard";
 import { newMutationId, withProgressMutationLock } from "./queue";
 import {
   awaitsRegistration,
@@ -156,12 +157,9 @@ function withMutationLock<T>(mutation: QueuedMutation, operation: () => Promise<
   // be erased when the delete finally lands. Lock both rows by fingerprint so
   // the order already encoded by the outbox is also the order the server sees.
   const identity = queuedMediaRegistrationIdentity(mutation);
-  return withKeyedLock(
-    identity
-      ? `chapterline:media-registration:${mutation.userId}:${identity.fingerprint}:${identity.renditionKey}`
-      : `chapterline:mutation:${mutation.key}`,
-    operation,
-  );
+  return identity
+    ? withMediaRegistrationLock(mutation.userId, identity, operation)
+    : withKeyedLock(`chapterline:mutation:${mutation.key}`, operation);
 }
 
 /**
@@ -327,7 +325,12 @@ async function refreshDuplicateProgress(
 async function replayMutation(snapshot: QueuedMutation, fetchFn: typeof fetch): Promise<void> {
   await withMutationLock(snapshot, async () => {
     const task = await supersedeStaleProgress(snapshot);
-    if (task.kind === "import" && (await hasPendingDeleteForRegistration(task))) {
+    const identity = queuedMediaRegistrationIdentity(task);
+    if (
+      task.kind === "import" &&
+      identity &&
+      (await hasPendingDeleteForMediaRegistration(task.userId, identity))
+    ) {
       // The shared rendition-identity lock means any earlier delete has finished its
       // request before this read. If its row remains, the server refused it or
       // could not be reached, so registering the replacement now would either
@@ -402,27 +405,6 @@ async function replayMutation(snapshot: QueuedMutation, fetchFn: typeof fetch): 
     }
     await settleMutation(task);
   });
-}
-
-async function hasPendingDeleteForRegistration(registration: QueuedMutation): Promise<boolean> {
-  const identity = queuedMediaRegistrationIdentity(registration);
-  if (!identity) return false;
-  const db = await database();
-  let cursor = await db
-    .transaction("mutations")
-    .store.index("by-user")
-    .openCursor(registration.userId);
-  while (cursor) {
-    const row = cursor.value;
-    if (
-      row.kind === "delete" &&
-      sameQueuedMediaRegistration(queuedMediaRegistrationIdentity(row), identity)
-    ) {
-      return true;
-    }
-    cursor = await cursor.continue();
-  }
-  return false;
 }
 
 /**

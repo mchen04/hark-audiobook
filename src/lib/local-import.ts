@@ -9,7 +9,11 @@ import {
 } from "@/lib/account-deletion-fence";
 import { throwIfAborted } from "@/lib/abort";
 import { fingerprintMedia } from "@/lib/media-fingerprint";
-import { shouldRetainMutation } from "@/lib/offline-sync";
+import {
+  hasPendingDeleteForMediaRegistration,
+  shouldRetainMutation,
+  withMediaRegistrationLock,
+} from "@/lib/offline-sync";
 import { storeLocalBookMedia, withLocalMediaSlot } from "@/lib/offline/media-store";
 import { projectLocalBookRegistration } from "@/lib/offline/local-import-mirror";
 import { commitImport } from "@/lib/offline/outbox";
@@ -264,42 +268,64 @@ export async function registerLocalBook(
   await commitImport({ userId, deviceId: getDeviceId() }, registration.fingerprint, registration);
   throwIfAborted(signal);
 
-  const response = await postLocalRegistration(registration, signal);
-  throwIfAborted(signal);
-  if (!response || shouldRetainMutation(response.status)) {
+  const identity = {
+    fingerprint: registration.fingerprint,
+    renditionKey: registration.renditionKey,
+  };
+  const keepQueuedRegistration = async (): Promise<RegisteredLocalBook> => {
     // The outbox is the durable write. Airplane-mode imports keep the id the
     // device already minted and register when the connection returns.
     await projectLocalBookRegistration(userId, registration);
     return { bookId: registration.bookId, canonicalBook: null };
-  }
-  if (response.ok) {
-    const { bookId } = (await response.json()) as { bookId: string };
-    if (!bookId) throw new Error("The audiobook registration returned no book id.");
-    await projectLocalBookRegistration(userId, { ...registration, bookId });
-    return { bookId, canonicalBook: null };
+  };
+  if (await hasPendingDeleteForMediaRegistration(userId, identity)) {
+    throwIfAborted(signal);
+    return keepQueuedRegistration();
   }
 
-  const payload = (await response.json().catch(() => null)) as {
-    error?: string;
-    existingBookId?: string;
-    playerBook?: Omit<PlayerBook, "mediaUrl" | "coverUrl">;
-  } | null;
-  // A fingerprint match means this exact source already owns a book. Attach
-  // this device's audio to that identity rather than creating a second card.
-  if (response.status === 409 && payload?.existingBookId) {
-    const canonicalBook =
-      payload.playerBook?.id === payload.existingBookId ? payload.playerBook : null;
-    await projectLocalBookRegistration(
-      userId,
-      { ...registration, bookId: payload.existingBookId },
-      canonicalBook,
-    );
-    return {
-      bookId: payload.existingBookId,
-      canonicalBook,
-    };
-  }
-  throw new Error(payload?.error || "The audiobook could not be imported.");
+  return withMediaRegistrationLock(userId, identity, async () => {
+    throwIfAborted(signal);
+    // The delete can be journalled between the fast check above and this lock.
+    // Recheck while live registration and replay are mutually exclusive.
+    if (await hasPendingDeleteForMediaRegistration(userId, identity)) {
+      throwIfAborted(signal);
+      return keepQueuedRegistration();
+    }
+
+    const response = await postLocalRegistration(registration, signal);
+    throwIfAborted(signal);
+    if (!response || shouldRetainMutation(response.status)) {
+      return keepQueuedRegistration();
+    }
+    if (response.ok) {
+      const { bookId } = (await response.json()) as { bookId: string };
+      if (!bookId) throw new Error("The audiobook registration returned no book id.");
+      await projectLocalBookRegistration(userId, { ...registration, bookId });
+      return { bookId, canonicalBook: null };
+    }
+
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+      existingBookId?: string;
+      playerBook?: Omit<PlayerBook, "mediaUrl" | "coverUrl">;
+    } | null;
+    // A fingerprint match means this exact source already owns a book. Attach
+    // this device's audio to that identity rather than creating a second card.
+    if (response.status === 409 && payload?.existingBookId) {
+      const canonicalBook =
+        payload.playerBook?.id === payload.existingBookId ? payload.playerBook : null;
+      await projectLocalBookRegistration(
+        userId,
+        { ...registration, bookId: payload.existingBookId },
+        canonicalBook,
+      );
+      return {
+        bookId: payload.existingBookId,
+        canonicalBook,
+      };
+    }
+    throw new Error(payload?.error || "The audiobook could not be imported.");
+  });
 }
 
 async function postLocalRegistration(
