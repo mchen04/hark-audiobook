@@ -200,6 +200,11 @@ Writes go through the outbox (`src/lib/offline-sync/`, database
   (a silent lost write). The two databases are deliberately separate and
   IndexedDB has no cross-database transaction, so ordering carries the guarantee
   — the same shape `deletion-journal.ts` already uses.
+- Local imports project their accepted identity through
+  `offline/local-import-mirror.ts` after the direct request is unreachable,
+  accepts the device id, or returns a canonical duplicate. A later 409 replay
+  rekeys both device media and the complete mirror aggregate before the import
+  leaves the queue, keeping offline `/books/:id` routes coherent.
 - **Idempotent replay.** `mutationId` is generated once at queue time and reused
   on every retry; replay hits the same REST routes the UI does, and the server
   dedupes. Kinds are `progress`, `import`, `metadata`, `tag`, `collection`,

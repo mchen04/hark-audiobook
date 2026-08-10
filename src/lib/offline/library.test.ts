@@ -262,6 +262,97 @@ describe("reattaching an offline import to the book the server already has", () 
     expect(await transcriptKeys()).toStrictEqual([`${USER}:${CANONICAL}:000000`]);
   });
 
+  it("moves optimistic mirror children when the canonical row already exists", async () => {
+    await projectBook(MINTED);
+    await projectBook(CANONICAL);
+    const db = await database();
+    await Promise.all([
+      db.put("playbackStates", {
+        key: mirrorKey(USER, MINTED),
+        userId: USER,
+        bookId: MINTED,
+        positionMs: 22_000,
+        playbackRate: 1,
+        completed: false,
+        deviceId: "offline-device",
+        deviceSequence: 7,
+        eventOccurredAt: "2026-07-21T00:20:00.000Z",
+        playbackRateOccurredAt: "2026-07-21T00:15:00.000Z",
+        completedOccurredAt: "2026-07-21T00:25:00.000Z",
+        stateOccurredAt: "2026-07-21T00:25:00.000Z",
+        updatedAt: "2026-07-21T00:25:00.000Z",
+      }),
+      db.put("playbackStates", {
+        key: mirrorKey(USER, CANONICAL),
+        userId: USER,
+        bookId: CANONICAL,
+        positionMs: 10_000,
+        playbackRate: 1.5,
+        completed: true,
+        deviceId: "canonical-device",
+        deviceSequence: 11,
+        eventOccurredAt: "2026-07-21T00:10:00.000Z",
+        playbackRateOccurredAt: "2026-07-21T00:30:00.000Z",
+        completedOccurredAt: "2026-07-21T00:40:00.000Z",
+        stateOccurredAt: "2026-07-21T00:40:00.000Z",
+        updatedAt: "2026-07-21T00:40:00.000Z",
+      }),
+      db.put("bookTags", {
+        key: mirrorKey(USER, MINTED, "offline-tag"),
+        userId: USER,
+        bookId: MINTED,
+        tagId: "offline-tag",
+      }),
+      db.put("bookTags", {
+        key: mirrorKey(USER, CANONICAL, "canonical-tag"),
+        userId: USER,
+        bookId: CANONICAL,
+        tagId: "canonical-tag",
+      }),
+      db.put("collectionBooks", {
+        key: mirrorKey(USER, "collection-a", MINTED),
+        userId: USER,
+        collectionId: "collection-a",
+        bookId: MINTED,
+        position: 2,
+      }),
+      db.put("listeningSessions", {
+        key: mirrorKey(USER, "session-a"),
+        userId: USER,
+        sessionId: "session-a",
+        bookId: MINTED,
+        startedAt: "2026-07-21T00:00:00.000Z",
+        endedAt: "2026-07-21T00:01:00.000Z",
+        startPositionMs: 0,
+        endPositionMs: 22_000,
+        listenedMs: 60_000,
+      }),
+    ]);
+
+    await reattachLocalBookIdentity(USER, MINTED, CANONICAL);
+
+    const [state, tags, collectionEdges, session] = await Promise.all([
+      db.get("playbackStates", mirrorKey(USER, CANONICAL)),
+      db.getAllFromIndex("bookTags", "by-user-book", [USER, CANONICAL]),
+      db.getAllFromIndex("collectionBooks", "by-user", USER),
+      db.get("listeningSessions", mirrorKey(USER, "session-a")),
+    ]);
+    expect(state).toMatchObject({
+      bookId: CANONICAL,
+      positionMs: 22_000,
+      eventOccurredAt: "2026-07-21T00:20:00.000Z",
+      playbackRate: 1.5,
+      playbackRateOccurredAt: "2026-07-21T00:30:00.000Z",
+      completed: true,
+      completedOccurredAt: "2026-07-21T00:40:00.000Z",
+    });
+    expect(tags.map((edge) => edge.tagId).sort()).toStrictEqual(["canonical-tag", "offline-tag"]);
+    expect(collectionEdges).toEqual([
+      expect.objectContaining({ collectionId: "collection-a", bookId: CANONICAL, position: 2 }),
+    ]);
+    expect(session?.bookId).toBe(CANONICAL);
+  });
+
   it("does nothing at all when this device stored nothing under the imported id", async () => {
     await reattachLocalBookIdentity(USER, MINTED, CANONICAL);
 

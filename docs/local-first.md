@@ -177,6 +177,13 @@ Rules:
    a mirrored change the user can see with no queued write behind it, which
    would be a silent lost write. Never write the mirror first.
 
+   Imports use the same order, but their projection is explicit rather than a
+   generic mutation patch: queue the registration, resolve whether its
+   device-minted id remains local or maps to a canonical server id, then write
+   that book and its chapters to the mirror. This makes a new offline import
+   immediately routable at `/books/:id` without creating a phantom row when an
+   online duplicate resolves to another id.
+
 2. **Idempotent on replay.** `mutationId` is generated once, at queue time, and
    reused on every retry. The server dedupes on it. Replaying a mutation the
    server already applied is a no-op, not a double-apply.
@@ -207,13 +214,14 @@ the user had already superseded.
 So `commitBookDeletion` drops any unsent registration of the same file, in the
 same transaction that journals the delete: no window in which both rows exist,
 and no ordering left to get right. It links them two ways, because a user can be
-looking at either kind of row — by book id (a device-only book the library
-projects from a download record) and by fingerprint (read from the mirror, never
-sent on the wire). When a book route already knows the fingerprint but the
-mirror row is unavailable, that route carries the same value into the delete;
-otherwise deleting from the attach gate would lose the ordering key precisely
-when the mirror cannot supply it. A registration queued _after_ a delete is
-kept: re-importing something you deleted is a new intent, not a stale one.
+looking at either kind of row — by book id (a device-only book, normally in the
+mirror and always in `downloads`) and by fingerprint (read from the mirror,
+never sent on the wire). When a book route already knows the fingerprint but
+the mirror row is unavailable, that route carries the same value into the
+delete; otherwise deleting from the attach gate would lose the ordering key
+precisely when the mirror cannot supply it. A registration queued _after_ a
+delete is kept: re-importing something you deleted is a new intent, not a stale
+one.
 
 ### 5.5 When the server renames a book mid-flight
 
@@ -229,6 +237,11 @@ were bugs:
   _target's_ sequence counter, because the server discards a sequence at or below
   its high-water mark for (user, book, device) **and answers 200** — a carried-over
   sequence is a write that reports success and vanishes.
+- **The local identity moves as one aggregate**, not just the audio record.
+  The device-minted mirror book, chapters, playback state, tag and collection
+  edges, and listening sessions move or merge onto the canonical id. The
+  abandoned mirror row is removed before the registration settles, so an
+  offline deep link cannot outlive the id the server rejected.
 - **A 404 is not terminal while a registration for that book is still queued.**
   `archive`, `collection`, `delete` and `history` all sort ahead of `import`, so
   they reach the server before the merge is knowable. Dropping them there loses
