@@ -51,7 +51,29 @@ const OFFLINE_URL = "/offline";
  * that they do not.
  */
 const LAUNCH_URL = "/library?source=pwa";
-const PRECACHE = [OFFLINE_URL, "/icons/icon-192.png"];
+// Generated from `asset-manifest.json` and pinned by a contract test. These
+// small, immutable runtime files make the already-downloaded on-device model
+// and PDF parser usable without another network visit.
+const RUNTIME_ASSETS = [
+  "/models/kestrel/prosody-encode.627c1c1a7203c6fcc73013957aec8ef56aacfe20df1df6eda571a9c816387a0e.onnx",
+  "/models/kestrel/prosody-frames.905339961e27ac99f948824d393ffd03cebf7c5477f32156c739e872016455eb.onnx",
+  "/models/kestrel/decoder-head.e3b02863689de98635f42d5f568908b6bc6d43059856434f30b66e25633a379d.onnx",
+  "/models/kestrel/kissfft.c1a03390ade32bcfc4c4143796f7510c0fec06b59d42840591ad4721fe93caf4.wasm",
+  "/pdf.worker.51a2fd1ea47f1a9b0814e65e0c336c739c54957795ee774e8f93cb81e8028dd1.min.mjs",
+];
+// ORT is larger than the app shell and is useless before Kestrel's weights have
+// been downloaded. First narration runtime-caches these content-addressed
+// files; later shell generations carry them forward only while the matching
+// verified model bundle is present.
+const MODEL_RUNTIME_ASSETS = [
+  "/models/kestrel/ort-wasm-simd-threaded.asyncify.7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655.mjs",
+  "/models/kestrel/ort-wasm-simd-threaded.asyncify.7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a.wasm",
+];
+const KESTREL_BUNDLE_CACHE = "hark-kestrel-bundle-ebfe37d8a8771780";
+const KESTREL_VERIFIED_URL =
+  "/__hark/kestrel-bundle/ebfe37d8a87717801af2619f5dbb22901557028821aa22809ffdf20f4aae7ac4/verified";
+const BUILD_RUNTIME_MANIFEST_URL = "/chapterline-runtime-assets.json";
+const PRECACHE = [OFFLINE_URL, "/icons/icon-192.png", ...RUNTIME_ASSETS];
 /**
  * How long a navigation the shell cannot answer may wait on the network.
  *
@@ -137,7 +159,7 @@ function declareLaunchRoute(event) {
 // served — so its static chunks are captured here at install time rather than
 // left to lazy runtime caching. Installation fails if any of them is missing,
 // because a shell whose chunks are absent is a blank screen with extra steps.
-async function stageShell() {
+async function stageShell(candidate) {
   const stageName = `${STAGING_CACHE_PREFIX}${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const stage = await caches.open(stageName);
 
@@ -145,12 +167,8 @@ async function stageShell() {
     // Fetch and validate the whole candidate without exposing it at a live
     // navigation key. Required chunks and both document copies land in the
     // candidate's immutable cache before promotion starts.
-    const offlinePage = await fetch(OFFLINE_URL, { cache: "no-store" });
-    if (!offlinePage.ok) throw new Error("The required offline page could not be fetched.");
-    const html = await offlinePage.clone().text();
-    const assets = [...new Set(html.match(/\/_next\/static\/[^"'\s\\]+/g) || [])];
-    const supportingAssets = PRECACHE.filter((asset) => asset !== OFFLINE_URL);
-    await Promise.all([...supportingAssets, ...assets].map((asset) => stage.add(asset)));
+    const { offlinePage, html, assets } = candidate || (await loadShellCandidate());
+    await addShellAssets(stage, assets);
 
     // `text()` decoded any content encoding. Reusing Content-Encoding or the
     // encoded Content-Length on this new response would make the cached HTML
@@ -176,6 +194,107 @@ async function stageShell() {
   }
 }
 
+/** Fetch one internally consistent shell document and dependency closure. */
+async function loadShellCandidate() {
+  const offlinePage = await fetch(OFFLINE_URL, { cache: "no-store" });
+  if (!offlinePage.ok) throw new Error("The required offline page could not be fetched.");
+  const html = await offlinePage.clone().text();
+  const documentAssets = [...new Set(html.match(/\/_next\/static\/[^"'\s\\]+/g) || [])];
+  const [buildRuntimeAssets, hasKestrelBundle] = await Promise.all([
+    loadBuildRuntimeAssets(),
+    hasVerifiedKestrelBundle(),
+  ]);
+  const supportingAssets = PRECACHE.filter((asset) => asset !== OFFLINE_URL);
+  return {
+    offlinePage,
+    html,
+    assets: [
+      ...new Set([
+        ...supportingAssets,
+        ...documentAssets,
+        ...buildRuntimeAssets,
+        ...(hasKestrelBundle ? MODEL_RUNTIME_ASSETS : []),
+      ]),
+    ],
+  };
+}
+
+/** Avoid copying an unchanged build's full runtime closure after every launch. */
+async function liveShellMatches(candidate) {
+  const live = await caches.open(CACHE_VERSION);
+  const [offlineDocument, launchDocument] = await Promise.all([
+    live.match(OFFLINE_URL),
+    live.match(LAUNCH_URL),
+  ]);
+  if (!offlineDocument || !launchDocument) return false;
+
+  const generation = launchDocument.headers.get(SHELL_GENERATION_HEADER);
+  if (
+    !generation?.startsWith(STAGING_CACHE_PREFIX) ||
+    offlineDocument.headers.get(SHELL_GENERATION_HEADER) !== generation
+  ) {
+    return false;
+  }
+
+  const [offlineHtml, launchHtml] = await Promise.all([
+    offlineDocument.text(),
+    launchDocument.text(),
+  ]);
+  if (offlineHtml !== candidate.html || launchHtml !== candidate.html) return false;
+
+  const generationCache = await caches.open(generation);
+  const cachedPaths = new Set(
+    (await generationCache.keys()).map((request) => {
+      const url = new URL(request.url);
+      return `${url.pathname}${url.search}`;
+    }),
+  );
+  return candidate.assets.every((asset) => cachedPaths.has(asset));
+}
+
+/** Load the post-build dependency closure for document extraction and workers. */
+async function loadBuildRuntimeAssets() {
+  const response = await fetch(BUILD_RUNTIME_MANIFEST_URL, { cache: "no-store" });
+  if (!response.ok) throw new Error("The document runtime manifest could not be fetched.");
+  const manifest = await response.json();
+  if (manifest?.version !== 1 || !Array.isArray(manifest.assets)) {
+    throw new Error("The document runtime manifest is invalid.");
+  }
+  const assets = [...new Set(manifest.assets)];
+  if (
+    assets.length === 0 ||
+    assets.some(
+      (asset) =>
+        typeof asset !== "string" ||
+        !/^\/_next\/static\/chunks\/[A-Za-z0-9_.-]+\.(?:js|css)$/.test(asset),
+    )
+  ) {
+    throw new Error("The document runtime manifest contains an invalid asset.");
+  }
+  return assets;
+}
+
+async function hasVerifiedKestrelBundle() {
+  if (!(await caches.keys()).includes(KESTREL_BUNDLE_CACHE)) return false;
+  const bundle = await caches.open(KESTREL_BUNDLE_CACHE);
+  return Boolean(await bundle.match(KESTREL_VERIFIED_URL));
+}
+
+/** Bound install concurrency so a mobile browser is not handed dozens of fetches. */
+async function addShellAssets(cache, candidates) {
+  const assets = [...new Set(candidates)];
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(6, assets.length) }, async () => {
+      for (;;) {
+        const index = next++;
+        if (index >= assets.length) return;
+        await cache.add(assets[index]);
+      }
+    }),
+  );
+}
+
 /** Stage an install without making its document visible to the old worker. */
 async function prepareInstalledShell() {
   const stageName = await stageShell();
@@ -186,7 +305,12 @@ async function prepareInstalledShell() {
 
 /** Active-worker refreshes can stage and promote under the same event. */
 async function precacheShell() {
-  const stageName = await stageShell();
+  const candidate = await loadShellCandidate();
+  if (await liveShellMatches(candidate)) {
+    await Promise.allSettled([dropSupersededShellStages(), dropLegacyShellCaches()]);
+    return;
+  }
+  const stageName = await stageShell(candidate);
   const cleanupSafe = await promoteShell(stageName);
   if (cleanupSafe) {
     await Promise.allSettled([dropSupersededShellStages(), dropLegacyShellCaches()]);
@@ -315,7 +439,13 @@ async function preserveLegacyShellAssets(cacheNames) {
     const legacy = await caches.open(cacheName);
     for (const request of await legacy.keys()) {
       const { pathname } = new URL(request.url);
-      if (!pathname.startsWith("/_next/static/") && !pathname.startsWith("/icons/")) continue;
+      if (
+        !pathname.startsWith("/_next/static/") &&
+        !pathname.startsWith("/icons/") &&
+        !RUNTIME_ASSETS.includes(pathname) &&
+        !MODEL_RUNTIME_ASSETS.includes(pathname)
+      )
+        continue;
       const response = await legacy.match(request);
       if (response) await stage.put(request, response);
     }
@@ -462,20 +592,61 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/")) {
-    event.respondWith(
-      currentShellAssetCache().then(async (cache) => {
-        // Prefer the canonical generation. The cross-cache fallback is for a
-        // retained older client lazily requesting one of its own chunks.
-        const cached = (await cache.match(request)) || (await caches.match(request));
-        if (cached) return cached;
-        const response = await fetch(request);
-        if (response.ok) await cache.put(request, response.clone());
-        return response;
-      }),
-    );
+  if (
+    url.pathname.startsWith("/_next/static/") ||
+    url.pathname.startsWith("/icons/") ||
+    RUNTIME_ASSETS.includes(url.pathname) ||
+    MODEL_RUNTIME_ASSETS.includes(url.pathname)
+  ) {
+    event.respondWith(serveShellAsset(request, url.pathname));
   }
 });
+
+async function serveShellAsset(request, pathname) {
+  // Turbopack uses one bootstrap pathname for every module worker and puts the
+  // actual entry chunks in the URL fragment. Fragments never reach HTTP or
+  // Cache Storage. A cached Response retains the first worker's response URL;
+  // returning it directly can therefore make a later worker boot that entry.
+  if (isTurbopackWorkerBootstrap(pathname)) {
+    return serveTurbopackWorkerBootstrap(request);
+  }
+
+  const cache = await currentShellAssetCache();
+  // Prefer the canonical generation. The cross-cache fallback is for a
+  // retained older client lazily requesting one of its own chunks.
+  const cached = (await cache.match(request)) || (await caches.match(request));
+  if (cached) return cached;
+  const response = await fetch(request);
+  if (response.ok) await cache.put(request, response.clone());
+  return response;
+}
+
+async function serveTurbopackWorkerBootstrap(request) {
+  const cache = await currentShellAssetCache();
+  const cached = (await cache.match(request)) || (await caches.match(request));
+  if (cached) return detachResponseUrl(cached);
+
+  const response = await fetch(request);
+  if (response.ok) await cache.put(request, response.clone());
+  return detachResponseUrl(response);
+}
+
+async function detachResponseUrl(response) {
+  const headers = new Headers(response.headers);
+  // `arrayBuffer()` exposes decoded bytes. Reusing transport encoding or the
+  // encoded length would corrupt the reconstructed JavaScript response.
+  headers.delete("Content-Encoding");
+  headers.delete("Content-Length");
+  return new Response(await response.arrayBuffer(), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function isTurbopackWorkerBootstrap(pathname) {
+  return /^\/_next\/static\/chunks\/turbopack-worker-[^/]+\.js$/.test(pathname);
+}
 
 /** Runtime-warmed chunks join the generation the canonical launch key names. */
 async function currentShellAssetCache() {

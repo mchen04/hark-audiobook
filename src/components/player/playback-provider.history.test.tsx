@@ -2,7 +2,7 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PlaybackHistoryEntry } from "@/domain/playback-history";
@@ -86,11 +86,20 @@ const hydratedSnapshot = {
   entries: [hydratedEntry],
   capturedAt: "2026-07-12T18:31:00.000Z",
 };
+const refreshedBook: PlayerBook = {
+  ...book,
+  mediaUrl: "/offline-media/replacement",
+};
 
 function HistoryHarness() {
   const playback = usePlayback();
   const { loadBook } = playback;
-  useEffect(() => loadBook(book), [loadBook]);
+  const loaded = useRef(false);
+  useEffect(() => {
+    if (loaded.current) return;
+    loaded.current = true;
+    loadBook(book);
+  }, [loadBook]);
   return (
     <>
       <button onClick={playback.toggle}>toggle</button>
@@ -110,11 +119,13 @@ function HistoryHarness() {
       <button onClick={playback.restart}>restart</button>
       <button onClick={() => playback.restoreHistoryPosition(12_000)}>restore</button>
       <button onClick={() => playback.loadBook(book, false, hydratedSnapshot)}>hydrate</button>
+      <button onClick={() => playback.loadBook(refreshedBook)}>refresh media</button>
       <output>{playback.historyNotice}</output>
       <output aria-label="history entries">
         {playback.history.map((entry) => entry.id).join(",")}
       </output>
       <output aria-label="active book">{playback.book?.id || "none"}</output>
+      <output aria-label="active media">{playback.book?.mediaUrl || "none"}</output>
     </>
   );
 }
@@ -196,6 +207,26 @@ describe("playback action capture", () => {
     expect(storePlaybackAction.mock.calls.map((call) => call[2].action)).toEqual(
       expected.map(([, action]) => action),
     );
+  });
+
+  it("reloads the same book when regenerated media receives a new local URL", async () => {
+    const { container } = render(
+      <PlaybackProvider userId="user-1">
+        <HistoryHarness />
+      </PlaybackProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("active media")).toHaveTextContent("/offline-media/test"),
+    );
+    const audio = container.querySelector("audio")!;
+    expect(audio.getAttribute("src")).toBe("/offline-media/test");
+
+    fireEvent.click(screen.getByRole("button", { name: "refresh media" }));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("active media")).toHaveTextContent("/offline-media/replacement"),
+    );
+    expect(audio.getAttribute("src")).toBe("/offline-media/replacement");
   });
 
   /**

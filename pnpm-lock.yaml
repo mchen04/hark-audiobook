@@ -9,9 +9,17 @@ overrides:
   postcss: 8.5.25
   sharp: 0.35.3
 
+patchedDependencies:
+  mediabunny@1.53.0:
+    hash: dhg2zsgzrvhbl3c3gcmi5touj4
+    path: patches/mediabunny@1.53.0.patch
+
 importers:
   .:
     dependencies:
+      "@mediabunny/mp3-encoder":
+        specifier: 1.53.0
+        version: 1.53.0(mediabunny@1.53.0(patch_hash=dhg2zsgzrvhbl3c3gcmi5touj4))
       "@phosphor-icons/react":
         specifier: ^2.1.10
         version: 2.1.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -21,18 +29,36 @@ importers:
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(kysely@0.29.3)(postgres@3.4.9)
+      fflate:
+        specifier: 0.8.3
+        version: 0.8.3
       hash-wasm:
         specifier: ^4.12.0
         version: 4.12.0
       idb:
         specifier: ^8.0.3
         version: 8.0.3
+      kissfft-wasm:
+        specifier: ^2.0.1
+        version: 2.0.1
+      mediabunny:
+        specifier: 1.53.0
+        version: 1.53.0(patch_hash=dhg2zsgzrvhbl3c3gcmi5touj4)
       music-metadata:
         specifier: ^11.13.0
         version: 11.13.0
       next:
         specifier: ^16.2.12
         version: 16.2.12(@babel/core@7.29.7)(@playwright/test@1.61.1)(@types/node@24.13.3)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      onnxruntime-web:
+        specifier: ^1.27.0
+        version: 1.27.0
+      pdfjs-dist:
+        specifier: 5.6.205
+        version: 5.6.205
+      phonemizer:
+        specifier: ^1.2.1
+        version: 1.2.1
       postgres:
         specifier: ^3.4.8
         version: 3.4.9
@@ -1314,6 +1340,120 @@ packages:
         integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==,
       }
 
+  "@mediabunny/mp3-encoder@1.53.0":
+    resolution:
+      {
+        integrity: sha512-kACSIhMBORDLLYwNMwumAzFUEL9sa+2lkoHukTeIqN7PjceuM97SqHMeWJwOTOQ3cjTEJRrP04MSSnKIm0Rsrw==,
+      }
+    peerDependencies:
+      mediabunny: ^1.0.0
+
+  "@napi-rs/canvas-android-arm64@0.1.100":
+    resolution:
+      {
+        integrity: sha512-hjhCKhntPv9+t4ckHymdx0phYNcVW+GKQR6Lzw2zE+pOVjOplSmtx9nNNknTjbEDLcuLZqA1y8ufKg1XfgftzQ==,
+      }
+    engines: { node: ">= 10" }
+    cpu: [arm64]
+    os: [android]
+
+  "@napi-rs/canvas-darwin-arm64@0.1.100":
+    resolution:
+      {
+        integrity: sha512-2PcswRaC7Ly645DGt88///zuFDhJxJYdKAs1uU3mfk1atYkXufgcgLfBpk6Tm12nCQBaNt1wpybuPZ4qOhTo8A==,
+      }
+    engines: { node: ">= 10" }
+    cpu: [arm64]
+    os: [darwin]
+
+  "@napi-rs/canvas-darwin-x64@0.1.100":
+    resolution:
+      {
+        integrity: sha512-ePNZtj7pNIva/siZMg+HmbeozkIjqUIYdoymH8HaA3qK7LfzFN4WMBM8G6HQ9ZC+H3+Dnn5pqtiXpgLykaPOhw==,
+      }
+    engines: { node: ">= 10" }
+    cpu: [x64]
+    os: [darwin]
+
+  "@napi-rs/canvas-linux-arm-gnueabihf@0.1.100":
+    resolution:
+      {
+        integrity: sha512-d5cDB48oWFGU8/XPhUOFAlySgb/VAu7D+s8fi55K1Pcfg8aPplHWqMgibhVLU8ky7Pyg/fuiVLz4Nf3JrSTuUA==,
+      }
+    engines: { node: ">= 10" }
+    cpu: [arm]
+    os: [linux]
+
+  "@napi-rs/canvas-linux-arm64-gnu@0.1.100":
+    resolution:
+      {
+        integrity: sha512-rDxgxRu69RvDlX/bh9o22DxLsGr8EqsNgotL9+RwQE1S0b0cqeatqsw6aW45mukm0B42DIAaAacKaYQ8cqS1nw==,
+      }
+    engines: { node: ">= 10" }
+    cpu: [arm64]
+    os: [linux]
+
+  "@napi-rs/canvas-linux-arm64-musl@0.1.100":
+    resolution:
+      {
+        integrity: sha512-K3mDW66N+xT2/V439u1alFANiBUjdEx2gLiNYnCmUsva5jZMxWTjafBYwTzYK+EMFMHrUoabuU+T1BIP5CgbYQ==,
+      }
+    engines: { node: ">= 10" }
+    cpu: [arm64]
+    os: [linux]
+
+  "@napi-rs/canvas-linux-riscv64-gnu@0.1.100":
+    resolution:
+      {
+        integrity: sha512-mooqUBTIsccZpnoQC4NgrC1v6C1vof39etLNMnBwCY+p0gajWJvAHLGQ6g/gGyS5YrpDW+GefSN4+Cvcr08UWw==,
+      }
+    engines: { node: ">= 10" }
+    cpu: [riscv64]
+    os: [linux]
+
+  "@napi-rs/canvas-linux-x64-gnu@0.1.100":
+    resolution:
+      {
+        integrity: sha512-1eCvkDCazm7FFhsT7DfGOdSaHgZVK3bt/dSBl5EWHOWmnz+I7j8tPseJqqD81NF+MH21jKUK4wQSDjN0mdhnTg==,
+      }
+    engines: { node: ">= 10" }
+    cpu: [x64]
+    os: [linux]
+
+  "@napi-rs/canvas-linux-x64-musl@0.1.100":
+    resolution:
+      {
+        integrity: sha512-20arT6lnI19S68qNlii73TSEDbECNgzMz2EpldC1V3mZFuRkeujXkcebRk0LRJe9SEUAooYiLokfMViY8IX7yA==,
+      }
+    engines: { node: ">= 10" }
+    cpu: [x64]
+    os: [linux]
+
+  "@napi-rs/canvas-win32-arm64-msvc@0.1.100":
+    resolution:
+      {
+        integrity: sha512-DZFFT1wIAg37LJw37yhMRFfjATd3vTQzjZ1Yki8u2vhO6Hi5VE6BVaGQ1aaDu7xb4iMErz+9EOwjpS7xcxFeBw==,
+      }
+    engines: { node: ">= 10" }
+    cpu: [arm64]
+    os: [win32]
+
+  "@napi-rs/canvas-win32-x64-msvc@0.1.100":
+    resolution:
+      {
+        integrity: sha512-MyT1j3mHC2+Lu4pBi9mKyMJhtP6U7k7EldY7sj/uS5gJA65gTXt8MefJQXLJo5d/vZbuWmfxzkEUNc/urV3pHA==,
+      }
+    engines: { node: ">= 10" }
+    cpu: [x64]
+    os: [win32]
+
+  "@napi-rs/canvas@0.1.100":
+    resolution:
+      {
+        integrity: sha512-xglYA6q3XO5P3BNJYxVZ1IV7DLVjp1Py6nwag88YntrS+3vKHyYcMqXVS4ZztJmwz2uGvz1FWhI/4LgbR5uQDA==,
+      }
+    engines: { node: ">= 10" }
+
   "@napi-rs/wasm-runtime@1.1.6":
     resolution:
       {
@@ -1479,6 +1619,60 @@ packages:
       }
     engines: { node: ">=18" }
     hasBin: true
+
+  "@protobufjs/aspromise@1.1.2":
+    resolution:
+      {
+        integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==,
+      }
+
+  "@protobufjs/base64@1.1.2":
+    resolution:
+      {
+        integrity: sha512-AZkcAA5vnN/v4PDqKyMR5lx7hZttPDgClv83E//FMNhR2TMcLUhfRUBHCmSl0oi9zMgDDqRUJkSxO3wm85+XLg==,
+      }
+
+  "@protobufjs/codegen@2.0.5":
+    resolution:
+      {
+        integrity: sha512-zgXFLzW3Ap33e6d0Wlj4MGIm6Ce8O89n/apUaGNB/jx+hw+ruWEp7EwGUshdLKVRCxZW12fp9r40E1mQrf/34g==,
+      }
+
+  "@protobufjs/eventemitter@1.1.1":
+    resolution:
+      {
+        integrity: sha512-vW1GmwMZNnL+gMRaovlh9yZX74kc+TTU3FObkkurpMaRtBfLP3ldjS9KQWlwZgraRE0+dheEEoAxdzcJQ8eXZg==,
+      }
+
+  "@protobufjs/fetch@1.1.1":
+    resolution:
+      {
+        integrity: sha512-GpptLrs57adMSuHi3VNj0mAF8dwh36LMaYF6XyJ6JMWlVsc+t42tm1HSEDmOs3A8fC9yyeisgLhsTVQokOZ0zw==,
+      }
+
+  "@protobufjs/float@1.0.2":
+    resolution:
+      {
+        integrity: sha512-Ddb+kVXlXst9d+R9PfTIxh1EdNkgoRe5tOX6t01f1lYWOvJnSPDBlG241QLzcyPdoNTsblLUdujGSE4RzrTZGQ==,
+      }
+
+  "@protobufjs/path@1.1.2":
+    resolution:
+      {
+        integrity: sha512-6JOcJ5Tm08dOHAbdR3GrvP+yUUfkjG5ePsHYczMFLq3ZmMkAD98cDgcT2iA1lJ9NVwFd4tH/iSSoe44YWkltEA==,
+      }
+
+  "@protobufjs/pool@1.1.0":
+    resolution:
+      {
+        integrity: sha512-0kELaGSIDBKvcgS4zkjz1PeddatrjYcmMWOlAuAPwAeccUrPHdUqo/J6LiymHHEiJT5NrF1UVwxY14f+fy4WQw==,
+      }
+
+  "@protobufjs/utf8@1.1.2":
+    resolution:
+      {
+        integrity: sha512-b1UQwcEZ4yCnMCD8DAL1VlbvBJE9/IX4FTIp7BG1xYpf29SLazLSrqUkj4w7Y5y7cCVP6E5tcqqcI0xemPkHug==,
+      }
 
   "@rolldown/binding-android-arm64@1.1.5":
     resolution:
@@ -1705,6 +1899,18 @@ packages:
     resolution:
       {
         integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==,
+      }
+
+  "@types/dom-mediacapture-transform@0.1.12":
+    resolution:
+      {
+        integrity: sha512-d7/QsLRwF864A5mgIM/YrfiglHoYn7zgCcAoJgW404r+2DwnNr7EBbLnCWpmOMgH8y0te73L1AV6H1bmauaWFw==,
+      }
+
+  "@types/dom-webcodecs@0.1.13":
+    resolution:
+      {
+        integrity: sha512-O5hkiFIcjjszPIYyUSyvScyvrBoV3NOEEZx/pMlsu44TKzWNkLVBBxnxJz42in5n3QIolYOcBYFCPZZ0h8SkwQ==,
       }
 
   "@types/estree@1.0.9":
@@ -3068,6 +3274,12 @@ packages:
       picomatch:
         optional: true
 
+  fflate@0.8.3:
+    resolution:
+      {
+        integrity: sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==,
+      }
+
   file-entry-cache@8.0.0:
     resolution:
       {
@@ -3102,6 +3314,12 @@ packages:
         integrity: sha512-f7ccFPK3SXFHpx15UIGyRJ/FJQctuKZ0zVuN3frBo4HnK3cay9VEW0R6yPYFHC0AgqhukPzKjq22t5DmAyqGyw==,
       }
     engines: { node: ">=16" }
+
+  flatbuffers@25.9.23:
+    resolution:
+      {
+        integrity: sha512-MI1qs7Lo4Syw0EOzUl0xjs2lsoeqFku44KpngfIduHBYvzm8h2+7K8YMQh1JtVVVrUvhLpNwqVi4DERegUJhPQ==,
+      }
 
   flatted@3.4.2:
     resolution:
@@ -3233,6 +3451,12 @@ packages:
         integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==,
       }
     engines: { node: ">= 0.4" }
+
+  guid-typescript@1.0.9:
+    resolution:
+      {
+        integrity: sha512-Y8T4vYhEfwJOTbouREvG+3XDsjr8E3kIr7uf+JZ0BYloFsttiHU0WfvANVsR7TxNUJa/WpCnw/Ino/p+DeBhBQ==,
+      }
 
   has-bigints@1.1.0:
     resolution:
@@ -3673,6 +3897,12 @@ packages:
         integrity: sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw==,
       }
 
+  kissfft-wasm@2.0.1:
+    resolution:
+      {
+        integrity: sha512-M8VY+stFxFxzmAM3BmywQ108a7bwfBZWL7PytAYw49U2nJ9v9nUEug9uTogo9QRXQgsGOc0idQfC1asmPsvF1Q==,
+      }
+
   kysely@0.29.3:
     resolution:
       {
@@ -3819,6 +4049,12 @@ packages:
         integrity: sha512-0KpjqXRVvrYyCsX1swR/XTK0va6VQkQM6MNo7PqW77ByjAhoARA8EfrP1N4+KlKj8YS0ZUCtRT/YUuhyYDujIQ==,
       }
 
+  long@5.3.2:
+    resolution:
+      {
+        integrity: sha512-mNAgZ1GmyNhD7AuqnTG3/VQ26o760+ZYBPKjPvugO8+nLbYfX6TVpJPseBvopbdY+qpZ/lKUnmEc1LeZYS3QAA==,
+      }
+
   loose-envify@1.4.0:
     resolution:
       {
@@ -3871,6 +4107,12 @@ packages:
         integrity: sha512-kOy3OxT2HH39N70UnKgu4NWDZjLOz8W/mfyvniHjRH/DrL3f2pOfvWQ4p60offbbtDAnXWp0v9LfMIqMec269Q==,
       }
     engines: { node: ">=18" }
+
+  mediabunny@1.53.0:
+    resolution:
+      {
+        integrity: sha512-RjWe9yJr9MPvb6kX4gSu54fZD2w1yf6RyCS0Jmgaml+fFSqEr7+XuASXoRxSqJxgc+wIe+7TujXWcyj3evJ3Bg==,
+      }
 
   merge2@1.4.1:
     resolution:
@@ -3985,6 +4227,12 @@ packages:
       }
     engines: { node: ">= 0.4" }
 
+  node-readable-to-web-readable-stream@0.4.2:
+    resolution:
+      {
+        integrity: sha512-/cMZNI34v//jUTrI+UIo4ieHAB5EZRY/+7OmXZgBxaWBMcW2tGdceIw06RFxWxrKZ5Jp3sI2i5TsRo+CBhtVLQ==,
+      }
+
   node-releases@2.0.51:
     resolution:
       {
@@ -4055,6 +4303,18 @@ packages:
       }
     engines: { node: ">=12.20.0" }
 
+  onnxruntime-common@1.27.0:
+    resolution:
+      {
+        integrity: sha512-3KxL5wIVqa8Ex08jxSzncm9CMgw8CjOFyOQ7SxvG9o0cVLlhTNKXyIQuTbtX4tGPJEf73OER2xrjt4HJSBL4ow==,
+      }
+
+  onnxruntime-web@1.27.0:
+    resolution:
+      {
+        integrity: sha512-ogDLsqIozHZwifPuN37OproAo0byX6t43/bP8GzeZWBWD6MOGExswFAx3up4NS/vvWBOg2u2PXomDt3rMmdQSg==,
+      }
+
   optionator@0.9.4:
     resolution:
       {
@@ -4122,6 +4382,19 @@ packages:
         integrity: sha512-WUjGcAqP1gQacoQe+OBJsFA7Ld4DyXuUIjZ5cc75cLHvJ7dtNsTugphxIADwspS+AraAUePCKrSVtPLFj/F88w==,
       }
 
+  pdfjs-dist@5.6.205:
+    resolution:
+      {
+        integrity: sha512-tlUj+2IDa7G1SbvBNN74UHRLJybZDWYom+k6p5KIZl7huBvsA4APi6mKL+zCxd3tLjN5hOOEE9Tv7VdzO88pfg==,
+      }
+    engines: { node: ">=20.19.0 || >=22.13.0 || >=24" }
+
+  phonemizer@1.2.1:
+    resolution:
+      {
+        integrity: sha512-v0KJ4mi2T4Q7eJQ0W15Xd4G9k4kICSXE8bpDeJ8jisL4RyJhNWsweKTOi88QXFc4r4LZlz5jVL5lCHhkpdT71A==,
+      }
+
   picocolors@1.1.1:
     resolution:
       {
@@ -4141,6 +4414,12 @@ packages:
         integrity: sha512-RvwwcruNjI1ncT5xRakeyS9Lf8lcItv34KD+aif+VH9kduAyfYBipGh12274xtenIPZ119/R9BdTBa8gAwSh0A==,
       }
     engines: { node: ">=12" }
+
+  platform@1.3.6:
+    resolution:
+      {
+        integrity: sha512-fnWVljUchTro6RiCFvCXBbNhJc2NijN7oIQxbwsyL0buWJPG85v81ehlHI9fXrJsMNgTofEoWIQeClKpgxFLrg==,
+      }
 
   playwright-core@1.61.1:
     resolution:
@@ -4206,6 +4485,13 @@ packages:
       {
         integrity: sha512-oj87CgZICdulUohogVAR7AjlC0327U4el4L6eAvOqCeudMDVU0NThNaV+b9Df4dXgSP1gXMTnPdhfe/2qDH5cg==,
       }
+
+  protobufjs@7.6.5:
+    resolution:
+      {
+        integrity: sha512-/FPD0nUc9jH6rfFjji9IBqOz4pcSE3CsT1m7Ep6Mdb0LxSUMj8hgl6GomOvZzpNpAqqGaXA0P3VSrZLFzIhQrw==,
+      }
+    engines: { node: ">=12.0.0" }
 
   punycode@2.3.1:
     resolution:
@@ -5645,6 +5931,58 @@ snapshots:
       "@jridgewell/resolve-uri": 3.1.2
       "@jridgewell/sourcemap-codec": 1.5.5
 
+  "@mediabunny/mp3-encoder@1.53.0(mediabunny@1.53.0(patch_hash=dhg2zsgzrvhbl3c3gcmi5touj4))":
+    dependencies:
+      mediabunny: 1.53.0(patch_hash=dhg2zsgzrvhbl3c3gcmi5touj4)
+
+  "@napi-rs/canvas-android-arm64@0.1.100":
+    optional: true
+
+  "@napi-rs/canvas-darwin-arm64@0.1.100":
+    optional: true
+
+  "@napi-rs/canvas-darwin-x64@0.1.100":
+    optional: true
+
+  "@napi-rs/canvas-linux-arm-gnueabihf@0.1.100":
+    optional: true
+
+  "@napi-rs/canvas-linux-arm64-gnu@0.1.100":
+    optional: true
+
+  "@napi-rs/canvas-linux-arm64-musl@0.1.100":
+    optional: true
+
+  "@napi-rs/canvas-linux-riscv64-gnu@0.1.100":
+    optional: true
+
+  "@napi-rs/canvas-linux-x64-gnu@0.1.100":
+    optional: true
+
+  "@napi-rs/canvas-linux-x64-musl@0.1.100":
+    optional: true
+
+  "@napi-rs/canvas-win32-arm64-msvc@0.1.100":
+    optional: true
+
+  "@napi-rs/canvas-win32-x64-msvc@0.1.100":
+    optional: true
+
+  "@napi-rs/canvas@0.1.100":
+    optionalDependencies:
+      "@napi-rs/canvas-android-arm64": 0.1.100
+      "@napi-rs/canvas-darwin-arm64": 0.1.100
+      "@napi-rs/canvas-darwin-x64": 0.1.100
+      "@napi-rs/canvas-linux-arm-gnueabihf": 0.1.100
+      "@napi-rs/canvas-linux-arm64-gnu": 0.1.100
+      "@napi-rs/canvas-linux-arm64-musl": 0.1.100
+      "@napi-rs/canvas-linux-riscv64-gnu": 0.1.100
+      "@napi-rs/canvas-linux-x64-gnu": 0.1.100
+      "@napi-rs/canvas-linux-x64-musl": 0.1.100
+      "@napi-rs/canvas-win32-arm64-msvc": 0.1.100
+      "@napi-rs/canvas-win32-x64-msvc": 0.1.100
+    optional: true
+
   "@napi-rs/wasm-runtime@1.1.6(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)":
     dependencies:
       "@emnapi/core": 1.10.0
@@ -5719,6 +6057,26 @@ snapshots:
   "@playwright/test@1.61.1":
     dependencies:
       playwright: 1.61.1
+
+  "@protobufjs/aspromise@1.1.2": {}
+
+  "@protobufjs/base64@1.1.2": {}
+
+  "@protobufjs/codegen@2.0.5": {}
+
+  "@protobufjs/eventemitter@1.1.1": {}
+
+  "@protobufjs/fetch@1.1.1":
+    dependencies:
+      "@protobufjs/aspromise": 1.1.2
+
+  "@protobufjs/float@1.0.2": {}
+
+  "@protobufjs/path@1.1.2": {}
+
+  "@protobufjs/pool@1.1.0": {}
+
+  "@protobufjs/utf8@1.1.2": {}
 
   "@rolldown/binding-android-arm64@1.1.5":
     optional: true
@@ -5831,6 +6189,12 @@ snapshots:
       assertion-error: 2.0.1
 
   "@types/deep-eql@4.0.2": {}
+
+  "@types/dom-mediacapture-transform@0.1.12":
+    dependencies:
+      "@types/dom-webcodecs": 0.1.13
+
+  "@types/dom-webcodecs@0.1.13": {}
 
   "@types/estree@1.0.9": {}
 
@@ -6795,6 +7159,8 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.5
 
+  fflate@0.8.3: {}
+
   file-entry-cache@8.0.0:
     dependencies:
       flat-cache: 4.0.1
@@ -6821,6 +7187,8 @@ snapshots:
     dependencies:
       flatted: 3.4.2
       keyv: 4.5.4
+
+  flatbuffers@25.9.23: {}
 
   flatted@3.4.2: {}
 
@@ -6900,6 +7268,8 @@ snapshots:
       gopd: 1.2.0
 
   gopd@1.2.0: {}
+
+  guid-typescript@1.0.9: {}
 
   has-bigints@1.1.0: {}
 
@@ -7166,6 +7536,8 @@ snapshots:
     dependencies:
       json-buffer: 3.0.1
 
+  kissfft-wasm@2.0.1: {}
+
   kysely@0.29.3: {}
 
   language-subtag-registry@0.3.23: {}
@@ -7234,6 +7606,8 @@ snapshots:
 
   lodash.merge@4.6.2: {}
 
+  long@5.3.2: {}
+
   loose-envify@1.4.0:
     dependencies:
       js-tokens: 4.0.0
@@ -7255,6 +7629,11 @@ snapshots:
   mdn-data@2.27.1: {}
 
   media-typer@2.0.0: {}
+
+  mediabunny@1.53.0(patch_hash=dhg2zsgzrvhbl3c3gcmi5touj4):
+    dependencies:
+      "@types/dom-mediacapture-transform": 0.1.12
+      "@types/dom-webcodecs": 0.1.13
 
   merge2@1.4.1: {}
 
@@ -7333,6 +7712,9 @@ snapshots:
       object.entries: 1.1.9
       semver: 6.3.1
 
+  node-readable-to-web-readable-stream@0.4.2:
+    optional: true
+
   node-releases@2.0.51: {}
 
   object-assign@4.1.1: {}
@@ -7379,6 +7761,17 @@ snapshots:
 
   obug@2.1.3: {}
 
+  onnxruntime-common@1.27.0: {}
+
+  onnxruntime-web@1.27.0:
+    dependencies:
+      flatbuffers: 25.9.23
+      guid-typescript: 1.0.9
+      long: 5.3.2
+      onnxruntime-common: 1.27.0
+      platform: 1.3.6
+      protobufjs: 7.6.5
+
   optionator@0.9.4:
     dependencies:
       deep-is: 0.1.4
@@ -7418,11 +7811,20 @@ snapshots:
 
   pathe@2.0.3: {}
 
+  pdfjs-dist@5.6.205:
+    optionalDependencies:
+      "@napi-rs/canvas": 0.1.100
+      node-readable-to-web-readable-stream: 0.4.2
+
+  phonemizer@1.2.1: {}
+
   picocolors@1.1.1: {}
 
   picomatch@2.3.2: {}
 
   picomatch@4.0.5: {}
+
+  platform@1.3.6: {}
 
   playwright-core@1.61.1: {}
 
@@ -7457,6 +7859,20 @@ snapshots:
       loose-envify: 1.4.0
       object-assign: 4.1.1
       react-is: 16.13.1
+
+  protobufjs@7.6.5:
+    dependencies:
+      "@protobufjs/aspromise": 1.1.2
+      "@protobufjs/base64": 1.1.2
+      "@protobufjs/codegen": 2.0.5
+      "@protobufjs/eventemitter": 1.1.1
+      "@protobufjs/fetch": 1.1.1
+      "@protobufjs/float": 1.0.2
+      "@protobufjs/path": 1.1.2
+      "@protobufjs/pool": 1.1.0
+      "@protobufjs/utf8": 1.1.2
+      "@types/node": 24.13.3
+      long: 5.3.2
 
   punycode@2.3.1: {}
 

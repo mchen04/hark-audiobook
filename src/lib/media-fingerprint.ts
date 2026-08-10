@@ -1,4 +1,5 @@
 import type { FingerprintWorkerResponse } from "./media-hash";
+import { throwIfAborted } from "./abort";
 
 export type MediaFingerprintKind = "sample-v1" | "sha256-v1";
 
@@ -8,15 +9,18 @@ export async function fingerprintMedia(
   file: File,
   kind: MediaFingerprintKind,
   onProgress?: (fraction: number) => void,
+  signal?: AbortSignal,
 ): Promise<string> {
-  if (kind === "sample-v1") return sampleFingerprint(file);
+  throwIfAborted(signal);
+  if (kind === "sample-v1") return sampleFingerprint(file, signal);
   // Hashing a whole audiobook is heavy CPU; run it off the main thread so
   // import and playback stay responsive. Worker-less environments (tests)
   // hash inline via the same shared routine.
   if (typeof Worker !== "undefined") {
     try {
-      return await workerSha256(file, onProgress);
+      return await workerSha256(file, onProgress, signal);
     } catch {
+      throwIfAborted(signal);
       // The worker could not be loaded or died. Its script is a separate
       // `/_next/static` file fetched at first use — not referenced by the shell
       // document, so nothing precaches it — which meant an import with no
@@ -24,24 +28,44 @@ export async function fingerprintMedia(
       // step from done. Hashing on the main thread is slower and worth it:
       // being unable to add a book is a worse outcome than a busy UI, and the
       // fallback needs no network because `media-hash` is warmed at launch.
-      return inlineSha256(file, onProgress);
+      return inlineSha256(file, onProgress, signal);
     }
   }
-  return inlineSha256(file, onProgress);
+  return inlineSha256(file, onProgress, signal);
 }
 
-async function inlineSha256(file: File, onProgress?: (fraction: number) => void): Promise<string> {
+async function inlineSha256(
+  file: File,
+  onProgress?: (fraction: number) => void,
+  signal?: AbortSignal,
+): Promise<string> {
   const { fullSha256 } = await import("./media-hash");
-  return fullSha256(file, onProgress);
+  return fullSha256(file, onProgress, signal);
 }
 
-function workerSha256(file: File, onProgress?: (fraction: number) => void): Promise<string> {
+function workerSha256(
+  file: File,
+  onProgress?: (fraction: number) => void,
+  signal?: AbortSignal,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL("./media-fingerprint.worker.ts", import.meta.url));
+    let settled = false;
     const settle = (complete: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener("abort", abort);
       worker.terminate();
       complete();
     };
+    const abort = () =>
+      settle(() => {
+        try {
+          throwIfAborted(signal);
+        } catch (error) {
+          reject(error);
+        }
+      });
     worker.onmessage = (event: MessageEvent<FingerprintWorkerResponse>) => {
       const response = event.data;
       if (response.type === "progress") onProgress?.(response.fraction);
@@ -49,18 +73,27 @@ function workerSha256(file: File, onProgress?: (fraction: number) => void): Prom
       else settle(() => reject(new Error(response.message)));
     };
     worker.onerror = () => settle(() => reject(new Error("The file could not be fingerprinted.")));
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
     worker.postMessage(file);
   });
 }
 
-async function sampleFingerprint(file: File) {
+async function sampleFingerprint(file: File, signal?: AbortSignal) {
+  throwIfAborted(signal);
   const head = await file.slice(0, SAMPLE_BYTES).arrayBuffer();
+  throwIfAborted(signal);
   const tail = await file.slice(Math.max(0, file.size - SAMPLE_BYTES)).arrayBuffer();
+  throwIfAborted(signal);
   const sizeBytes = new TextEncoder().encode(String(file.size));
   const combined = new Uint8Array(sizeBytes.length + head.byteLength + tail.byteLength);
   combined.set(sizeBytes, 0);
   combined.set(new Uint8Array(head), sizeBytes.length);
   combined.set(new Uint8Array(tail), sizeBytes.length + head.byteLength);
   const digest = await crypto.subtle.digest("SHA-256", combined);
+  throwIfAborted(signal);
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }

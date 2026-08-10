@@ -5,6 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 
 const source = readFileSync(path.resolve(__dirname, "../../public/sw.js"), "utf8");
 const constants = source.match(/const CACHE_VERSION[\s\S]*?const PRECACHE = \[[\s\S]*?\];/)?.[0];
+const modelRuntimeDeclaration = source.match(/const MODEL_RUNTIME_ASSETS = (\[[^;]+\]);/)?.[1];
+const testKestrelBundleCache = source.match(/const KESTREL_BUNDLE_CACHE = "([^"]+)"/)?.[1];
+const testKestrelVerifiedUrl = source.match(
+  /\n\s*"(\/__hark\/kestrel-bundle\/[^\"]+\/verified)"/,
+)?.[1];
 const routeSource = source.match(/function declareLaunchRoute\(event\) \{[\s\S]*?\n\}/)?.[0];
 
 function extractFunction(name: string) {
@@ -12,6 +17,11 @@ function extractFunction(name: string) {
 }
 
 const stageSource = extractFunction("stageShell");
+const candidateSource = extractFunction("loadShellCandidate");
+const liveMatchSource = extractFunction("liveShellMatches");
+const runtimeAssetsSource = extractFunction("loadBuildRuntimeAssets");
+const verifiedBundleSource = extractFunction("hasVerifiedKestrelBundle");
+const addAssetsSource = extractFunction("addShellAssets");
 const installSource = extractFunction("prepareInstalledShell");
 const precacheSource = extractFunction("precacheShell");
 const promoteSource = extractFunction("promoteShell");
@@ -27,8 +37,16 @@ const queueSource = source.match(
 
 if (
   !constants ||
+  !modelRuntimeDeclaration ||
+  !testKestrelBundleCache ||
+  !testKestrelVerifiedUrl ||
   !routeSource ||
   !stageSource ||
+  !candidateSource ||
+  !liveMatchSource ||
+  !runtimeAssetsSource ||
+  !verifiedBundleSource ||
+  !addAssetsSource ||
   !installSource ||
   !precacheSource ||
   !promoteSource ||
@@ -42,6 +60,9 @@ if (
 ) {
   throw new Error("The service-worker shell contract moved.");
 }
+const kestrelBundleCache = testKestrelBundleCache;
+const kestrelVerifiedUrl = testKestrelVerifiedUrl;
+const testModelRuntimeAssets = new Function(`return ${modelRuntimeDeclaration};`)() as string[];
 
 type WorkerLike = {
   clients: {
@@ -70,17 +91,23 @@ function createShellFunctions(
     },
   },
 ) {
+  const runtimeAwareFetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+    runtimeManifestRequest(input)
+      ? runtimeManifestResponse()
+      : fetchFn(input, init)) as typeof fetch;
   return new Function(
     "caches",
     "fetch",
     "self",
-    `${constants}; ${stageSource}; ${installSource}; ${precacheSource}; ${promoteSource}; ` +
+    `${constants}; ${stageSource}; ${candidateSource}; ${liveMatchSource}; ` +
+      `${runtimeAssetsSource}; ${verifiedBundleSource}; ` +
+      `${addAssetsSource}; ${installSource}; ${precacheSource}; ${promoteSource}; ` +
       `${leaseSource}; ${retainedSource}; ${preserveLegacySource}; ${sweepSource}; ` +
       `${legacySweepSource}; ${activateSource}; ${queueSource}; ` +
       "return { activateWorker, " +
       "dropSupersededShellStages, precacheShell, prepareInstalledShell, promoteShell, " +
       "queueShellRefresh, stageShell };",
-  )(cacheStorage, fetchFn, worker) as ShellFunctions;
+  )(cacheStorage, runtimeAwareFetch, worker) as ShellFunctions;
 }
 
 describe("service-worker shell generations", () => {
@@ -121,8 +148,25 @@ describe("service-worker shell generations", () => {
     expect(await storage.document(LAUNCH_URL)).toContain("working-old.js");
     expect(await storage.document(OFFLINE_URL)).toContain("working-old.js");
     expect(storage.has(stageName, "/_next/static/chunks/install.js")).toBe(true);
+    expect(storage.has(stageName, "/_next/static/chunks/document-runtime.js")).toBe(true);
     expect(storage.has(stageName, "/icons/icon-192.png")).toBe(true);
     expect(await storage.text(SHELL_METADATA_CACHE, INSTALL_READY_URL)).toBe(stageName);
+  });
+
+  it("carries ORT forward only after the matching model bundle is verified", async () => {
+    const cold = namedShellStorage();
+    const coldStage = await createShellFunctions(
+      cold.cacheStorage,
+      shellFetch("cold.js"),
+    ).stageShell();
+    expect(cold.has(coldStage, testModelRuntimeAssets[0]!)).toBe(false);
+
+    const ready = namedShellStorage({ verifiedKestrelBundle: true });
+    const readyStage = await createShellFunctions(
+      ready.cacheStorage,
+      shellFetch("ready.js"),
+    ).stageShell();
+    for (const asset of testModelRuntimeAssets) expect(ready.has(readyStage, asset)).toBe(true);
   });
 
   it("promotes only after every required chunk is cached", async () => {
@@ -136,6 +180,17 @@ describe("service-worker shell generations", () => {
     expect(storage.has(generation!, "/_next/static/chunks/candidate.js")).toBe(true);
     expect(await storage.document(LAUNCH_URL)).toContain("candidate.js");
     expect(await storage.document(OFFLINE_URL)).toContain("candidate.js");
+  });
+
+  it("does not restage an unchanged shell after launch", async () => {
+    const storage = namedShellStorage();
+    const shell = createShellFunctions(storage.cacheStorage, shellFetch("candidate.js"));
+
+    await shell.precacheShell();
+    const generation = await storage.liveGeneration();
+    await shell.precacheShell();
+
+    expect(storage.stageNames()).toStrictEqual([generation]);
   });
 
   it("claims clients before an installed generation becomes live", async () => {
@@ -427,6 +482,7 @@ type StorageOptions = {
   failDelete?: (cacheName: string) => boolean;
   initialCacheName?: string;
   initialDocument?: string;
+  verifiedKestrelBundle?: boolean;
 };
 
 function namedShellStorage(options: StorageOptions = {}) {
@@ -494,6 +550,10 @@ function namedShellStorage(options: StorageOptions = {}) {
   };
 
   cache(CACHE_VERSION);
+  if (options.verifiedKestrelBundle) {
+    cache(kestrelBundleCache);
+    entries.get(kestrelBundleCache)!.set(kestrelVerifiedUrl, new Response("verified"));
+  }
   if (options.initialDocument) {
     const initialCacheName = options.initialCacheName ?? CACHE_VERSION;
     cache(initialCacheName);
@@ -539,6 +599,18 @@ function alternatingShellFetch(...chunks: string[]) {
     call += 1;
     return new Response(shellDocument(chunk));
   }) as unknown as ReturnType<typeof vi.fn> & typeof fetch;
+}
+
+function runtimeManifestRequest(input: RequestInfo | URL): boolean {
+  const value = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  return new URL(value, ORIGIN).pathname === "/chapterline-runtime-assets.json";
+}
+
+function runtimeManifestResponse(): Response {
+  return Response.json({
+    version: 1,
+    assets: ["/_next/static/chunks/document-runtime.js"],
+  });
 }
 
 /** The shared-cache refresh implementation deployed at a3270cd. */

@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import "fake-indexeddb/auto";
 import { IDBFactory as FakeIDBFactory } from "fake-indexeddb";
 
+import { database, mirrorKey } from "@/lib/offline/db";
+import { commitBookDeletion } from "@/lib/offline/outbox";
+import { listQueuedMutations, withMediaRegistrationLock } from "@/lib/offline-sync";
+
 // An import journals its registration in the outbox before it touches the
 // network, so the module under test needs the two browser globals that write
 // reaches for: IndexedDB for the queue, and localStorage for the device id it
@@ -31,7 +35,7 @@ vi.mock("music-metadata", () => ({
   }),
 }));
 
-import { importLocalMp3 } from "./local-import";
+import { importLocalMp3, LOCAL_REGISTRATION_TIMEOUT_MS } from "./local-import";
 
 describe("local MP3 import", () => {
   beforeEach(() => {
@@ -70,8 +74,16 @@ describe("local MP3 import", () => {
       // the server answered with: everything written under the minted id has to
       // be inside one slot for a later reattach to be able to move all of it.
       { key: expect.stringMatching(/^mobile-user:[0-9a-f-]{36}$/) },
+      expect.any(AbortSignal),
+      // The canonical media write stays inside the import's already-held
+      // account fence instead of deadlocking on a second acquisition.
+      expect.objectContaining({ userId: "mobile-user" }),
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    const db = await database();
+    expect(
+      (await db.getAllFromIndex("books", "by-user", "mobile-user")).map((book) => book.bookId),
+    ).toStrictEqual(["existing-book"]);
   });
 
   it("uses canonical synced state when reattaching an existing book", async () => {
@@ -109,7 +121,81 @@ describe("local MP3 import", () => {
       null,
       expect.any(Function),
       { key: expect.stringMatching(/^mobile-user:[0-9a-f-]{36}$/) },
+      expect.any(AbortSignal),
+      expect.objectContaining({ userId: "mobile-user" }),
     );
+    const db = await database();
+    expect(await db.get("books", mirrorKey("mobile-user", canonical.id))).toMatchObject({
+      title: "Edited title",
+      author: "Edited author",
+      media: { durationMs: 8_000 },
+    });
+  });
+
+  it("does not register a re-import while the same rendition still has a pending delete", async () => {
+    const fingerprint = "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81";
+    await commitBookDeletion(
+      { userId: "mobile-user", deviceId: "device-1" },
+      "doomed-book",
+      fingerprint,
+      "source-v1",
+    );
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        Response.json({ error: "duplicate", existingBookId: "doomed-book" }, { status: 409 }),
+      );
+    const file = new File([new Uint8Array([1, 2, 3])], "replacement.mp3", {
+      type: "audio/mpeg",
+    });
+
+    await importLocalMp3("mobile-user", file, vi.fn());
+
+    expect(fetchMock, "live registration bypassed the pending delete").not.toHaveBeenCalled();
+    expect(storeLocalBookMedia.mock.calls[0]![1].id).not.toBe("doomed-book");
+  });
+
+  it("does not let live registration overtake replay for the same rendition", async () => {
+    const identity = {
+      fingerprint: "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
+      renditionKey: "source-v1",
+    };
+    const events: string[] = [];
+    let releaseReplay!: () => void;
+    let markReplayStarted!: () => void;
+    const replayStarted = new Promise<void>((resolve) => {
+      markReplayStarted = resolve;
+    });
+    const replay = withMediaRegistrationLock("mobile-user", identity, async () => {
+      events.push("delete-started");
+      markReplayStarted();
+      await new Promise<void>((resolve) => {
+        releaseReplay = resolve;
+      });
+      events.push("delete-settled");
+    });
+    await replayStarted;
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      events.push("import-sent");
+      const registration = JSON.parse(String(init?.body)) as { bookId: string };
+      return Response.json({ bookId: registration.bookId }, { status: 201 });
+    });
+    const importing = importLocalMp3(
+      "mobile-user",
+      new File([new Uint8Array([1, 2, 3])], "replacement.mp3", { type: "audio/mpeg" }),
+      vi.fn(),
+    );
+    await vi.waitFor(async () => {
+      expect((await listQueuedMutations("mobile-user")).some((row) => row.kind === "import")).toBe(
+        true,
+      );
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    releaseReplay();
+
+    await Promise.all([replay, importing]);
+    expect(events).toStrictEqual(["delete-started", "delete-settled", "import-sent"]);
   });
 
   it("keeps recoverable metadata when device storage fails", async () => {
@@ -126,6 +212,114 @@ describe("local MP3 import", () => {
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    const db = await database();
+    expect(await db.get("books", mirrorKey("mobile-user", "new-book"))).toMatchObject({
+      bookId: "new-book",
+      title: "Mobile PWA Fixture",
+    });
+  });
+
+  it("projects an offline import so its player route can resolve immediately", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new TypeError("offline"));
+    const file = new File([new Uint8Array([7, 8, 9])], "offline%20fixture.mp3", {
+      type: "audio/mpeg",
+    });
+
+    await importLocalMp3("mobile-user", file, vi.fn());
+
+    const storedBook = storeLocalBookMedia.mock.calls[0]![1];
+    const db = await database();
+    const [book, chapters] = await Promise.all([
+      db.get("books", mirrorKey("mobile-user", storedBook.id)),
+      db.getAllFromIndex("chapters", "by-user-book", ["mobile-user", storedBook.id]),
+    ]);
+    expect(book).toMatchObject({
+      bookId: storedBook.id,
+      title: "Mobile PWA Fixture",
+      author: "Ada Mobile",
+      media: {
+        originalFilename: "offline%20fixture.mp3",
+        mimeType: "audio/mpeg",
+        byteSize: 3,
+        fingerprintKind: "sha256-v1",
+        renditionKey: "source-v1",
+        durationMs: 8_000,
+      },
+    });
+    expect(chapters).toEqual([
+      expect.objectContaining({
+        bookId: storedBook.id,
+        position: 0,
+        startMs: 0,
+        endMs: 8_000,
+      }),
+    ]);
+  });
+
+  it("keeps completed audio when registration receives a retryable response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      Response.json({ error: "temporarily unavailable" }, { status: 503 }),
+    );
+    const file = new File([new Uint8Array([10, 11, 12])], "retry.mp3", {
+      type: "audio/mpeg",
+    });
+
+    await importLocalMp3("mobile-user", file, vi.fn());
+
+    expect(storeLocalBookMedia).toHaveBeenCalledOnce();
+    const storedBook = storeLocalBookMedia.mock.calls[0]![1];
+    const db = await database();
+    expect(await db.get("books", mirrorKey("mobile-user", storedBook.id))).toMatchObject({
+      bookId: storedBook.id,
+      media: { renditionKey: "source-v1" },
+    });
+  });
+
+  it("bounds a registration request that never answers", async () => {
+    const realSetTimeout = globalThis.setTimeout;
+    const accelerateRegistrationTimeout = (
+      handler: (...args: unknown[]) => void,
+      timeout?: number,
+      ...args: unknown[]
+    ): ReturnType<typeof setTimeout> => {
+      if (timeout === LOCAL_REGISTRATION_TIMEOUT_MS) {
+        queueMicrotask(() => handler(...args));
+        return 1 as unknown as ReturnType<typeof setTimeout>;
+      }
+      return realSetTimeout(handler, timeout, ...args);
+    };
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(
+      accelerateRegistrationTimeout as unknown as typeof setTimeout,
+    );
+    vi.spyOn(globalThis, "fetch").mockImplementationOnce(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("timed out", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+    const file = new File([new Uint8Array([13, 14, 15])], "timeout.mp3", {
+      type: "audio/mpeg",
+    });
+
+    await importLocalMp3("mobile-user", file, vi.fn());
+
+    expect(storeLocalBookMedia).toHaveBeenCalledOnce();
+  });
+
+  it("does not turn a terminal validation error into a local success", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      Response.json({ error: "invalid chapters" }, { status: 422 }),
+    );
+    const file = new File([new Uint8Array([16, 17, 18])], "invalid.mp3", {
+      type: "audio/mpeg",
+    });
+
+    await expect(importLocalMp3("mobile-user", file, vi.fn())).rejects.toThrow("invalid chapters");
+    expect(storeLocalBookMedia).not.toHaveBeenCalled();
   });
 });
 

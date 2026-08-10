@@ -1399,8 +1399,13 @@ describe("a delete supersedes an unsent registration of the same file", () => {
     vi.unstubAllGlobals();
   });
 
-  function queueRegistration(bookId: string) {
-    return commitImport(ORIGIN, FINGERPRINT, { bookId, fingerprint: FINGERPRINT, title: "Book" });
+  function queueRegistration(bookId: string, renditionKey = "source-v1") {
+    return commitImport(ORIGIN, FINGERPRINT, {
+      bookId,
+      fingerprint: FINGERPRINT,
+      renditionKey,
+      title: "Book",
+    });
   }
 
   /** The mirror row a pull leaves behind, which is where the delete reads the fingerprint. */
@@ -1426,6 +1431,7 @@ describe("a delete supersedes an unsent registration of the same file", () => {
         byteSize: 1,
         fingerprint: FINGERPRINT,
         fingerprintKind: "sha256-v1",
+        renditionKey: "source-v1",
         durationMs: 1,
       },
       searchText: "book author",
@@ -1454,6 +1460,20 @@ describe("a delete supersedes an unsent registration of the same file", () => {
     await commitBookDeletion(ORIGIN, "device-only-book");
 
     expect((await listQueuedMutations(USER)).map((row) => row.kind)).toStrictEqual(["delete"]);
+  });
+
+  it("keeps another rendition of the same source", async () => {
+    await mirrorBook("canonical-book");
+    await queueRegistration("new-rendition", "kestrel-fast-v2");
+
+    await commitBookDeletion(ORIGIN, "canonical-book");
+
+    expect(
+      (await listQueuedMutations(USER)).map((row) => [row.kind, row.payload.renditionKey]),
+    ).toStrictEqual([
+      ["delete", "source-v1"],
+      ["import", "kestrel-fast-v2"],
+    ]);
   });
 
   it("keeps a re-import the user made AFTER deleting the book", async () => {
@@ -1505,6 +1525,24 @@ describe("a delete supersedes an unsent registration of the same file", () => {
     ).toStrictEqual(["delete-started"]);
     expect(events).toStrictEqual(["delete-started", "delete-settled", "import-sent"]);
     expect(await listQueuedMutations(USER)).toStrictEqual([]);
+  });
+
+  it("does not serialize a different rendition behind the deleted one", async () => {
+    await mirrorBook("canonical-book");
+    await commitBookDeletion(ORIGIN, "canonical-book");
+    await queueRegistration("new-rendition", "kestrel-fast-v2");
+    const methods: string[] = [];
+    const fetchFn = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      methods.push(String(init?.method));
+      return init?.method === "DELETE"
+        ? new Response(null, { status: 503 })
+        : Response.json({ bookId: "new-rendition" }, { status: 201 });
+    });
+
+    await replayQueuedMutations(USER, fetchFn as typeof fetch);
+
+    expect(methods.sort()).toStrictEqual(["DELETE", "POST"]);
+    expect((await listQueuedMutations(USER)).map((row) => row.kind)).toStrictEqual(["delete"]);
   });
 
   it("serializes a later re-import when the route knows a fingerprint absent from the mirror", async () => {

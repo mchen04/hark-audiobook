@@ -2,6 +2,12 @@
 
 import { createAuthClient } from "better-auth/react";
 
+import {
+  clearAccountSignOutFence,
+  commitAccountSignOutFence,
+  installAccountSignOutFence,
+  reopenAccountAfterSignIn,
+} from "@/lib/account-deletion-fence";
 import { ACTIVE_USER_KEY, SIGN_OUT_REPORT_KEY } from "@/lib/app-keys";
 import type { UndeliveredWrite } from "@/lib/offline/account-purge";
 
@@ -82,6 +88,7 @@ let signOutDrain: { ran: boolean; undelivered: UndeliveredWrite[] } = {
   ran: false,
   undelivered: [],
 };
+let signOutUserId: string | null = null;
 let signOutReport: SignOutReport | null = null;
 let storedSignOutReportRaw: string | null = null;
 let storedSignOutReport: SignOutReport | null = null;
@@ -216,8 +223,16 @@ async function runSignOutDrain(context: AuthRequestContext): Promise<void> {
   signOutDrain = { ran: false, undelivered: [] };
   const userId = localStorage.getItem(ACTIVE_USER_KEY);
   if (!userId) return;
-  const purge = await import("@/lib/offline/account-purge");
-  signOutDrain = { ran: true, undelivered: await purge.drainBeforeSignOut(userId) };
+  signOutUserId = userId;
+  try {
+    const purge = await import("@/lib/offline/account-purge");
+    signOutDrain = { ran: true, undelivered: await purge.drainBeforeSignOut(userId) };
+  } finally {
+    // The drain runs while its own receipt writes are still allowed. Once it
+    // settles, close the account synchronously so no new user work can race the
+    // request or the local sweep, and active media work is cancelled in every tab.
+    installAccountSignOutFence(userId);
+  }
 }
 
 export async function runAccountPurge(context: AuthSuccessContext): Promise<void> {
@@ -229,9 +244,11 @@ export async function runAccountPurge(context: AuthSuccessContext): Promise<void
     // Read BEFORE the dynamic import, and before anything else can await: this
     // is the account being left, and the caller is free to clear the key the
     // moment `signOut()` resolves.
-    const userId = localStorage.getItem(ACTIVE_USER_KEY);
+    const userId = signOutUserId ?? localStorage.getItem(ACTIVE_USER_KEY);
+    signOutUserId = null;
     const drain = signOutDrain;
     signOutDrain = { ran: false, undelivered: [] };
+    if (userId) commitAccountSignOutFence();
     const purge = await import("@/lib/offline/account-purge");
     if (!userId) {
       rememberSignOutReport({ undelivered: drain.undelivered, purgeFailed: false });
@@ -254,9 +271,16 @@ export async function runAccountPurge(context: AuthSuccessContext): Promise<void
   }
 
   if (path.includes("/sign-in") || path.includes("/sign-up")) {
-    const purge = await import("@/lib/offline/account-purge");
     const userId = signedInUserId(context.data);
-    if (userId) await purge.purgeOnSignIn(userId);
+    if (userId) {
+      // A successful authentication is the only authority that reopens a
+      // fence committed by an earlier sign-out or interrupted purge. Waiting
+      // on the same account lock keeps a concurrent old purge from deleting
+      // data underneath the newly authenticated session.
+      await reopenAccountAfterSignIn(userId);
+      const purge = await import("@/lib/offline/account-purge");
+      await purge.purgeOnSignIn(userId);
+    }
   }
 }
 
@@ -289,6 +313,13 @@ export const authFetchHooks = {
       ? purgeInFlight
       : bounded(purgeInFlight, SIGN_IN_PURGE_TIMEOUT_MS);
     await purgeGate;
+  },
+  onError: async (context: AuthSuccessContext) => {
+    if (!isSignOut(pathOf(context))) return;
+    const userId = signOutUserId ?? localStorage.getItem(ACTIVE_USER_KEY);
+    signOutUserId = null;
+    signOutDrain = { ran: false, undelivered: [] };
+    if (userId) clearAccountSignOutFence(userId);
   },
 };
 

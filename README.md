@@ -1,17 +1,20 @@
 # Hark
 
-A private, installable, offline-first audiobook player for the chaptered MP3s
-that Epub Listener (a sibling project) produces. One account is one
-solo library: import an MP3, keep its embedded chapters, and resume exactly
-where you left off on any device.
+A private, installable, offline-first audiobook player. Import a chaptered MP3
+directly, or give Hark a PDF, EPUB, DOCX, text, Markdown, or HTML document and
+Kestrel Fast narrates it on this device. One account is one solo library, with
+the same chapters and resume position on every device.
 
-**Your audio never leaves your devices.** The MP3 is parsed in the browser and
-stored in this device's own storage; the server only ever sees metadata —
+**Your books never leave your devices.** MP3s and source documents are read in
+the browser, and audio is stored in this device's own storage; the server only ever sees metadata —
 titles, chapters, progress, and playback history. There is no upload, no object storage,
-and no practical file-size limit beyond the device's free space, so a single
-600-hour audiobook imports the same way a two-hour one does. If the MP3 carries
-an embedded read-along transcript, its text is book content too, so it is stored
-on the device alongside the audio and never included in any server request.
+and streamed MP3 imports have no practical file-size limit beyond the device's
+free space, so a single 600-hour audiobook imports the same way a two-hour one
+does. Document conversion is deliberately bounded before parsing: PDF 96 MiB,
+EPUB/DOCX 48 MiB, text/Markdown 8 MiB, HTML 2 MiB, and two million extracted
+characters. If the MP3 carries an embedded read-along transcript, its text is
+book content too, so it is stored on the device alongside the audio and never
+included in any server request.
 
 **Your library reads from the device, too.** Every book row, chapter, tag and
 position is mirrored into this device's IndexedDB, and the library screen reads
@@ -20,10 +23,13 @@ contract for that is `docs/local-first.md`.
 
 ## What it does
 
-- **Import**: parses the MP3 entirely in the browser — title/author/narrator,
+- **Import**: parses an MP3 entirely in the browser — title/author/narrator,
   embedded cover art, and ID3/FFMETADATA chapters (a valid chapterless MP3
-  plays as one chapter with an honest diagnostic; non-MP3s are rejected) —
-  registers the metadata, and stores the audio bytes on this device only.
+  plays as one chapter with an honest diagnostic). Documents are extracted by
+  format-specific local adapters, narrated by Kestrel Fast through WebGPU with
+  a WASM fallback, and progressively encoded as MP3. The pinned model bundle is
+  downloaded and integrity-checked once; its pinned browser runtime is cached
+  with the offline shell, and source plus generated audio stay local.
 - **Play**: persistent player with chapters, scrubbing, configurable skip
   intervals, 0.5x–3x speed, sleep timer (presets, custom minutes, end of
   chapter), a 50-action playback history, finished/restart state, and
@@ -41,7 +47,7 @@ contract for that is `docs/local-first.md`.
   conflict rules. Every write is journaled to a local outbox first, projected
   onto the local mirror second, and replayed against the server by its
   `mutationId` so a retry is a no-op rather than a double-apply. On a device
-  that doesn't hold the audio yet, the player asks for the original MP3 and
+  that doesn't hold the audio yet, the player asks for the original source and
   verifies it by size and content fingerprint before attaching it.
 - **Offline**: the library screen reads this device's IndexedDB mirror, so
   search, filters, sort, the "On this device" facet and the continue card behave
@@ -53,9 +59,9 @@ contract for that is `docs/local-first.md`.
   document hits and zero Postgres queries. Those recorded figures used a 4x CPU
   throttle whose fixed proof loop cost 16ms. Current runs calibrate each host to
   that same 16ms CPU budget, with a fresh browser process per launch, so a slow
-  shared runner cannot silently turn 4x into a much harsher device. Imported
-  audio is served by the service worker with full seeking, and queued writes
-  replay when the app is next open.
+  shared runner cannot silently turn 4x into a much harsher device. Imported or
+  generated audio is served by the service worker with full seeking, and queued
+  writes replay when the app is next open.
 - **Organize**: search, status and tag filters, an "On this device" facet, sort
   orders, grid/list views, collections with optional next-book autoplay,
   archive, and delete. There is one library screen: books whose audio is not on
@@ -63,11 +69,13 @@ contract for that is `docs/local-first.md`.
   not on the device, and never look playable.
 - **Own your data**: JSON export of all metadata/progress and full account
   deletion (rows and this device's local data — the audio files were always
-  yours).
+  yours). A first document narration downloads about 39 MB of public Kestrel
+  weights plus a 24 MB pinned browser runtime; later narrations reuse the
+  verified on-device bundle and cached runtime.
 
 ## Local setup
 
-1. Install Node.js >= 20.9 and pnpm 9.
+1. Install Node.js >= 20.19 and pnpm 9.
 2. `cp .env.example .env.local` and fill in the values (see below).
 3. `pnpm install`
 4. `pnpm db:migrate`
@@ -111,6 +119,7 @@ aborts the e2e config, the standalone test server, and this bootstrap script if
 | `pnpm verify`                        | The complete executable local gate: quick checks plus iPhone WebKit, offline parity, sync integrity, the 24 automatable resume cells, and launch performance. Start the test database and install the pinned browsers first.                                                                                                                                                                                             |
 | `pnpm verify:quick`                  | The fast non-browser gate: format check, lint, typecheck, all Vitest suites, and a production build.                                                                                                                                                                                                                                                                                                                     |
 | `pnpm verify:browser`                | Every executable Playwright gate, matching the browser matrix required by `.github/workflows/ci.yml`. The two real-iOS hidden-state gaps remain deliberately outside CI.                                                                                                                                                                                                                                                 |
+| `pnpm verify:kestrel-export`         | Clean-room Kestrel graph reproduction: downloads the exact pinned public model weights into a temporary directory, uses the pinned Python/ONNX/NumPy recipe, and requires byte-for-byte matches with all committed ONNX graphs.                                                                                                                                                                                          |
 | `pnpm test`                          | Vitest suites (MP3 and transcript parsing contracts, service-worker range/navigation/shell logic, progress conflict policy, the outbox and the mirror, IndexedDB upgrades, playback).                                                                                                                                                                                                                                    |
 | `pnpm test:idb-migrate`              | Just the IndexedDB upgrade suite: every shipped version of both databases is opened from a fixture and carried forward, so downloads, transcripts and a pending deletion journal survive `chapterline-offline-v1` v7 and outbox v4.                                                                                                                                                                                      |
 | `pnpm test:e2e:ios`                  | Production iPhone/WebKit flow: register, choose from Downloads, play, seek, relaunch, and play offline.                                                                                                                                                                                                                                                                                                                  |
@@ -146,8 +155,8 @@ fixed; until then, WebKit PWA coverage comes from `tests/e2e/iphone-pwa.spec.ts`
 The outbox drains only while the app is open, because iOS will not wake a closed
 PWA — an offline write reaches the server on the next foregrounded launch or
 reconnect, never before. And audio evicted by the OS is gone: it exists nowhere
-but the device, so the book stays visible with its metadata and asks for the MP3
-again.
+but the device, so the book stays visible with its metadata and asks for the
+original MP3 or document again.
 
 ## Repository layout
 

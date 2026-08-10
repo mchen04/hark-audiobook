@@ -1,9 +1,11 @@
 "use client";
 
 import { WarningCircle, X } from "@phosphor-icons/react";
-import { ChangeEvent, useCallback, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 
+import { isAbortError } from "@/lib/abort";
 import { importLocalMp3 } from "@/lib/local-import";
+import { BOOK_FILE_ACCEPT, sourceFormatForFilename } from "@/lib/source-formats";
 
 export type UploadState = {
   filename: string;
@@ -12,17 +14,27 @@ export type UploadState = {
 };
 
 /**
- * The MP3 import flow: the hidden file input's plumbing and the progress
- * state. Failures are reported through the caller's `reportError`, so the
- * page's one alert region stays owned by the page, not by this hook.
+ * The local book import flow: MP3s stay unchanged; documents are narrated by
+ * Kestrel on the device before entering the same offline media store.
+ * Failures are reported through the caller's `reportError`, so the page's one
+ * alert region stays owned by the page, not by this hook.
  */
-export function useMp3Import(
+export function useBookImport(
   userId: string | null,
   onImported: () => Promise<void>,
   reportError: (message: string | null) => void,
 ) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const importRef = useRef<AbortController | null>(null);
   const [upload, setUpload] = useState<UploadState | null>(null);
+
+  useEffect(
+    () => () => {
+      importRef.current?.abort();
+      importRef.current = null;
+    },
+    [userId],
+  );
 
   const chooseFile = useCallback(() => {
     reportError(null);
@@ -34,23 +46,38 @@ export function useMp3Import(
       const file = event.target.files?.[0];
       event.target.value = "";
       if (!file) return;
-      if (!file.name.toLowerCase().endsWith(".mp3")) {
-        reportError("Choose an MP3 file. Other audiobook formats are not supported.");
-        return;
-      }
       if (!userId) return;
 
+      importRef.current?.abort();
+      const controller = new AbortController();
+      importRef.current = controller;
       reportError(null);
       setUpload({ filename: file.name, percent: 0, stage: "Starting" });
       try {
-        await importLocalMp3(userId, file, (percent, stage) =>
-          setUpload({ filename: file.name, percent, stage }),
-        );
+        const reportProgress = (percent: number, stage: string) => {
+          if (importRef.current === controller && !controller.signal.aborted) {
+            setUpload({ filename: file.name, percent, stage });
+          }
+        };
+        if (sourceFormatForFilename(file.name)?.id === "mp3") {
+          await importLocalMp3(userId, file, reportProgress, controller.signal);
+        } else {
+          const { importLocalDocument } = await import("@/lib/document-import/import");
+          await importLocalDocument(userId, file, reportProgress, { signal: controller.signal });
+        }
+        if (controller.signal.aborted) return;
         await onImported();
       } catch (caught) {
-        reportError(caught instanceof Error ? caught.message : "The MP3 could not be imported.");
+        if (!isAbortError(caught)) {
+          reportError(
+            caught instanceof Error ? caught.message : "The audiobook could not be imported.",
+          );
+        }
       } finally {
-        setUpload(null);
+        if (importRef.current === controller) {
+          importRef.current = null;
+          setUpload(null);
+        }
       }
     },
     [userId, onImported, reportError],
@@ -63,10 +90,10 @@ export function useMp3Import(
       ref={inputRef}
       className="visually-hidden"
       type="file"
-      accept=".mp3,audio/mpeg,audio/mp3"
+      accept={BOOK_FILE_ACCEPT}
       onChange={handleFile}
       tabIndex={-1}
-      aria-label="Choose an MP3 file to import"
+      aria-label="Choose an audiobook or document to import"
     />
   );
 

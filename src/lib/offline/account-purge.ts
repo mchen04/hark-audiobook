@@ -1,8 +1,16 @@
+import type { StoreNames } from "idb";
+
 import { ACTIVE_USER_KEY } from "@/lib/app-keys";
+import {
+  installAccountSignOutFence,
+  reopenAccountAfterSignIn,
+  withAccountPurgeLock,
+} from "@/lib/account-deletion-fence";
 import { forgetActiveUserId } from "@/lib/active-user";
 import {
   listQueuedMutationUserIds,
   listQueuedMutations,
+  listProgressNormalizationUserIds,
   purgeDeviceSequencesForUser,
   replayQueuedMutations,
   type MutationKind,
@@ -14,7 +22,7 @@ import {
 } from "@/lib/playback-history";
 import { flushPendingPreferences, listPendingPreferenceWrites } from "@/lib/preferences";
 
-import { database } from "./db";
+import { database, type OfflineDatabase } from "./db";
 import { clearLocalDataForUser } from "./library";
 import { purgeUser } from "./mirror";
 
@@ -120,6 +128,29 @@ function isUserAgnosticShellEntry(url: string): boolean {
  * is to keep removing what can still be removed and report the aggregate.
  */
 export async function purgeAccount(userId: string): Promise<void> {
+  installAccountSignOutFence(userId);
+  await withAccountPurgeLock(userId, async () => {
+    await purgeAccountPass(userId);
+    // A cross-tab writer that was already between its two fence checks gets
+    // one task to settle. Its journal makes the account enumerable, so a
+    // second pass removes it before the fence is released.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const { users, failures } = await enumerateLocalUsers();
+    if (failures.length) throw asPurgeFailure("the post-purge verification", failures);
+    if (users.includes(userId)) {
+      await purgeAccountPass(userId);
+      const verified = await enumerateLocalUsers();
+      if (verified.failures.length) {
+        throw asPurgeFailure("the final purge verification", verified.failures);
+      }
+      if (verified.users.includes(userId)) {
+        throw new Error("Account data was recreated while sign-out was purging it.");
+      }
+    }
+  });
+}
+
+async function purgeAccountPass(userId: string): Promise<void> {
   const failures: unknown[] = [];
   const step = async (name: string, run: () => Promise<void>) => {
     try {
@@ -194,11 +225,10 @@ export async function purgeCachedPages(): Promise<void> {
 /**
  * Every account with data on this device.
  *
- * All THREE databases are read, not just the mirror. An account whose only
- * remaining trace is an unsent mutation in `chapterline-sync-v1` or a recorded
- * seek in `hark-playback-history-v1` is still an account whose data the next
- * user of this device can read, and a sweep that enumerated one database would
- * never look at it.
+ * Every durable account store is read, not just the mirror. An account whose
+ * only remaining trace is an unsent mutation, a recorded seek, a deferred
+ * progress normalization, or one playback key in localStorage is still an
+ * account whose data the next user of this device can read.
  *
  * An enumeration source that cannot be read is reported rather than silently
  * treated as empty — but only after the accounts the other sources did find
@@ -215,6 +245,8 @@ async function enumerateLocalUsers(): Promise<{ users: string[]; failures: unkno
     listMirrorUserIds(),
     listQueuedMutationUserIds(),
     listPlaybackHistoryUserIds(),
+    listProgressNormalizationUserIds(),
+    Promise.resolve(listAccountLocalStorageUserIds()),
   ]);
   const found = new Set<string>();
   const failures: unknown[] = [];
@@ -233,26 +265,47 @@ async function enumerateLocalUsers(): Promise<{ users: string[]; failures: unkno
 async function listMirrorUserIds(): Promise<string[]> {
   const db = await database();
   const found = new Set<string>();
-  const transaction = db.transaction(
-    ["downloads", "transcripts", "cacheEntries", "deletions", "books", "preferences", "syncMeta"],
-    "readonly",
+  const stores = [...db.objectStoreNames] as Array<StoreNames<OfflineDatabase>>;
+  const transaction = db.transaction(stores, "readonly");
+  await Promise.all(
+    stores.map(async (store) => {
+      let cursor = await transaction.objectStore(store).openCursor();
+      while (cursor) {
+        if (typeof cursor.value.userId === "string" && cursor.value.userId) {
+          found.add(cursor.value.userId);
+        }
+        cursor = await cursor.continue();
+      }
+    }),
   );
-  const [downloads, transcripts, entries, deletions, books, preferences, syncMeta] =
-    await Promise.all([
-      transaction.objectStore("downloads").getAll(),
-      transaction.objectStore("transcripts").getAll(),
-      transaction.objectStore("cacheEntries").getAll(),
-      transaction.objectStore("deletions").getAll(),
-      transaction.objectStore("books").getAll(),
-      // Both stores are keyed by `userId` itself, so their key list is the answer.
-      transaction.objectStore("preferences").getAllKeys(),
-      transaction.objectStore("syncMeta").getAllKeys(),
-      transaction.done,
-    ]);
-  for (const row of [...downloads, ...transcripts, ...entries, ...deletions, ...books]) {
-    found.add(row.userId);
+  await transaction.done;
+  return [...found];
+}
+
+const ACCOUNT_LOCAL_STORAGE_PREFIXES = [
+  "chapterline:position:",
+  "chapterline:playback-position:",
+  "chapterline:playback-rate:",
+  "chapterline:playback-completed:",
+  "chapterline:last-paused-at:",
+  "chapterline:suspension-dismissed:",
+  "chapterline:preferences:",
+] as const;
+
+function listAccountLocalStorageUserIds(): string[] {
+  if (typeof localStorage === "undefined") return [];
+  const found = new Set<string>();
+  const active = localStorage.getItem(ACTIVE_USER_KEY);
+  if (active) found.add(active);
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    const prefix = key && ACCOUNT_LOCAL_STORAGE_PREFIXES.find((item) => key.startsWith(item));
+    if (!key || !prefix) continue;
+    const remainder = key.slice(prefix.length);
+    const separator = remainder.indexOf(":");
+    const userId = separator === -1 ? remainder : remainder.slice(0, separator);
+    if (userId) found.add(userId);
   }
-  for (const key of [...preferences, ...syncMeta]) found.add(String(key));
   return [...found];
 }
 
@@ -277,12 +330,44 @@ export async function purgeOnSignOut(
   userId: string,
   options: PurgeOptions = {},
 ): Promise<SignOutOutcome> {
-  const undelivered = options.alreadyDrained ?? (await drainBeforeSignOut(userId, options));
+  const drained = options.alreadyDrained ?? (await drainBeforeSignOut(userId, options));
+  const undelivered = mergeUndelivered(drained, await listUndeliveredWrites(userId));
   const failure = await purgeAccount(userId).then(
     () => null,
     (error: unknown) => error,
   );
   return { undelivered, failure };
+}
+
+async function listUndeliveredWrites(userId: string): Promise<UndeliveredWrite[]> {
+  const [queued, actions] = await Promise.all([
+    listQueuedMutations(userId).catch(() => []),
+    listPendingPlaybackActions(userId).catch(() => []),
+  ]);
+  return [
+    ...queued.map((mutation) => ({
+      kind: mutation.kind,
+      entityId: mutation.entityId,
+      queuedAt: mutation.queuedAt,
+    })),
+    ...actions.map((action) => ({
+      kind: "playback-action" as const,
+      entityId: action.bookId,
+      queuedAt: Date.parse(action.occurredAt) || 0,
+    })),
+    ...listPendingPreferenceWrites(userId),
+  ];
+}
+
+function mergeUndelivered(
+  first: UndeliveredWrite[],
+  second: UndeliveredWrite[],
+): UndeliveredWrite[] {
+  const merged = new Map<string, UndeliveredWrite>();
+  for (const write of [...first, ...second]) {
+    merged.set(`${write.kind}:${write.entityId}:${write.queuedAt}`, write);
+  }
+  return [...merged.values()];
 }
 
 /**
@@ -366,15 +451,26 @@ export async function drainBeforeSignOut(
  * user's writes into another user's library.
  */
 export async function purgeOnSignIn(incomingUserId: string): Promise<string[]> {
-  const { users, failures } = await enumerateLocalUsers();
-  const stale = users.filter((userId) => userId !== incomingUserId);
-  const active = typeof localStorage === "undefined" ? null : localStorage.getItem(ACTIVE_USER_KEY);
-  if (active && active !== incomingUserId && !stale.includes(active)) stale.push(active);
-  const results = await Promise.allSettled(stale.map((userId) => purgeAccount(userId)));
-  await purgeCachedPages().catch(() => undefined);
-  for (const result of results) {
-    if (result.status === "rejected") failures.push(result.reason);
+  // Reauthentication is the authority that reopens a fence committed by this
+  // account's earlier sign-out. It shares the global purge lock so an older purge
+  // must finish before the incoming session can write again.
+  await reopenAccountAfterSignIn(incomingUserId);
+  try {
+    const { users, failures } = await enumerateLocalUsers();
+    const stale = users.filter((userId) => userId !== incomingUserId);
+    const active =
+      typeof localStorage === "undefined" ? null : localStorage.getItem(ACTIVE_USER_KEY);
+    if (active && active !== incomingUserId && !stale.includes(active)) stale.push(active);
+    const results = await Promise.allSettled(stale.map((userId) => purgeAccount(userId)));
+    await purgeCachedPages().catch(() => undefined);
+    for (const result of results) {
+      if (result.status === "rejected") failures.push(result.reason);
+    }
+    if (failures.length) throw asPurgeFailure("the sign-in sweep", failures);
+    return stale;
+  } finally {
+    // Stale-account purges commit the global barrier again. Once they have all
+    // settled, the authenticated incoming account may write.
+    await reopenAccountAfterSignIn(incomingUserId);
   }
-  if (failures.length) throw asPurgeFailure("the sign-in sweep", failures);
-  return stale;
 }

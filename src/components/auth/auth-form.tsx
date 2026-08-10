@@ -48,7 +48,6 @@ export function AuthForm({ mode }: AuthFormProps) {
     await whenAccountPurgeGateOpen();
 
     router.replace("/library");
-    router.refresh();
   }
 
   const registering = mode === "register";

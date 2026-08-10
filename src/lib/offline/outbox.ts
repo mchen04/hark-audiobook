@@ -27,6 +27,7 @@ import {
   type MirrorTag,
   type OfflineDatabase,
 } from "./db";
+import { ensurePermanentOfflineBookDeletion } from "./deletion-fence";
 
 /**
  * Journal intent, then act.
@@ -82,9 +83,12 @@ export type CommitResult = {
 export async function commitMutation(
   mutation: QueuedMutation,
   patch: MirrorPatch | null = mirrorPatchFor(mutation),
+  afterQueue?: () => Promise<void>,
 ): Promise<CommitResult> {
   assertAccountWritable(mutation.userId);
   const { queued, changed } = await queueMutationWithOutcome(mutation);
+  assertAccountWritable(mutation.userId);
+  await afterQueue?.();
   assertAccountWritable(mutation.userId);
   // A fully superseded event changes neither durable row. Progress can instead
   // contribute one independently newer field to an older sequence envelope;
@@ -110,9 +114,17 @@ async function applyMirrorPatch(userId: string, patch: MirrorPatch): Promise<voi
   }
 }
 
-export function commitDraft(draft: MutationDraft, patch?: MirrorPatch | null) {
+export function commitDraft(
+  draft: MutationDraft,
+  patch?: MirrorPatch | null,
+  afterQueue?: () => Promise<void>,
+) {
   const mutation = buildMutation(draft);
-  return commitMutation(mutation, patch === undefined ? mirrorPatchFor(mutation) : patch);
+  return commitMutation(
+    mutation,
+    patch === undefined ? mirrorPatchFor(mutation) : patch,
+    afterQueue,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -303,18 +315,23 @@ function commitDistinctEvent(
   kind: "import" | "delete" | "history",
   entityId: string,
   payload: Record<string, unknown>,
+  afterQueue?: () => Promise<void>,
 ) {
   const mutationId = newMutationId();
-  return commitDraft({
-    key: eventMutationKey(origin.userId, kind, entityId, mutationId),
-    userId: origin.userId,
-    kind,
-    entityId,
-    payload,
-    mutationId,
-    deviceId: origin.deviceId,
-    deviceSequence: 0,
-  });
+  return commitDraft(
+    {
+      key: eventMutationKey(origin.userId, kind, entityId, mutationId),
+      userId: origin.userId,
+      kind,
+      entityId,
+      payload,
+      mutationId,
+      deviceId: origin.deviceId,
+      deviceSequence: 0,
+    },
+    undefined,
+    afterQueue,
+  );
 }
 
 export function commitImport(
@@ -326,10 +343,10 @@ export function commitImport(
 }
 
 /**
- * The delete carries the deleted book's media fingerprint when this device
- * knows it, which is what lets `queueMutation` drop an unsent registration of
- * the SAME FILE — a re-import the user has just superseded by deleting the
- * book, and which would otherwise replay after the delete and bring it back.
+ * The delete carries the deleted book's media fingerprint and rendition when
+ * this device knows them. That lets `queueMutation` drop an unsent registration
+ * of the SAME RENDITION — a re-import the user has just superseded — without
+ * erasing a newer recipe that happens to share the source bytes.
  *
  * Read from the mirror, exactly as `commitTagEdge` reads a tag's name, and it
  * never leaves the device: `toReplayRequest` sends a delete as a bodiless
@@ -339,13 +356,21 @@ export async function commitBookDeletion(
   origin: Origin,
   bookId: string,
   knownFingerprint?: string | null,
+  knownRenditionKey?: string | null,
 ) {
   const db = await database();
   const book = await db.get("books", mirrorKey(origin.userId, bookId));
   const fingerprint = knownFingerprint || book?.media?.fingerprint;
-  return commitDistinctEvent(origin, "delete", bookId, {
-    ...(fingerprint ? { fingerprint } : {}),
-  });
+  const renditionKey = knownRenditionKey || book?.media?.renditionKey || "source-v1";
+  return commitDistinctEvent(
+    origin,
+    "delete",
+    bookId,
+    {
+      ...(fingerprint ? { fingerprint, renditionKey } : {}),
+    },
+    () => ensurePermanentOfflineBookDeletion(origin.userId, bookId),
+  );
 }
 
 export function commitHistoryEvent(origin: Origin, bookId: string, event: Record<string, unknown>) {
@@ -368,9 +393,11 @@ function abortQuietly(transaction: MirrorPatchTransaction): void {
 /**
  * The local projection of each mutation kind.
  *
- * `import` and `history` have none: an import has no book id until the server
- * assigns one, and playback history is not mirrored at all (section 2). Both
- * still go through the outbox, which is what makes them durable.
+ * `import` and `history` have no automatic projection. Registration is
+ * projected explicitly by `registerLocalBook` after it knows whether the
+ * device-minted id was accepted, remained offline, or resolved to a canonical
+ * duplicate. Playback history is not mirrored at all (section 2). Both still
+ * go through the outbox, which is what makes them durable.
  *
  * Every projection that touches a book's children also bumps that book's
  * `updatedAt`, mirroring the server rule from section 3 — otherwise the local

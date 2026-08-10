@@ -38,6 +38,13 @@ import type { AddressInfo, Socket } from "node:net";
 
 export type NetworkHit = { method: string; path: string; kind: "document" | "api" | "asset" };
 
+export type HeldNetworkResponse = {
+  /** Resolves only after the upstream server has finished the response body. */
+  upstreamStatus: Promise<number>;
+  /** Delivers the buffered response to the browser. Idempotent. */
+  release(): void;
+};
+
 export type ControllableNetwork = {
   /** Origin the browser must use. Never the app's own origin. */
   origin: string;
@@ -49,7 +56,18 @@ export type ControllableNetwork = {
   hits(): NetworkHit[];
   /** Requests that arrived while cut and were destroyed rather than forwarded. */
   blockedCount(): number;
+  /** Holds the next matching response below the service worker interception layer. */
+  holdNextResponse(method: string, path: string): HeldNetworkResponse;
   close(): Promise<void>;
+};
+
+type PendingResponseHold = {
+  method: string;
+  path: string;
+  releaseGate: Promise<void>;
+  release: () => void;
+  resolveUpstream: (status: number) => void;
+  rejectUpstream: (error: unknown) => void;
 };
 
 function classify(pathname: string, headers: IncomingHttpHeaders): NetworkHit["kind"] {
@@ -70,6 +88,7 @@ export async function startControllableNetwork(target: string): Promise<Controll
   let hits: NetworkHit[] = [];
   let origin = "";
   const openSockets = new Set<Socket>();
+  const responseHolds: PendingResponseHold[] = [];
 
   const rewriteRequestHeaders = (headers: IncomingHttpHeaders): IncomingHttpHeaders => {
     const next: IncomingHttpHeaders = { ...headers };
@@ -100,6 +119,10 @@ export async function startControllableNetwork(target: string): Promise<Controll
       path: pathname,
       kind: classify(pathname, req.headers),
     });
+    const holdIndex = responseHolds.findIndex(
+      (candidate) => candidate.method === (req.method ?? "GET") && candidate.path === pathname,
+    );
+    const hold = holdIndex === -1 ? null : responseHolds.splice(holdIndex, 1)[0]!;
 
     const upstream = httpRequest(
       {
@@ -115,11 +138,27 @@ export async function startControllableNetwork(target: string): Promise<Controll
         if (typeof location === "string" && location.startsWith(targetOrigin)) {
           headers.location = origin + location.slice(targetOrigin.length);
         }
-        res.writeHead(upstreamRes.statusCode ?? 502, headers);
-        upstreamRes.pipe(res);
+        if (!hold) {
+          res.writeHead(upstreamRes.statusCode ?? 502, headers);
+          upstreamRes.pipe(res);
+          return;
+        }
+        const chunks: Buffer[] = [];
+        upstreamRes.on("data", (chunk: Buffer | string) => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        });
+        upstreamRes.on("error", hold.rejectUpstream);
+        upstreamRes.on("end", async () => {
+          hold.resolveUpstream(upstreamRes.statusCode ?? 502);
+          await hold.releaseGate;
+          if (res.destroyed) return;
+          res.writeHead(upstreamRes.statusCode ?? 502, headers);
+          res.end(Buffer.concat(chunks));
+        });
       },
     );
     upstream.on("error", (error) => {
+      hold?.rejectUpstream(error);
       if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain" });
       res.end(`parity network upstream error: ${error.message}`);
     });
@@ -169,8 +208,30 @@ export async function startControllableNetwork(target: string): Promise<Controll
     },
     hits: () => [...hits],
     blockedCount: () => blocked,
+    holdNextResponse: (method: string, path: string) => {
+      let release!: () => void;
+      const releaseGate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let resolveUpstream!: (status: number) => void;
+      let rejectUpstream!: (error: unknown) => void;
+      const upstreamStatus = new Promise<number>((resolve, reject) => {
+        resolveUpstream = resolve;
+        rejectUpstream = reject;
+      });
+      responseHolds.push({
+        method: method.toUpperCase(),
+        path,
+        releaseGate,
+        release,
+        resolveUpstream,
+        rejectUpstream,
+      });
+      return { upstreamStatus, release };
+    },
     close: () =>
       new Promise<void>((resolve) => {
+        responseHolds.splice(0).forEach((hold) => hold.release());
         for (const socket of openSockets) socket.destroy();
         server.closeAllConnections?.();
         server.close(() => resolve());

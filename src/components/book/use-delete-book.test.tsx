@@ -66,10 +66,10 @@ describe("deleting a book", () => {
     vi.unstubAllGlobals();
   });
 
-  async function deleteThroughTheUi(mediaFingerprint?: string) {
+  async function deleteThroughTheUi(mediaFingerprint?: string, mediaRenditionKey?: string) {
     const onError = vi.fn();
     const { result } = renderHook(() =>
-      useDeleteBook("user-a", "book-1", onError, mediaFingerprint),
+      useDeleteBook("user-a", "book-1", onError, mediaFingerprint, mediaRenditionKey),
     );
     // First press arms the confirmation; second one deletes.
     await act(async () => void (await result.current.deleteBook()));
@@ -104,13 +104,14 @@ describe("deleting a book", () => {
     ).toBeNull();
   });
 
-  it("carries a route-known fingerprint into a deletion when the mirror may be absent", async () => {
-    await deleteThroughTheUi("f".repeat(64));
+  it("carries route-known rendition identity into a deletion when the mirror may be absent", async () => {
+    await deleteThroughTheUi("f".repeat(64), "kestrel-fast-v1");
 
     expect(commitBookDeletion).toHaveBeenCalledWith(
       { userId: "user-a", deviceId: "device-1" },
       "book-1",
       "f".repeat(64),
+      "kestrel-fast-v1",
     );
   });
 

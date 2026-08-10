@@ -6,6 +6,7 @@ import path from "node:path";
 
 import { awaitSignInBudget, burnSignInWindow } from "../../shared/sign-in-budget";
 import { testAccountPassword } from "../../shared/test-account-password";
+import { TEST_CLIENT_HEADERS } from "../../shared/test-client-ip";
 import { assertLocalDatabase } from "../../../scripts/lib/assert-local-database.mjs";
 import { DEFAULT_TEST_ENV_FILE, loadEnvFile } from "../../../scripts/lib/env-file.mjs";
 // Reused, not re-implemented: the sync suite already owns the local-database
@@ -120,8 +121,8 @@ export const ACCOUNT_B: AccountSpec = {
 
 /**
  * `better-auth` rate-limits `/sign-up/email` to 5 per 10 minutes and
- * `/sign-in/email` to 8 per minute (`src/server/auth.ts`), per running server
- * process. This suite stays inside both without ever loosening an assertion, in
+ * `/sign-in/email` to 8 per minute (`src/server/auth.ts`) in shared database
+ * storage. This suite stays inside both without ever loosening an assertion, in
  * three ways:
  *
  *  1. TWO accounts for the whole suite, registered the first time this database
@@ -151,7 +152,11 @@ export async function ensureAccount(browser: Browser, spec: AccountSpec): Promis
   if (existing) return { ...spec, userId: existing };
 
   const net = await network();
-  const context = await browser.newContext({ ...devices["iPhone 15"], serviceWorkers: "allow" });
+  const context = await browser.newContext({
+    ...devices["iPhone 15"],
+    serviceWorkers: "allow",
+    extraHTTPHeaders: TEST_CLIENT_HEADERS.parity,
+  });
   try {
     const page = await context.newPage();
     await page.goto(`${net.origin}/register`, { waitUntil: "domcontentloaded" });
@@ -183,8 +188,8 @@ function rateLimitError(what: string): Error {
   return new Error(
     `better-auth rate-limited the ${what} for the parity suite, and waiting a full window out ` +
       "did not clear it. This is the harness hitting `src/server/auth.ts` limits, not a product " +
-      "failure: something else is signing in against this server, or restart it (the limiter " +
-      "is in memory).",
+      "failure: something else is signing in from the parity test IP, or the on-disk test " +
+      "budget no longer matches the shared database bucket.",
   );
 }
 
@@ -221,7 +226,7 @@ export async function signInThroughUi(page: Page, account: Account): Promise<voi
     // Waiting the limiter out is a harness concern, not a product one: nothing
     // below is relaxed, the attempt is simply made again once it is allowed.
     console.log("[parity] better-auth throttled a sign-in; waiting its window out and retrying");
-    burnSignInWindow();
+    burnSignInWindow("parity");
   }
   await page.waitForSelector("[data-launch-ready]", { state: "attached", timeout: 60_000 });
   // The purge hook is fired from `onSuccess` and awaited nowhere the test can
@@ -285,7 +290,11 @@ export async function sessionFor(browser: Browser, account: Account): Promise<St
     cachedState = onDisk;
     return onDisk;
   }
-  const context = await browser.newContext({ ...devices["iPhone 15"], serviceWorkers: "allow" });
+  const context = await browser.newContext({
+    ...devices["iPhone 15"],
+    serviceWorkers: "allow",
+    extraHTTPHeaders: TEST_CLIENT_HEADERS.parity,
+  });
   try {
     const page = await context.newPage();
     await signInThroughUi(page, account);
@@ -312,7 +321,10 @@ function readCachedState(): StorageState | null {
 
 async function stateWorks(browser: Browser, state: StorageState): Promise<boolean> {
   const net = await network();
-  const context = await browser.newContext({ storageState: state });
+  const context = await browser.newContext({
+    storageState: state,
+    extraHTTPHeaders: TEST_CLIENT_HEADERS.parity,
+  });
   try {
     const response = await context.request.get(`${net.origin}/api/sync/pull`);
     return response.status() === 200;
@@ -353,6 +365,7 @@ export async function openDevice(
     serviceWorkers: "allow",
     baseURL: net.origin,
     storageState: options.storageState,
+    extraHTTPHeaders: TEST_CLIENT_HEADERS.parity,
   });
   if (options.deviceId) {
     await context.addInitScript(
@@ -412,7 +425,7 @@ export async function warmUp(page: Page): Promise<string> {
 
 /** Imports an MP3 through the real hidden file input the library renders. */
 export async function importThroughUi(page: Page, name: string, buffer: Buffer): Promise<void> {
-  await page.setInputFiles('input[aria-label="Choose an MP3 file to import"]', {
+  await page.setInputFiles('input[aria-label="Choose an audiobook or document to import"]', {
     name,
     mimeType: "audio/mpeg",
     buffer,

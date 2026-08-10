@@ -10,8 +10,9 @@ designing a sync engine in code first is how local-first projects lose data.
 
 ## 1. Why this is a completion, not a reversal
 
-The audio already never leaves the device (`src/lib/local-import.ts` parses the
-MP3 in the browser; `src/app/api/books/local/route.ts` receives metadata only;
+The book content already never leaves the device (`src/lib/local-import.ts` parses
+MP3s and `src/lib/document-import/` extracts and narrates documents in the browser;
+`src/app/api/books/local/route.ts` receives metadata only;
 `media_assets` has no storage key or URL column). The device therefore already
 holds the only copy of the only irreplaceable data. Postgres holds metadata that
 could be rebuilt from it. Making the device authoritative for reads finishes an
@@ -41,7 +42,7 @@ Never mirrored — these stay server-authoritative:
 - `playback_action_receipts`. That is the server's idempotency ledger and only
   the server may write it.
 
-Never moved to the server, ever: **audio bytes and transcript payloads**. They
+Never moved to the server, ever: **audio bytes, source-document bytes, and transcript payloads**. They
 live in Cache Storage / IndexedDB on the device that imported them, and there is
 no route capable of accepting or serving them. This is a hard boundary, not a
 default.
@@ -176,6 +177,13 @@ Rules:
    a mirrored change the user can see with no queued write behind it, which
    would be a silent lost write. Never write the mirror first.
 
+   Imports use the same order, but their projection is explicit rather than a
+   generic mutation patch: queue the registration, resolve whether its
+   device-minted id remains local or maps to a canonical server id, then write
+   that book and its chapters to the mirror. This makes a new offline import
+   immediately routable at `/books/:id` without creating a phantom row when an
+   online duplicate resolves to another id.
+
 2. **Idempotent on replay.** `mutationId` is generated once, at queue time, and
    reused on every retry. The server dedupes on it. Replaying a mutation the
    server already applied is a no-op, not a double-apply.
@@ -193,7 +201,7 @@ Rules:
    already encode it. 401/403 retain (the session may come back). 4xx other than
    409 is terminal. 409 goes to conflict reconciliation.
 
-### 5.4 A delete supersedes an unsent registration of the same file
+### 5.4 A delete supersedes an unsent registration of the same rendition
 
 The outbox drains in key order with several rows in flight, which is NOT the
 order the user expressed their intents. `delete` sorts before `import`, so a
@@ -203,16 +211,28 @@ deleted. The fuzz found this on seed 20260105 and called it what it is: a
 resurrection. Nothing was lost in transit — the delete was undone by an intent
 the user had already superseded.
 
-So `commitBookDeletion` drops any unsent registration of the same file, in the
-same transaction that journals the delete: no window in which both rows exist,
-and no ordering left to get right. It links them two ways, because a user can be
-looking at either kind of row — by book id (a device-only book the library
-projects from a download record) and by fingerprint (read from the mirror, never
-sent on the wire). When a book route already knows the fingerprint but the
-mirror row is unavailable, that route carries the same value into the delete;
-otherwise deleting from the attach gate would lose the ordering key precisely
-when the mirror cannot supply it. A registration queued _after_ a delete is
-kept: re-importing something you deleted is a new intent, not a stale one.
+So `commitBookDeletion` drops any unsent registration of the same source and
+rendition, in the same transaction that journals the delete: no window in which
+both rows exist, and no ordering left to get right. It links them two ways,
+because a user can be looking at either kind of row — by book id (a device-only
+book, normally in the mirror and always in `downloads`) and by the
+fingerprint/rendition tuple (read from the mirror, never sent on the wire).
+Fingerprint alone is not enough: deleting rendition A must not erase a queued
+replacement B. When a book route already knows the tuple but the mirror row is
+unavailable, that route carries both values into the delete. A registration
+queued _after_ a delete is kept: re-importing something you deleted is a new
+intent, not a stale one. Its live registration optimization uses the same
+fingerprint/rendition lock as replay and rechecks the outbox inside that lock.
+When the predecessor delete is still queued, the device keeps the replacement's
+minted id and audio immediately but leaves registration to replay. It must not
+accept a 409 for the doomed id and attach fresh bytes to a book replay is about
+to delete.
+
+Permanent deletion also leaves an identity-only device tombstone after cache
+cleanup completes. Ordinary remove-download receipts expire, but this marker
+lasts until account data is purged: a player tab opened before deletion cannot
+later attach or regenerate audio under the dead book id and make it reappear as
+a device-only card.
 
 ### 5.5 When the server renames a book mid-flight
 
@@ -228,6 +248,11 @@ were bugs:
   _target's_ sequence counter, because the server discards a sequence at or below
   its high-water mark for (user, book, device) **and answers 200** — a carried-over
   sequence is a write that reports success and vanishes.
+- **The local identity moves as one aggregate**, not just the audio record.
+  The device-minted mirror book, chapters, playback state, tag and collection
+  edges, and listening sessions move or merge onto the canonical id. The
+  abandoned mirror row is removed before the registration settles, so an
+  offline deep link cannot outlive the id the server rejected.
 - **A 404 is not terminal while a registration for that book is still queued.**
   `archive`, `collection`, `delete` and `history` all sort ahead of `import`, so
   they reach the server before the merge is knowable. Dropping them there loses
@@ -426,7 +451,11 @@ also made §10's eviction recovery unreachable exactly when it is needed. So:
 
 Anything new on a path that must work offline gets the same audit: every
 `await import(` and every `new Worker(` is a network dependency until proven
-otherwise.
+otherwise. The production build therefore emits a checked dependency-closure
+manifest for document adapters, Kestrel, ONNX, MP3 encoding, and the shared
+Turbopack worker bootstrap. Shell promotion caches that manifest's files as one
+generation; after the exact model marker exists it carries the pinned ONNX
+Runtime module and WASM forward too.
 
 ## 9. One library UI
 
@@ -495,6 +524,18 @@ The two purges have deliberately different targets:
 - **Sign-out** purges the account that is leaving.
 - **Sign-in** purges every account _other_ than the one signing in — never the
   incoming account's own data.
+
+Sign-out drains queued writes first, then installs an origin-wide write fence
+before the auth request leaves. The fence cancels document narration and media
+writes in every tab; those operations share an account lock with purge, so the
+sweep cannot snapshot around a writer or wait for hours of uncancelled speech.
+After the lock drains, purge verifies that no account-indexed row was recreated
+and repeats the sweep once if a write already in flight crossed the boundary.
+An unconfirmed request fence may age out if its document dies, but a successful
+sign-out or a started purge commits the fence so it cannot expire mid-sweep.
+The committed form contains no account identity and blocks writes globally
+until an authenticated sign-in waits behind the global purge lock. A failed
+sign-out clears its still-pending, account-scoped fence immediately.
 
 That asymmetry is load-bearing. Purging the incoming account's own data on every
 login would delete its downloaded audio, and per section 1 those MP3s exist

@@ -17,7 +17,7 @@ worker and resume oracle are authored behavior.
 
 ## Product boundary
 
-The app accepts one MP3 as one audiobook. Every account is a solo private workspace; accounts provide authentication, ownership, isolation, and cross-device progress, not social identity. The app has no friends, follows, shared libraries, messages, invitations, feeds, or collaborative features. It does not accept EPUB/PDF, run TTS, expose a public catalog, or process DRM. Epub Listener is a read-only upstream producer whose FFmpeg/ID3 output is a compatibility contract.
+The app accepts an MP3 directly or narrates PDF, EPUB, DOCX, TXT, Markdown, and HTML sources with Kestrel Fast on the user's device. Every account is a solo private workspace; accounts provide authentication, ownership, isolation, and cross-device progress, not social identity. The app has no friends, follows, shared libraries, messages, invitations, feeds, or collaborative features. It does not expose a public catalog, process DRM, run OCR, or send source content to a hosted TTS service. Epub Listener remains a read-only upstream producer whose FFmpeg/ID3 output is a compatibility contract.
 
 ## Stack
 
@@ -28,6 +28,10 @@ The app accepts one MP3 as one audiobook. Every account is a solo private worksp
 - Drizzle ORM and ordered SQL migrations
 - Better Auth with database-backed sessions and rate limits
 - `music-metadata` parsing MP3s and ID3 chapters in the browser at import
+- PDF.js and bounded format adapters for local document extraction
+- Kestrel Fast in a module worker through ONNX Runtime WebGPU/WASM, with a
+  pinned, content-addressed and SHA-256-verified model/runtime bundle
+- Mediabunny plus LAME for progressive generated-MP3 encoding
 - Cache Storage for the device-local audio, covers, and the launch shell
 - IndexedDB for the device-authoritative library mirror and the mutation outbox
 - A native, versioned service worker for the launch shell, range serving, and
@@ -105,6 +109,11 @@ critical path.
 - The active account is a subscribed browser external store, not a server prop
   that stays authoritative forever. Storage events revoke peer tabs after
   sign-out so a mounted player cannot retain or recreate the departed account.
+- Sign-out adds a separate origin-wide write fence after its final queue drain.
+  Long media work observes that fence as cancellation and shares an account
+  lock with purge; a verification pass catches any short write that was already
+  between fence checks. Once sign-out succeeds or purge starts, that fence
+  cannot expire; only a later authenticated sign-in reopens the account.
 - A cached `/books/:id` fallback is resolved directly from mirrored book,
   chapter, media, and progress metadata. Missing local audio renders the same
   verified attach gate as the online route; it never falls through to library
@@ -112,36 +121,57 @@ critical path.
 
 ## Media flow
 
-1. Import happens in the browser: `music-metadata` parses the chosen file
+1. MP3 import happens in the browser: `music-metadata` parses the chosen file
    (shared pure interpreter in `src/domain/mp3.ts` — format validation,
    chapter normalization, artwork sniffing — when the format-level chapter
    list is truncated, the complete native ID3 chapter sequence is recovered
    instead, and sequences that don't cover the audiobook's duration are
    rejected as malformed), and a streaming whole-file
    SHA-256 identifies the exact bytes without buffering the book in memory.
-2. `POST /api/books/local` registers metadata only — validated title/author,
+2. Document import routes the source to a lazy PDF/EPUB/DOCX/text adapter, then
+   a book-scoped Kestrel worker synthesizes it through WebGPU or WASM. Public
+   weights, ONNX graphs, voice data, FFT runtime, PDF worker, and ONNX Runtime
+   browser module are pinned by one manifest. That manifest keeps the model
+   commit separate from the hashed exporter script and its exact
+   Python/ONNX/NumPy environment; the build checks provenance locally, while
+   `pnpm verify:kestrel-export` downloads the pinned weights and reproduces
+   every graph byte-for-byte. Format-specific source and expanded-text limits
+   are enforced before expensive parsing, and reads plus unzip workers are
+   abortable. The deterministic extraction/sentence-splitter revisions are part
+   of rendition identity. Generated PCM is encoded
+   progressively into the same chunked MP3 store, so neither a source-sized nor
+   audiobook-sized audio buffer is required. Navigation/account changes abort
+   extraction, hashing, worker, encoder, and partial storage as one import job.
+3. `POST /api/books/local` registers metadata only — validated title/author,
    duration, byte size, fingerprint, and the full chapter list (revalidated
-   server-side, batch-inserted, capped at 10,000 chapters). A database-unique
-   owner/fingerprint pair makes concurrent duplicate imports atomic; a match
-   answers 409 with the existing book id for device reattachment. On that
+   server-side, batch-inserted, capped at 10,000 chapters). The expand migration
+   adds the owner/fingerprint/rendition uniqueness key while retaining the live
+   server's older arbiter until a later contract release; targetless conflict
+   handling works across both. An exact match answers 409 with the existing book
+   id for device reattachment. On that
    duplicate path, if the newly parsed chapter list is a complete sequence and
    the stored one was truncated by an earlier import, the server repairs the
    existing book's chapters in the same transaction.
-3. The audio bytes go into this device's Cache Storage under an
+4. The audio bytes go into this device's Cache Storage under an
    `/offline-media/<uuid>` URL backed by independently cached 4 MiB chunks, with
    a per-user IndexedDB record; embedded cover art is stored beside it along
    with a downscaled thumbnail so small surfaces (library cards, downloads
    list, mini player) never decode full-size art. Fingerprint hashing runs in
    a web worker to keep `hash-wasm` out of page bundles. If
-   storing fails, the metadata remains recoverable and choosing the MP3 again
-   completes the device attachment.
-4. Playback always serves from the device store through the service worker,
+   storing fails, the metadata remains recoverable and choosing the source again
+   completes the device attachment. A rejected request, timeout, 408, 429, or
+   5xx keeps the device-minted projection and completed audio; the durable
+   outbox retries metadata registration instead of forcing narration again.
+5. Playback always serves from the device store through the service worker,
    which answers HTTP Range requests (the service worker's 206/416 parser is
    unit-tested directly). There is no server media route or server-side range
    parser.
-5. On a device that lacks the bytes, the player's media gate asks for the
-   original MP3 and verifies byte size and fingerprint before attaching it —
-   positions and playback history were already synced through Postgres.
+6. On a device that lacks the bytes, the player's media gate asks for the
+   original MP3 or document and verifies byte size and fingerprint before
+   attaching it. A versioned rendition key prevents a changed parser, model,
+   voice, chunker, or encoder from being paired with an older duration/seek map;
+   regeneration commits only after exact timeline validation. Positions and
+   playback history were already synced through Postgres.
 
 ## Local read model
 
@@ -185,6 +215,11 @@ Writes go through the outbox (`src/lib/offline-sync/`, database
   (a silent lost write). The two databases are deliberately separate and
   IndexedDB has no cross-database transaction, so ordering carries the guarantee
   — the same shape `deletion-journal.ts` already uses.
+- Local imports project their accepted identity through
+  `offline/local-import-mirror.ts` after the direct request is unreachable,
+  accepts the device id, or returns a canonical duplicate. A later 409 replay
+  rekeys both device media and the complete mirror aggregate before the import
+  leaves the queue, keeping offline `/books/:id` routes coherent.
 - **Idempotent replay.** `mutationId` is generated once at queue time and reused
   on every retry; replay hits the same REST routes the UI does, and the server
   dedupes. Kinds are `progress`, `import`, `metadata`, `tag`, `collection`,
@@ -232,19 +267,23 @@ renders no user rows.
   and an auth page gets a self-contained notice rather than being bounced back
   to `/login` forever.
 - Install precaches the shell and every parsed `/_next/static` chunk into a
-  unique immutable generation, but leaves the active document untouched. It
-  records a durable ready pointer outside the live cache; activation claims the
-  clients before promoting that generation, so the old worker can never serve
-  a new document whose chunks only the new handler can find. A deployment also
-  prompts the active page to post `REFRESH_SHELL` after launch goes idle. Both
-  paths publish `/library?source=pwa` as the single commit point only after the
-  generation is complete, so a failed asset fetch leaves the previous shell
-  live. Cleanup deletes whole unreferenced generations rather than individual
-  chunks. It retains generations named by either live document, a pending
-  install, or a durable lease for a live window; long-lived offline tabs can
-  therefore lazy-load their original chunks across any number of refreshes,
-  while closed-window leases and their generations are reclaimed on the next
-  sweep.
+  unique immutable generation, but leaves the active document untouched. The
+  post-build runtime manifest adds the complete lazy document-import, module
+  worker, MP3 encoder, and ONNX dependency closure that HTML cannot reveal. If
+  the exact Kestrel bundle marker already exists, the generation also carries
+  the pinned ONNX Runtime module and WASM; the first narration runtime-caches
+  those files. Install records a durable ready pointer outside the live cache;
+  activation claims the clients before promoting that generation, so the old
+  worker can never serve a new document whose chunks only the new handler can
+  find. A deployment also prompts the active page to post `REFRESH_SHELL` after
+  launch goes idle. Both paths publish `/library?source=pwa` as the single
+  commit point only after the generation is complete, so a failed asset fetch
+  leaves the previous shell live. Cleanup deletes whole unreferenced
+  generations rather than individual chunks. It retains generations named by
+  either live document, a pending install, or a durable lease for a live window;
+  long-lived offline tabs can therefore lazy-load their original chunks across
+  any number of refreshes, while closed-window leases and their generations are
+  reclaimed on the next sweep.
 - Revalidation (`src/lib/launch-revalidation.ts`) waits for the render that sets
   `data-launch-ready`, then for 500ms of quiet and an idle callback, before it
   touches the network. A device that has never completed a pull is the one

@@ -1,8 +1,21 @@
 import { interpretMp3Metadata, InvalidMp3Error, type ParsedMp3 } from "@/domain/mp3";
+import type { LocalBookRegistration } from "@/domain/local-book";
 import type { PlayerBook, PlayerChapter } from "@/domain/player";
 import type { BookTranscript } from "@/domain/transcript";
+import {
+  createAccountWriteScope,
+  type AccountWriteSlot,
+  withAccountWriteLock,
+} from "@/lib/account-deletion-fence";
+import { throwIfAborted } from "@/lib/abort";
 import { fingerprintMedia } from "@/lib/media-fingerprint";
+import {
+  hasPendingDeleteForMediaRegistration,
+  shouldRetainMutation,
+  withMediaRegistrationLock,
+} from "@/lib/offline-sync";
 import { storeLocalBookMedia, withLocalMediaSlot } from "@/lib/offline/media-store";
+import { projectLocalBookRegistration } from "@/lib/offline/local-import-mirror";
 import { commitImport } from "@/lib/offline/outbox";
 import { storeBookTranscript } from "@/lib/offline/transcript-store";
 import { getDeviceId } from "@/lib/playback-core";
@@ -15,8 +28,18 @@ export type ParsedLocalMp3 = ParsedMp3 & {
   transcriptDiagnostic: string | null;
 };
 
+export type { LocalBookRegistration } from "@/domain/local-book";
+
+export type RegisteredLocalBook = {
+  bookId: string;
+  canonicalBook: Omit<PlayerBook, "mediaUrl" | "coverUrl"> | null;
+};
+
+export const LOCAL_REGISTRATION_TIMEOUT_MS = 15_000;
+
 /** Parses an MP3 entirely in the browser; the bytes never leave the device. */
-export async function parseLocalMp3(file: File): Promise<ParsedLocalMp3> {
+export async function parseLocalMp3(file: File, signal?: AbortSignal): Promise<ParsedLocalMp3> {
+  throwIfAborted(signal);
   const { parseBlob } = await import("music-metadata");
   let metadata;
   try {
@@ -28,12 +51,13 @@ export async function parseLocalMp3(file: File): Promise<ParsedLocalMp3> {
   } catch {
     throw new InvalidMp3Error();
   }
+  throwIfAborted(signal);
   const fallbackTitle = file.name.replace(/\.[^.]*$/, "");
   const parsedDuration = metadata.format.duration;
   const fallbackDurationMs =
     parsedDuration && Number.isFinite(parsedDuration) && parsedDuration > 0
       ? undefined
-      : await probeAudioDurationMs(file);
+      : await probeAudioDurationMs(file, signal);
   const parsed = interpretMp3Metadata(metadata, fallbackTitle, fallbackDurationMs);
   let transcript: BookTranscript | null = null;
   let transcriptDiagnostic: string | null = null;
@@ -51,7 +75,8 @@ export async function parseLocalMp3(file: File): Promise<ParsedLocalMp3> {
  * MP3's length from its bitrate and byte size without reading the whole file,
  * which is the only workable option for huge VBR files without Xing headers.
  */
-function probeAudioDurationMs(file: File): Promise<number> {
+function probeAudioDurationMs(file: File, signal?: AbortSignal): Promise<number> {
+  throwIfAborted(signal);
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const audio = new Audio();
@@ -60,12 +85,21 @@ function probeAudioDurationMs(file: File): Promise<number> {
       audio.load();
       URL.revokeObjectURL(url);
       clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
     };
     const fail = () => {
       cleanup();
       reject(new InvalidMp3Error());
     };
     const timer = setTimeout(fail, 30_000);
+    const abort = () => {
+      cleanup();
+      try {
+        throwIfAborted(signal);
+      } catch (error) {
+        reject(error);
+      }
+    };
     audio.addEventListener("loadedmetadata", () => {
       const seconds = audio.duration;
       cleanup();
@@ -75,6 +109,8 @@ function probeAudioDurationMs(file: File): Promise<number> {
     audio.addEventListener("error", fail);
     audio.preload = "metadata";
     audio.src = url;
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
   });
 }
 
@@ -109,23 +145,48 @@ export async function importLocalMp3(
   userId: string,
   file: File,
   onProgress: (percent: number, stage: string) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
+  const scope = createAccountWriteScope(userId, signal);
+  try {
+    await withAccountWriteLock(userId, (accountSlot) =>
+      importLocalMp3WithinFence(userId, file, onProgress, scope.signal, accountSlot),
+    );
+  } finally {
+    scope.release();
+  }
+}
+
+async function importLocalMp3WithinFence(
+  userId: string,
+  file: File,
+  onProgress: (percent: number, stage: string) => void,
+  signal: AbortSignal,
+  accountSlot: AccountWriteSlot,
+): Promise<void> {
+  throwIfAborted(signal);
   onProgress(5, "Reading metadata");
-  const parsed = await parseLocalMp3(file);
+  const parsed = await parseLocalMp3(file, signal);
+  throwIfAborted(signal);
   onProgress(45, "Checking the complete file");
   const fingerprintKind = "sha256-v1" as const;
-  const fingerprint = await fingerprintMedia(file, fingerprintKind, (fraction) =>
-    onProgress(45 + Math.round(fraction * 10), "Checking the complete file"),
+  const fingerprint = await fingerprintMedia(
+    file,
+    fingerprintKind,
+    (fraction) => onProgress(45 + Math.round(fraction * 10), "Checking the complete file"),
+    signal,
   );
   onProgress(55, "Adding to your library");
 
   const registration = {
     bookId: crypto.randomUUID(),
     fileName: encodeURIComponent(file.name),
+    mimeType: "audio/mpeg",
     byteSize: file.size,
     durationMs: parsed.durationMs,
     fingerprint,
     fingerprintKind,
+    renditionKey: "source-v1",
     title: parsed.title,
     author: parsed.author,
     narrator: parsed.narrator,
@@ -133,34 +194,8 @@ export async function importLocalMp3(
     chapters: parsed.chapters,
   };
   await withLocalMediaSlot(userId, registration.bookId, async (slot) => {
-    await commitImport({ userId, deviceId: getDeviceId() }, fingerprint, registration);
-
-    const response = await fetch("/api/books/local", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(registration),
-    }).catch(() => null);
-    let bookId = registration.bookId;
-    let canonicalBook: Omit<PlayerBook, "mediaUrl" | "coverUrl"> | null = null;
-    if (response?.ok) {
-      ({ bookId } = (await response.json()) as { bookId: string });
-    } else if (response) {
-      const payload = (await response.json().catch(() => null)) as {
-        error?: string;
-        existingBookId?: string;
-        playerBook?: Omit<PlayerBook, "mediaUrl" | "coverUrl">;
-      } | null;
-      // A fingerprint match means this exact file already has a book — most
-      // often one whose audio is missing on this device. Reattach the bytes to
-      // that book instead of dead-ending on "already in your library". The queued
-      // row replays into the same 409 and settles without creating anything.
-      if (response.status === 409 && payload?.existingBookId) {
-        bookId = payload.existingBookId;
-        canonicalBook = payload.playerBook || null;
-      } else {
-        throw new Error(payload?.error || "The MP3 could not be imported.");
-      }
-    }
+    throwIfAborted(signal);
+    const { bookId, canonicalBook } = await registerLocalBook(userId, registration, signal);
     // `response` is null only when the network could not be reached at all. The
     // registration is already durable, so the import continues under the id this
     // device minted and the server is told on the next drain.
@@ -173,6 +208,7 @@ export async function importLocalMp3(
       ...chapter,
     }));
     try {
+      throwIfAborted(signal);
       await storeLocalBookMedia(
         userId,
         canonicalBook || {
@@ -195,7 +231,10 @@ export async function importLocalMp3(
         // The slot names the minted id; a reattach that sent these bytes to the
         // canonical id instead takes its own lock for that one.
         slot,
+        signal,
+        accountSlot,
       );
+      throwIfAborted(signal);
     } catch (error) {
       // Registration is already visible to other tabs and devices. Keep the
       // recoverable metadata row rather than deleting a book another tab may
@@ -214,4 +253,101 @@ export async function importLocalMp3(
     }
   });
   onProgress(100, "Finishing");
+}
+
+/**
+ * Journals and registers metadata shared by direct MP3 imports and locally
+ * narrated documents. The source bytes themselves are never in this request.
+ */
+export async function registerLocalBook(
+  userId: string,
+  registration: LocalBookRegistration,
+  signal?: AbortSignal,
+): Promise<RegisteredLocalBook> {
+  throwIfAborted(signal);
+  await commitImport({ userId, deviceId: getDeviceId() }, registration.fingerprint, registration);
+  throwIfAborted(signal);
+
+  const identity = {
+    fingerprint: registration.fingerprint,
+    renditionKey: registration.renditionKey,
+  };
+  const keepQueuedRegistration = async (): Promise<RegisteredLocalBook> => {
+    // The outbox is the durable write. Airplane-mode imports keep the id the
+    // device already minted and register when the connection returns.
+    await projectLocalBookRegistration(userId, registration);
+    return { bookId: registration.bookId, canonicalBook: null };
+  };
+  if (await hasPendingDeleteForMediaRegistration(userId, identity)) {
+    throwIfAborted(signal);
+    return keepQueuedRegistration();
+  }
+
+  return withMediaRegistrationLock(userId, identity, async () => {
+    throwIfAborted(signal);
+    // The delete can be journalled between the fast check above and this lock.
+    // Recheck while live registration and replay are mutually exclusive.
+    if (await hasPendingDeleteForMediaRegistration(userId, identity)) {
+      throwIfAborted(signal);
+      return keepQueuedRegistration();
+    }
+
+    const response = await postLocalRegistration(registration, signal);
+    throwIfAborted(signal);
+    if (!response || shouldRetainMutation(response.status)) {
+      return keepQueuedRegistration();
+    }
+    if (response.ok) {
+      const { bookId } = (await response.json()) as { bookId: string };
+      if (!bookId) throw new Error("The audiobook registration returned no book id.");
+      await projectLocalBookRegistration(userId, { ...registration, bookId });
+      return { bookId, canonicalBook: null };
+    }
+
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+      existingBookId?: string;
+      playerBook?: Omit<PlayerBook, "mediaUrl" | "coverUrl">;
+    } | null;
+    // A fingerprint match means this exact source already owns a book. Attach
+    // this device's audio to that identity rather than creating a second card.
+    if (response.status === 409 && payload?.existingBookId) {
+      const canonicalBook =
+        payload.playerBook?.id === payload.existingBookId ? payload.playerBook : null;
+      await projectLocalBookRegistration(
+        userId,
+        { ...registration, bookId: payload.existingBookId },
+        canonicalBook,
+      );
+      return {
+        bookId: payload.existingBookId,
+        canonicalBook,
+      };
+    }
+    throw new Error(payload?.error || "The audiobook could not be imported.");
+  });
+}
+
+async function postLocalRegistration(
+  registration: LocalBookRegistration,
+  signal?: AbortSignal,
+): Promise<Response | null> {
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort(signal?.reason);
+  signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timeout = setTimeout(() => controller.abort(), LOCAL_REGISTRATION_TIMEOUT_MS);
+  try {
+    return await fetch("/api/books/local", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(registration),
+      signal: controller.signal,
+    });
+  } catch {
+    throwIfAborted(signal);
+    return null;
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", abortFromCaller);
+  }
 }

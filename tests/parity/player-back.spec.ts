@@ -84,7 +84,7 @@ async function expectLibraryOnScreen(page: Page): Promise<void> {
   await expect(page.getByRole("heading", { name: "Library", exact: true })).toBeVisible({
     timeout: 30_000,
   });
-  await expect(page.getByRole("button", { name: "Add MP3" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add book" })).toBeVisible();
   expect(new URL(page.url()).pathname, "the player URL was left behind").not.toMatch(/^\/books\//);
 }
 

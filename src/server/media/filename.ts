@@ -1,14 +1,19 @@
-const acceptedMimeTypes = new Set(["audio/mpeg", "audio/mp3", "application/octet-stream"]);
+import { DOCUMENT_FORMAT_LABEL, sourceFormatForFilename } from "@/lib/source-formats";
 
 export function validateUploadMetadata(filename: string, mimeType: string): string {
   const decoded = decodeFilename(filename);
-  if (!decoded.toLowerCase().endsWith(".mp3")) {
-    throw new Error("Choose an MP3 file. Other audiobook formats are not supported.");
+  const format = sourceFormatForFilename(decoded);
+  if (!format) {
+    throw new Error(`Choose an MP3 or a ${DOCUMENT_FORMAT_LABEL} file.`);
   }
-  if (!acceptedMimeTypes.has(mimeType.toLowerCase())) {
-    throw new Error("The selected file does not use an accepted MP3 content type.");
+  const normalizedMimeType = mimeType.toLowerCase();
+  if (
+    normalizedMimeType !== "application/octet-stream" &&
+    !format.acceptedMimeTypes.has(normalizedMimeType)
+  ) {
+    throw new Error("The selected file's content type does not match its filename.");
   }
-  if (decoded.length > 512) throw new Error("The MP3 filename is too long.");
+  if (decoded.length > 512) throw new Error("The source filename is too long.");
   return decoded;
 }
 
@@ -18,6 +23,6 @@ function decodeFilename(value: string): string {
     if (!decoded || decoded === "." || decoded === "..") throw new Error();
     return decoded;
   } catch {
-    throw new Error("The MP3 filename is invalid.");
+    throw new Error("The source filename is invalid.");
   }
 }

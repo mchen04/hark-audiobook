@@ -1,0 +1,101 @@
+{
+  "bundleRevision": "ebfe37d8a87717801af2619f5dbb22901557028821aa22809ffdf20f4aae7ac4",
+  "kestrelModelRevision": "cac6cb6387d00fa626f41300b4c0739c624bba91",
+  "kokoroSourceRevision": "e02c9eada7ce7416798af36b190a8a2dd2ecd566",
+  "kestrelExporter": {
+    "script": "scripts/export-kestrel-onnx.py",
+    "sha256": "706b20dcbf48c7d9095fe6e818df1ea7506cd37558828bacaad68d01ec8dcb10",
+    "pythonVersion": "3.12.11",
+    "dependencies": {
+      "numpy": "2.3.2",
+      "onnx": "1.19.0"
+    }
+  },
+  "assets": [
+    {
+      "id": "prosody",
+      "externalPath": "prosody.safetensors",
+      "remotePath": "kestrel_prosody.safetensors",
+      "byteSize": 18764172,
+      "sha256": "19ccef888d583ae49ff3029ceff2327e513656b4903afebfd52b0fd99a68dff5"
+    },
+    {
+      "id": "decoder",
+      "externalPath": "decoder.safetensors",
+      "remotePath": "kestrel_decode.safetensors",
+      "byteSize": 12419656,
+      "sha256": "67e1efb4f7e14d91a193f38d3e2b3045fcb0c538002414b9592798154bf1d5cb"
+    },
+    {
+      "id": "head",
+      "externalPath": "head.safetensors",
+      "remotePath": "kestrel_sf_lw58k.safetensors",
+      "byteSize": 9472941,
+      "sha256": "0866c5a65e228026acba2cce37332c35460fcc00b2ab4448d048cc00e702d9d6"
+    },
+    {
+      "id": "voice",
+      "externalPath": "af_heart.safetensors",
+      "remotePath": "voices/af_heart.safetensors",
+      "byteSize": 522339,
+      "sha256": "4e40b08984cd84a86b4d07960939bd85bb6b3747dd747b7de48dca3aaeab37ca"
+    },
+    {
+      "id": "prosodyEncode",
+      "source": "public/models/kestrel/prosody-encode.627c1c1a7203c6fcc73013957aec8ef56aacfe20df1df6eda571a9c816387a0e.onnx",
+      "target": "public/models/kestrel/prosody-encode.627c1c1a7203c6fcc73013957aec8ef56aacfe20df1df6eda571a9c816387a0e.onnx",
+      "url": "/models/kestrel/prosody-encode.627c1c1a7203c6fcc73013957aec8ef56aacfe20df1df6eda571a9c816387a0e.onnx",
+      "byteSize": 25940,
+      "sha256": "627c1c1a7203c6fcc73013957aec8ef56aacfe20df1df6eda571a9c816387a0e"
+    },
+    {
+      "id": "prosodyFrames",
+      "source": "public/models/kestrel/prosody-frames.905339961e27ac99f948824d393ffd03cebf7c5477f32156c739e872016455eb.onnx",
+      "target": "public/models/kestrel/prosody-frames.905339961e27ac99f948824d393ffd03cebf7c5477f32156c739e872016455eb.onnx",
+      "url": "/models/kestrel/prosody-frames.905339961e27ac99f948824d393ffd03cebf7c5477f32156c739e872016455eb.onnx",
+      "byteSize": 19875,
+      "sha256": "905339961e27ac99f948824d393ffd03cebf7c5477f32156c739e872016455eb"
+    },
+    {
+      "id": "decoderHead",
+      "source": "public/models/kestrel/decoder-head.e3b02863689de98635f42d5f568908b6bc6d43059856434f30b66e25633a379d.onnx",
+      "target": "public/models/kestrel/decoder-head.e3b02863689de98635f42d5f568908b6bc6d43059856434f30b66e25633a379d.onnx",
+      "url": "/models/kestrel/decoder-head.e3b02863689de98635f42d5f568908b6bc6d43059856434f30b66e25633a379d.onnx",
+      "byteSize": 57216,
+      "sha256": "e3b02863689de98635f42d5f568908b6bc6d43059856434f30b66e25633a379d"
+    },
+    {
+      "id": "fft",
+      "source": "node_modules/kissfft-wasm/lib/kissfft.wasm",
+      "target": "public/models/kestrel/kissfft.c1a03390ade32bcfc4c4143796f7510c0fec06b59d42840591ad4721fe93caf4.wasm",
+      "url": "/models/kestrel/kissfft.c1a03390ade32bcfc4c4143796f7510c0fec06b59d42840591ad4721fe93caf4.wasm",
+      "byteSize": 142846,
+      "sha256": "c1a03390ade32bcfc4c4143796f7510c0fec06b59d42840591ad4721fe93caf4"
+    }
+  ],
+  "runtimeAssets": [
+    {
+      "id": "ortModule",
+      "source": "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs",
+      "target": "public/models/kestrel/ort-wasm-simd-threaded.asyncify.7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655.mjs",
+      "url": "/models/kestrel/ort-wasm-simd-threaded.asyncify.7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655.mjs",
+      "byteSize": 47507,
+      "sha256": "7236653b8565da4046e459cd0e274123419a1d9f1f8f18fd36c28058346ca655"
+    },
+    {
+      "id": "ortWasm",
+      "source": "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm",
+      "target": "public/models/kestrel/ort-wasm-simd-threaded.asyncify.7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a.wasm",
+      "url": "/models/kestrel/ort-wasm-simd-threaded.asyncify.7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a.wasm",
+      "byteSize": 24254953,
+      "sha256": "7e83cd6cee77e478bc96a7e91b198144fb5e4126287daf1f9b54bb195ebcd55a"
+    }
+  ],
+  "pdfWorker": {
+    "source": "node_modules/pdfjs-dist/build/pdf.worker.min.mjs",
+    "target": "public/pdf.worker.51a2fd1ea47f1a9b0814e65e0c336c739c54957795ee774e8f93cb81e8028dd1.min.mjs",
+    "url": "/pdf.worker.51a2fd1ea47f1a9b0814e65e0c336c739c54957795ee774e8f93cb81e8028dd1.min.mjs",
+    "byteSize": 1244253,
+    "sha256": "51a2fd1ea47f1a9b0814e65e0c336c739c54957795ee774e8f93cb81e8028dd1"
+  }
+}

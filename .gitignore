@@ -24,6 +24,10 @@
 
 # generated service worker artifacts
 /public/sw.js.map
+/public/pdf.worker.*.min.mjs
+/public/models/kestrel/kissfft.*.wasm
+/public/models/kestrel/ort-wasm-simd-threaded.asyncify.*
+/public/chapterline-runtime-assets.json
 
 # test and coverage output
 /coverage/

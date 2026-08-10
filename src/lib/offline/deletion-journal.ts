@@ -9,6 +9,7 @@ import {
   type OfflineBook,
   type OfflineDb,
 } from "./db";
+import { journalOfflineBookDeletion } from "./deletion-fence";
 import { deleteBookTranscript } from "./transcript-store";
 
 const CACHE_DELETE_CONCURRENCY = 8;
@@ -22,31 +23,55 @@ export async function removeOfflineBook(
   bookId: string,
   options: { clearPlaybackHistory?: boolean } = {},
 ) {
-  const key = offlineBookKey(userId, bookId);
-  await withMediaWriteLock(key, async () => {
-    const db = await database();
-    const existing = await db.get("downloads", key);
-    const pending = await db.get("deletions", key);
-    const operationId =
-      pending && !pending.completedAt
-        ? (pending.operationId ?? crypto.randomUUID())
-        : crypto.randomUUID();
-    const journal = {
+  const { db, key, operationId, needsCleanup } = await journalOfflineBookDeletion(
+    userId,
+    bookId,
+    options,
+  );
+  if (!needsCleanup) return;
+  await withMediaWriteLock(key, () => completeJournaledOfflineDeletion(db, key, operationId));
+}
+
+async function completeJournaledOfflineDeletion(
+  db: OfflineDb,
+  key: string,
+  operationId: string | undefined,
+): Promise<void> {
+  if (!(await refreshJournaledMedia(db, key, operationId))) return;
+  await completeOfflineDeletion(db, key);
+}
+
+/**
+ * A writer that already held the lock may have passed its first fence check
+ * before the journal landed. Re-read its final record under the lock and make
+ * that token the one this deletion owns before removing anything.
+ */
+async function refreshJournaledMedia(
+  db: OfflineDb,
+  key: string,
+  operationId: string | undefined,
+): Promise<boolean> {
+  const transaction = db.transaction(["downloads", "deletions"], "readwrite");
+  const downloads = transaction.objectStore("downloads");
+  const deletions = transaction.objectStore("deletions");
+  const [existing, pending] = await Promise.all([downloads.get(key), deletions.get(key)]);
+  if (
+    !pending ||
+    (operationId ? pending.operationId !== operationId : pending.operationId !== undefined)
+  ) {
+    await transaction.done;
+    return false;
+  }
+  if (existing) {
+    await deletions.put({
       ...pending,
-      key,
-      userId,
-      bookId,
-      operationId,
-      offlineMediaUrl: existing?.offlineMediaUrl,
-      offlineCoverUrl: existing?.offlineCoverUrl,
-      offlineCoverThumbUrl: existing?.offlineCoverThumbUrl,
-      clearPlaybackHistory:
-        pending?.clearPlaybackHistory === true || options.clearPlaybackHistory === true,
-    };
-    delete journal.completedAt;
-    await db.put("deletions", journal);
-    await completeOfflineDeletion(db, key);
-  });
+      offlineMediaUrl: existing.offlineMediaUrl,
+      offlineCoverUrl: existing.offlineCoverUrl,
+      offlineCoverThumbUrl: existing.offlineCoverThumbUrl,
+    });
+  }
+  await transaction.done;
+  return true;
 }
 
 export async function retryPendingOfflineDeletions(userId: string): Promise<void> {
@@ -55,7 +80,11 @@ export async function retryPendingOfflineDeletions(userId: string): Promise<void
   await Promise.all(
     pending
       .filter((entry) => typeof entry.bookId === "string" && !entry.completedAt)
-      .map((entry) => withMediaWriteLock(entry.key, () => completeOfflineDeletion(db, entry.key))),
+      .map((entry) =>
+        withMediaWriteLock(entry.key, () =>
+          completeJournaledOfflineDeletion(db, entry.key, entry.operationId),
+        ),
+      ),
   );
 }
 
@@ -66,10 +95,15 @@ export async function retryAllPendingOfflineDeletions(): Promise<void> {
   await Promise.allSettled(
     pending.map((entry) =>
       entry.completedAt
-        ? entry.completedAt < now - 24 * 60 * 60_000
+        ? // A permanent book deletion is also a durable liveness fence. A stale
+          // player tab must never be able to attach bytes under that dead id;
+          // account purge removes the marker with the rest of the user's data.
+          !entry.clearPlaybackHistory && entry.completedAt < now - 24 * 60 * 60_000
           ? db.delete("deletions", entry.key)
           : Promise.resolve()
-        : withMediaWriteLock(entry.key, () => completeOfflineDeletion(db, entry.key)),
+        : withMediaWriteLock(entry.key, () =>
+            completeJournaledOfflineDeletion(db, entry.key, entry.operationId),
+          ),
     ),
   );
   await reconcileOrphanedCacheEntries(db);

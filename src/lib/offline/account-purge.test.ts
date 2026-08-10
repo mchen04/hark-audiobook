@@ -4,7 +4,14 @@ import { IDBFactory as FakeIDBFactory } from "fake-indexeddb";
 
 import { ACTIVE_USER_KEY } from "@/lib/app-keys";
 import { subscribeActiveUser } from "@/lib/active-user";
-import { listQueuedMutations, nextDeviceSequence } from "@/lib/offline-sync";
+import {
+  listQueuedMutations,
+  nextDeviceSequence,
+  persistProgressNormalization,
+  purgeProgressNormalizationsForUser,
+  queueProgress,
+  replayQueuedMutations,
+} from "@/lib/offline-sync";
 import { listPendingPlaybackActions, storePlaybackAction } from "@/lib/playback-history";
 import {
   DEFAULT_PREFERENCES,
@@ -620,6 +627,66 @@ describe("sign-out drains before it purges", () => {
     expect(await listQueuedMutations(userId)).toStrictEqual([]);
   });
 
+  it("does not let a late progress response recreate account data after purge", async () => {
+    const userId = "user-progress-hangs";
+    const bookId = "book";
+    const occurredAt = "2026-07-01T00:00:00.000Z";
+    await queueProgress({
+      userId,
+      bookId,
+      deviceId: "device-1",
+      deviceSequence: 1,
+      positionMs: 12_345,
+      playbackRate: 1.25,
+      completed: false,
+      eventOccurredAt: occurredAt,
+      playbackRateOccurredAt: occurredAt,
+      completedOccurredAt: occurredAt,
+      stateOccurredAt: occurredAt,
+    });
+
+    let releaseResponse!: (response: Response) => void;
+    let markRequestStarted!: () => void;
+    const requestStarted = new Promise<void>((resolve) => {
+      markRequestStarted = resolve;
+    });
+    const fetchFn = (() =>
+      new Promise<Response>((resolve) => {
+        releaseResponse = resolve;
+        markRequestStarted();
+      })) as typeof fetch;
+
+    const signingOut = purgeOnSignOut(userId, { fetchFn, drainTimeoutMs: 10 });
+    await requestStarted;
+    const outcome = await signingOut;
+    const db = await database();
+    const key = mirrorKey(userId, bookId);
+
+    expect(outcome.failure).toBe(null);
+    expect(await db.get("playbackStates", key)).toBeUndefined();
+    expect(await listQueuedMutations(userId)).toStrictEqual([]);
+    expect(storage.snapshot().filter((item) => item.includes(userId))).toStrictEqual([]);
+
+    releaseResponse(
+      Response.json({
+        state: {
+          positionMs: 12_345,
+          playbackRate: 1.25,
+          completed: false,
+          eventOccurredAt: occurredAt,
+          playbackRateOccurredAt: occurredAt,
+          completedOccurredAt: occurredAt,
+          stateOccurredAt: occurredAt,
+        },
+      }),
+    );
+    await replayQueuedMutations(userId, fetchFn);
+
+    expect(await db.get("playbackStates", key)).toBeUndefined();
+    expect(storage.snapshot().filter((item) => item.includes(userId))).toStrictEqual([]);
+    expect(await listLocalUserIds()).not.toContain(userId);
+  });
+
   it("does not let a timed-out preference request strand writes after signing back in", async () => {
     const userId = "user-preference-hangs";
     storage.setItem(
@@ -643,6 +710,7 @@ describe("sign-out drains before it purges", () => {
     expect(outcome.undelivered.map((write) => write.kind)).toStrictEqual(["preferences"]);
     expect(storage.getItem(`chapterline:preferences:${userId}`)).toBe(null);
 
+    await purgeOnSignIn(userId);
     const nextFetch = vi.fn().mockResolvedValue(new Response(null, { status: 503 }));
     vi.stubGlobal("fetch", nextFetch);
     await savePreferences(userId, DEFAULT_PREFERENCES, { skipForwardMs: 45_000 });
@@ -711,6 +779,46 @@ describe("a failing purge step does not abandon the ones after it", () => {
  * still an account whose writes and listening the next user can read.
  */
 describe("every database is enumerated", () => {
+  it("finds an account whose only trace is a playback projection", async () => {
+    const userId = "user-playback-only";
+    await (
+      await database()
+    ).put("playbackStates", {
+      key: mirrorKey(userId, "book"),
+      userId,
+      bookId: "book",
+      positionMs: 12_345,
+      playbackRate: 1,
+      completed: false,
+      deviceId: "device-1",
+      deviceSequence: 1,
+      eventOccurredAt: "2026-07-01T00:00:00.000Z",
+      updatedAt: "2026-07-01T00:00:00.000Z",
+    });
+
+    expect(await listLocalUserIds()).toContain(userId);
+  });
+
+  it("finds an account whose only trace is a playback localStorage key", async () => {
+    const userId = "user-position-only";
+    storage.setItem(`chapterline:position:${userId}:book`, "12000");
+
+    expect(await listLocalUserIds()).toContain(userId);
+  });
+
+  it("finds an account whose only trace is a deferred progress normalization", async () => {
+    const userId = "user-normalization-only";
+    await persistProgressNormalization(userId, "book", {
+      position: {
+        submitted: { value: 12_000, occurredAt: 1 },
+        canonical: { value: 13_000, occurredAt: 2 },
+      },
+    });
+
+    expect(await listLocalUserIds()).toContain(userId);
+    await purgeProgressNormalizationsForUser(userId);
+  });
+
   it("finds an account whose only trace is an unsent write", async () => {
     const userId = "user-outbox-only";
     await commitMetadataEdit({ userId, deviceId: "device-1" }, "book", { title: "Renamed" });

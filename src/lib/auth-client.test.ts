@@ -22,6 +22,7 @@ const purge = vi.hoisted(() => ({
   failure: null as unknown,
   /** A storage layer that has wedged: the sweep starts and never settles. */
   wedged: false,
+  fencedAtPurge: false,
 }));
 
 vi.mock("@/lib/offline/account-purge", () => ({
@@ -34,9 +35,11 @@ vi.mock("@/lib/offline/account-purge", () => ({
   // result was handed to the purge rather than merged behind its back — and
   // that the purge is not asked to drain a second time against a dead session.
   purgeOnSignOut: async (
-    _userId: string,
+    userId: string,
     options?: { alreadyDrained?: Array<{ kind: string; entityId: string; queuedAt: number }> },
   ) => {
+    const { isAccountSignOutFenced } = await import("@/lib/account-deletion-fence");
+    purge.fencedAtPurge = isAccountSignOutFenced(userId);
     await new Promise((resolve) => setTimeout(resolve, 5));
     purge.order.push(options?.alreadyDrained ? "purged" : "purged-without-a-drain");
     return { undelivered: options?.alreadyDrained ?? [], failure: purge.failure };
@@ -77,6 +80,7 @@ beforeEach(async () => {
   purge.undelivered = [];
   purge.failure = null;
   purge.wedged = false;
+  purge.fencedAtPurge = false;
   storage = fakeLocalStorage();
   session = fakeLocalStorage();
   vi.stubGlobal("window", globalThis);
@@ -104,6 +108,21 @@ describe("sign-out hooks", () => {
       purge.order,
       "the caller regained control while the account's data was still on the device",
     ).toStrictEqual(["drained", "purged", "sign-out-returned"]);
+    expect(purge.fencedAtPurge, "the purge started before new account writes were fenced").toBe(
+      true,
+    );
+  });
+
+  it("reopens the account if the sign-out request itself fails", async () => {
+    storage.setItem(ACTIVE_USER_KEY, USER_A);
+    const { authFetchHooks } = await import("@/lib/auth-client");
+    const { isAccountSignOutFenced } = await import("@/lib/account-deletion-fence");
+
+    await authFetchHooks.onRequest({ url: SIGN_OUT, method: "POST" });
+    expect(isAccountSignOutFenced(USER_A)).toBe(true);
+
+    await authFetchHooks.onError({ request: { url: SIGN_OUT } });
+    expect(isAccountSignOutFenced(USER_A)).toBe(false);
   });
 
   it("reports writes the drain could not deliver to whoever signed out", async () => {
@@ -192,6 +211,17 @@ describe("sign-in waits for the sweep", () => {
       purge.order,
       "the incoming account was let in mid-sweep, over the departing account's data",
     ).toStrictEqual(["purged-on-sign-in", "sign-in-returned"]);
+  });
+
+  it("reopens a committed fence only after that account authenticates again", async () => {
+    const { commitAccountSignOutFence, isAccountSignOutFenced } =
+      await import("@/lib/account-deletion-fence");
+    commitAccountSignOutFence();
+    expect(isAccountSignOutFenced("user-b")).toBe(true);
+
+    await signInThroughHooks();
+
+    expect(isAccountSignOutFenced("user-b")).toBe(false);
   });
 
   it("still lets the user in when the sweep wedges, leaving it for the next sign-in", async () => {

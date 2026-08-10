@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import "fake-indexeddb/auto";
 import { IDBFactory as FakeIDBFactory } from "fake-indexeddb";
 
-import { database, MEDIA_CACHE, offlineBookKey } from "./db";
+import { database, MEDIA_CACHE, mirrorKey, offlineBookKey } from "./db";
 import { removeOfflineBook } from "./deletion-journal";
+import { projectLocalBookRegistration } from "./local-import-mirror";
 import {
   getOfflineBook,
   listOfflineBooks,
   listStoredOfflineBooks,
+  listVisibleStoredOfflineBooks,
   reattachLocalBookIdentity,
 } from "./library";
 
@@ -115,6 +117,24 @@ async function storeBook(
   return { offlineMediaUrl, coverUrl, urls };
 }
 
+async function projectBook(bookId: string) {
+  await projectLocalBookRegistration(USER, {
+    bookId,
+    fileName: "offline-book.txt",
+    mimeType: "text/plain",
+    byteSize: 128,
+    durationMs: 600_000,
+    fingerprint: "a".repeat(64),
+    fingerprintKind: "sha256-v1",
+    renditionKey: "kestrel-test-v1",
+    title: "Offline import",
+    author: "Author",
+    narrator: "Kestrel",
+    chapterDiagnostic: null,
+    chapters: [{ position: 0, title: "One", startMs: 0, endMs: 600_000 }],
+  });
+}
+
 async function mediaSnapshot(): Promise<Record<string, string>> {
   const cache = caches.raw.get(MEDIA_CACHE);
   const snapshot: Record<string, string> = {};
@@ -141,6 +161,7 @@ async function transcriptKeys(): Promise<string[]> {
 describe("reattaching an offline import to the book the server already has", () => {
   it("moves the identity and leaves every stored byte exactly where it was", async () => {
     const { offlineMediaUrl } = await storeBook(MINTED);
+    await projectBook(MINTED);
     const before = await mediaSnapshot();
 
     await reattachLocalBookIdentity(USER, MINTED, CANONICAL);
@@ -161,6 +182,23 @@ describe("reattaching an offline import to the book the server already has", () 
       "Cache Storage changed. A multi-gigabyte audiobook must never be copied or deleted to " +
         "rename it — the only copy of the file lives here.",
     ).toStrictEqual(before);
+
+    const db = await database();
+    const [sourceMirror, targetMirror, targetChapters] = await Promise.all([
+      db.get("books", mirrorKey(USER, MINTED)),
+      db.get("books", mirrorKey(USER, CANONICAL)),
+      db.getAllFromIndex("chapters", "by-user-book", [USER, CANONICAL]),
+    ]);
+    expect(sourceMirror, "the device-minted mirror aggregate survived reconciliation").toBe(
+      undefined,
+    );
+    expect(targetMirror).toMatchObject({
+      bookId: CANONICAL,
+      media: { renditionKey: "kestrel-test-v1" },
+    });
+    expect(targetChapters).toEqual([
+      expect.objectContaining({ bookId: CANONICAL, position: 0, endMs: 600_000 }),
+    ]);
   });
 
   it("takes the cache journal with it so the sweep and the purge still find the bytes", async () => {
@@ -225,6 +263,97 @@ describe("reattaching an offline import to the book the server already has", () 
     expect(await transcriptKeys()).toStrictEqual([`${USER}:${CANONICAL}:000000`]);
   });
 
+  it("moves optimistic mirror children when the canonical row already exists", async () => {
+    await projectBook(MINTED);
+    await projectBook(CANONICAL);
+    const db = await database();
+    await Promise.all([
+      db.put("playbackStates", {
+        key: mirrorKey(USER, MINTED),
+        userId: USER,
+        bookId: MINTED,
+        positionMs: 22_000,
+        playbackRate: 1,
+        completed: false,
+        deviceId: "offline-device",
+        deviceSequence: 7,
+        eventOccurredAt: "2026-07-21T00:20:00.000Z",
+        playbackRateOccurredAt: "2026-07-21T00:15:00.000Z",
+        completedOccurredAt: "2026-07-21T00:25:00.000Z",
+        stateOccurredAt: "2026-07-21T00:25:00.000Z",
+        updatedAt: "2026-07-21T00:25:00.000Z",
+      }),
+      db.put("playbackStates", {
+        key: mirrorKey(USER, CANONICAL),
+        userId: USER,
+        bookId: CANONICAL,
+        positionMs: 10_000,
+        playbackRate: 1.5,
+        completed: true,
+        deviceId: "canonical-device",
+        deviceSequence: 11,
+        eventOccurredAt: "2026-07-21T00:10:00.000Z",
+        playbackRateOccurredAt: "2026-07-21T00:30:00.000Z",
+        completedOccurredAt: "2026-07-21T00:40:00.000Z",
+        stateOccurredAt: "2026-07-21T00:40:00.000Z",
+        updatedAt: "2026-07-21T00:40:00.000Z",
+      }),
+      db.put("bookTags", {
+        key: mirrorKey(USER, MINTED, "offline-tag"),
+        userId: USER,
+        bookId: MINTED,
+        tagId: "offline-tag",
+      }),
+      db.put("bookTags", {
+        key: mirrorKey(USER, CANONICAL, "canonical-tag"),
+        userId: USER,
+        bookId: CANONICAL,
+        tagId: "canonical-tag",
+      }),
+      db.put("collectionBooks", {
+        key: mirrorKey(USER, "collection-a", MINTED),
+        userId: USER,
+        collectionId: "collection-a",
+        bookId: MINTED,
+        position: 2,
+      }),
+      db.put("listeningSessions", {
+        key: mirrorKey(USER, "session-a"),
+        userId: USER,
+        sessionId: "session-a",
+        bookId: MINTED,
+        startedAt: "2026-07-21T00:00:00.000Z",
+        endedAt: "2026-07-21T00:01:00.000Z",
+        startPositionMs: 0,
+        endPositionMs: 22_000,
+        listenedMs: 60_000,
+      }),
+    ]);
+
+    await reattachLocalBookIdentity(USER, MINTED, CANONICAL);
+
+    const [state, tags, collectionEdges, session] = await Promise.all([
+      db.get("playbackStates", mirrorKey(USER, CANONICAL)),
+      db.getAllFromIndex("bookTags", "by-user-book", [USER, CANONICAL]),
+      db.getAllFromIndex("collectionBooks", "by-user", USER),
+      db.get("listeningSessions", mirrorKey(USER, "session-a")),
+    ]);
+    expect(state).toMatchObject({
+      bookId: CANONICAL,
+      positionMs: 22_000,
+      eventOccurredAt: "2026-07-21T00:20:00.000Z",
+      playbackRate: 1.5,
+      playbackRateOccurredAt: "2026-07-21T00:30:00.000Z",
+      completed: true,
+      completedOccurredAt: "2026-07-21T00:40:00.000Z",
+    });
+    expect(tags.map((edge) => edge.tagId).sort()).toStrictEqual(["canonical-tag", "offline-tag"]);
+    expect(collectionEdges).toEqual([
+      expect.objectContaining({ collectionId: "collection-a", bookId: CANONICAL, position: 2 }),
+    ]);
+    expect(session?.bookId).toBe(CANONICAL);
+  });
+
   it("does nothing at all when this device stored nothing under the imported id", async () => {
     await reattachLocalBookIdentity(USER, MINTED, CANONICAL);
 
@@ -235,6 +364,8 @@ describe("reattaching an offline import to the book the server already has", () 
   it("keeps the copy already filed under the canonical id and drops the duplicate", async () => {
     const canonical = await storeBook(CANONICAL, { title: "The one that stays" });
     const duplicate = await storeBook(MINTED, { title: "Second import of the same file" });
+    await projectBook(CANONICAL);
+    await projectBook(MINTED);
 
     await reattachLocalBookIdentity(USER, MINTED, CANONICAL);
 
@@ -252,6 +383,11 @@ describe("reattaching an offline import to the book the server already has", () 
       Object.fromEntries(canonical.urls.map((url) => [url, CANONICAL])),
     );
     expect(await transcriptKeys()).toStrictEqual([`${USER}:${CANONICAL}:000000`]);
+    const db = await database();
+    expect(
+      (await db.getAllFromIndex("books", "by-user", USER)).map((book) => book.bookId),
+      "the abandoned device id still has a library card after duplicate media was removed",
+    ).toStrictEqual([CANONICAL]);
   });
 
   it("never deletes the audio when the canonical id has a record but no bytes", async () => {
@@ -430,5 +566,21 @@ describe("a Cache Storage wipe that keeps the cache names", () => {
     ).toBeUndefined();
     expect(await transcriptKeys()).toStrictEqual([]);
     expect(await cacheEntryOwners()).toStrictEqual({});
+  });
+
+  it("hides permanently deleted media while cleanup is still waiting", async () => {
+    await storeBook(CANONICAL);
+    const db = await database();
+    await db.put("deletions", {
+      key: offlineBookKey(USER, CANONICAL),
+      userId: USER,
+      bookId: CANONICAL,
+      operationId: crypto.randomUUID(),
+      clearPlaybackHistory: true,
+    });
+
+    await expect(listStoredOfflineBooks(USER)).resolves.toHaveLength(1);
+    await expect(listVisibleStoredOfflineBooks(USER)).resolves.toStrictEqual([]);
+    await expect(getOfflineBook(USER, CANONICAL)).resolves.toBeUndefined();
   });
 });

@@ -71,6 +71,7 @@ it("journals the verified intent before finishing local and server deletion", as
   );
   expect(deletion.finish).toHaveBeenCalledTimes(1);
   expect(router.replace).toHaveBeenCalledWith("/register");
+  expect(router.refresh).not.toHaveBeenCalled();
 });
 
 it("does not commit server deletion when the device purge fails", async () => {

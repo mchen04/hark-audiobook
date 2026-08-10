@@ -64,7 +64,6 @@ export function SettingsClient({ email }: { email: string }) {
       return;
     }
     router.replace("/register");
-    router.refresh();
   }
 
   return (

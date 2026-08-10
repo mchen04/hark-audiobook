@@ -233,6 +233,7 @@ async function loadBookBatch(
         byteSize: mediaAssets.byteSize,
         fingerprint: mediaAssets.fingerprint,
         fingerprintKind: mediaAssets.fingerprintKind,
+        renditionKey: mediaAssets.renditionKey,
         durationMs: mediaAssets.durationMs,
       })
       .from(mediaAssets)

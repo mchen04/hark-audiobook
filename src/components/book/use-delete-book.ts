@@ -25,6 +25,7 @@ export function useDeleteBook(
   bookId: string,
   onError: (message: string) => void,
   mediaFingerprint?: string | null,
+  mediaRenditionKey?: string | null,
 ) {
   const router = useRouter();
   const openLocalLibrary = useOpenLocalLibrary();
@@ -38,7 +39,12 @@ export function useDeleteBook(
     }
     setDeleting(true);
     try {
-      await commitBookDeletion({ userId, deviceId: getDeviceId() }, bookId, mediaFingerprint);
+      await commitBookDeletion(
+        { userId, deviceId: getDeviceId() },
+        bookId,
+        mediaFingerprint,
+        mediaRenditionKey,
+      );
     } catch {
       setDeleting(false);
       setConfirming(false);

@@ -1,9 +1,15 @@
 import { readLocalProgress } from "@/lib/playback-core";
+import { ensurePermanentOfflineBookDeletion } from "@/lib/offline/deletion-fence";
 import { singleFlight } from "@/lib/single-flight";
 import { withKeyedLock } from "@/lib/keyed-lock";
 import { runBounded } from "@/lib/run-bounded";
 
 import { database, type QueuedMutation, type SyncDb } from "./db";
+import { queuedMediaRegistrationIdentity } from "./media-registration-identity";
+import {
+  hasPendingDeleteForMediaRegistration,
+  withMediaRegistrationLock,
+} from "./media-registration-guard";
 import { newMutationId, withProgressMutationLock } from "./queue";
 import {
   awaitsRegistration,
@@ -145,29 +151,16 @@ function withMutationLock<T>(mutation: QueuedMutation, operation: () => Promise<
   // so a replay and a heartbeat cannot interleave on one book.
   if (mutation.kind === "progress") return withProgressMutationLock(mutation.entityId, operation);
 
-  // A delete followed by a re-import of the same bytes is one causal stream.
+  // A delete followed by a re-import of the same rendition is one causal stream.
   // The rows have different entities (book id versus fingerprint) and unique
   // mutation keys, but sending them concurrently can make the import observe
   // the not-yet-deleted book, reconcile its 409 back onto that old id, and then
   // be erased when the delete finally lands. Lock both rows by fingerprint so
   // the order already encoded by the outbox is also the order the server sees.
-  const fingerprint = replayFingerprint(mutation);
-  return withKeyedLock(
-    fingerprint
-      ? `chapterline:media-registration:${mutation.userId}:${fingerprint}`
-      : `chapterline:mutation:${mutation.key}`,
-    operation,
-  );
-}
-
-function replayFingerprint(mutation: QueuedMutation): string | null {
-  if (mutation.kind === "import") {
-    return typeof mutation.payload.fingerprint === "string"
-      ? mutation.payload.fingerprint
-      : mutation.entityId;
-  }
-  if (mutation.kind !== "delete") return null;
-  return typeof mutation.payload.fingerprint === "string" ? mutation.payload.fingerprint : null;
+  const identity = queuedMediaRegistrationIdentity(mutation);
+  return identity
+    ? withMediaRegistrationLock(mutation.userId, identity, operation)
+    : withKeyedLock(`chapterline:mutation:${mutation.key}`, operation);
 }
 
 /**
@@ -333,13 +326,24 @@ async function refreshDuplicateProgress(
 async function replayMutation(snapshot: QueuedMutation, fetchFn: typeof fetch): Promise<void> {
   await withMutationLock(snapshot, async () => {
     const task = await supersedeStaleProgress(snapshot);
-    if (task.kind === "import" && (await hasPendingDeleteForFingerprint(task))) {
-      // The shared fingerprint lock means any earlier delete has finished its
+    const identity = queuedMediaRegistrationIdentity(task);
+    if (
+      task.kind === "import" &&
+      identity &&
+      (await hasPendingDeleteForMediaRegistration(task.userId, identity))
+    ) {
+      // The shared rendition-identity lock means any earlier delete has finished its
       // request before this read. If its row remains, the server refused it or
       // could not be reached, so registering the replacement now would either
       // merge it back onto the doomed id or undo the user's delete. Keep the
       // import untouched; the next drain retries the predecessor first.
       return;
+    }
+    if (task.kind === "delete") {
+      // A crash can land the outbox row before the separate offline database
+      // receives its marker. Never make the delete server-visible until the
+      // durable local fence has been repaired.
+      await ensurePermanentOfflineBookDeletion(task.userId, task.entityId);
     }
     const { url, init } = toReplayRequest(task);
     const response = await fetchFn(url, init);
@@ -408,28 +412,6 @@ async function replayMutation(snapshot: QueuedMutation, fetchFn: typeof fetch): 
     }
     await settleMutation(task);
   });
-}
-
-async function hasPendingDeleteForFingerprint(registration: QueuedMutation): Promise<boolean> {
-  const fingerprint = replayFingerprint(registration);
-  if (!fingerprint) return false;
-  const db = await database();
-  let cursor = await db
-    .transaction("mutations")
-    .store.index("by-user")
-    .openCursor(registration.userId);
-  while (cursor) {
-    const row = cursor.value;
-    if (
-      row.kind === "delete" &&
-      typeof row.payload.fingerprint === "string" &&
-      row.payload.fingerprint === fingerprint
-    ) {
-      return true;
-    }
-    cursor = await cursor.continue();
-  }
-  return false;
 }
 
 /**

@@ -31,7 +31,7 @@ import { asOfflinePlayerBook } from "@/lib/offline/library";
 import { getMirrorPlayerBook, type MirrorPlayerBook } from "@/lib/offline/mirror";
 import { listBookIdsWithTranscripts } from "@/lib/offline/transcript-store";
 
-import { UploadBanners, useMp3Import } from "./library-upload";
+import { UploadBanners, useBookImport } from "./library-upload";
 import { type SortOrder, type StatusFilter } from "./library-view";
 import { useLibraryViewState } from "./library-view-state";
 import { usePageWindow, useSeedFollowingValue } from "./use-derived-reset";
@@ -55,7 +55,7 @@ const STATUS_FILTERS: Array<{ id: StatusFilter; label: string }> = [
 const PAGE_SIZE = 50;
 
 const MISSING_MEDIA_HINT =
-  "The audio for this book lives only on the device that imported it. Re-import the MP3 here to listen.";
+  "The audio for this book lives only on the device that imported it. Attach its original source here to listen.";
 
 /**
  * Every `Link` below carries `prefetch={false}`, deliberately.
@@ -104,7 +104,7 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
   // The page owns its one alert region; the import hook and the download
   // remover both report into it.
   const [error, setError] = useState<string | null>(null);
-  const { fileInput, upload, chooseFile } = useMp3Import(userId, reload, setError);
+  const { fileInput, upload, chooseFile } = useBookImport(userId, reload, setError);
 
   const books = snapshot?.books || [];
   const device: DeviceIndex = snapshot?.device || EMPTY_DEVICE_INDEX;
@@ -229,7 +229,10 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
           playerBook={route.book.playerBook}
           mediaFingerprint={route.book.mediaFingerprint}
           mediaFingerprintKind={route.book.mediaFingerprintKind}
+          mediaRenditionKey={route.book.mediaRenditionKey}
           byteSize={route.book.byteSize}
+          sourceFilename={route.book.sourceFilename}
+          sourceMimeType={route.book.sourceMimeType}
           autoplay={searchParams.get("autoplay") === "1"}
           details={null}
           nextInCollection={null}
@@ -333,14 +336,14 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
           <p className="library-kicker">Your private library</p>
           <h1 id="library-title">Bring your first audiobook.</h1>
           <p>
-            Choose the chaptered MP3 from Epub Listener. Hark keeps its chapters and remembers your
-            place.
+            Choose an MP3, or let Kestrel narrate a document privately on this device. Hark keeps
+            the result offline and remembers your place.
           </p>
           <button type="button" className="primary-button" onClick={chooseFile} disabled={!!upload}>
             <UploadSimple size={20} weight="bold" aria-hidden="true" />
-            <span>{upload ? "Importing" : "Choose MP3"}</span>
+            <span>{upload ? "Importing" : "Choose a book"}</span>
           </button>
-          <small>MP3 only. Your library is visible only to you.</small>
+          <small>MP3, PDF, EPUB, DOCX, TXT, Markdown, or HTML. Files never upload.</small>
         </section>
       ) : (
         <section
@@ -359,7 +362,7 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
               disabled={!!upload}
             >
               <UploadSimple size={20} weight="bold" aria-hidden="true" />
-              <span>{upload ? "Importing" : "Add MP3"}</span>
+              <span>{upload ? "Importing" : "Add book"}</span>
             </button>
           </div>
 

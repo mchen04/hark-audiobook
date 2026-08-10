@@ -15,6 +15,8 @@ export type PulledMedia = {
   byteSize: number;
   fingerprint: string;
   fingerprintKind: string;
+  /** Missing only on batches produced before rendition identity was introduced. */
+  renditionKey?: string;
   durationMs: number;
 };
 

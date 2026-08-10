@@ -1,4 +1,5 @@
 import { PROGRESS_CONFLICT_EVENT } from "@/lib/app-keys";
+import { isAccountWriteFenced } from "@/lib/account-deletion-fence";
 import { applyAuthoritativePlaybackStateWithStatus, readLocalProgress } from "@/lib/playback-core";
 
 import { database, type QueuedMutation, type QueuedProgress } from "./db";
@@ -463,7 +464,9 @@ export async function reconcileAcceptedProgressWithStatus(
   entry: QueuedProgress,
   response: Response,
 ): Promise<AcceptedProgressReconciliation> {
+  if (isAccountWriteFenced(entry.userId)) return { progress: null, persisted: false };
   const server = await readServerProgressState(response);
+  if (isAccountWriteFenced(entry.userId)) return { progress: null, persisted: false };
   if (!server) return { progress: null, persisted: true };
   const submittedRateClock =
     entry.playbackRateOccurredAt ?? entry.stateOccurredAt ?? entry.eventOccurredAt;

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PlayerBook, PlayerChapter } from "@/domain/player";
+import { commitAccountSignOutFence } from "@/lib/account-deletion-fence";
 
 import {
   applyAuthoritativePlaybackState,
@@ -160,6 +161,40 @@ describe("local playback state", () => {
     ).toBe(1235);
     localStorage.setItem("chapterline:position:user-c:book-1", "not-a-number");
     expect(readLocalPosition("user-c", "book-1")).toBeNull();
+  });
+
+  it("writes no playback state after sign-out closes the account", () => {
+    commitAccountSignOutFence();
+
+    expect(saveLocalPlaybackState("user-a", "book-1", { positionMs: 1_000 })).toBeNull();
+    expect(
+      applyAuthoritativePlaybackStateWithStatus(
+        "user-a",
+        "book-1",
+        {
+          positionMs: 2_000,
+          occurredAt: 2,
+          playbackRate: 1,
+          playbackRateOccurredAt: 2,
+          completed: false,
+          completedOccurredAt: 2,
+        },
+        {
+          positionMs: 1_000,
+          occurredAt: 1,
+          playbackRate: 1,
+          playbackRateOccurredAt: 1,
+          completed: false,
+          completedOccurredAt: 1,
+        },
+      ).persisted,
+    ).toBe(false);
+    markPausedNow("user-a", "book-1");
+    dismissSuspensionGap("user-a", "book-1", 2);
+
+    expect(readLocalProgress("user-a", "book-1")).toBeNull();
+    expect(readMsSinceLastPause("user-a", "book-1")).toBeNull();
+    expect(readDismissedSuspensionGap("user-a", "book-1")).toBeNull();
   });
 
   it("uses the freshest timestamped position and treats legacy local values as oldest", () => {

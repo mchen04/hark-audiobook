@@ -246,6 +246,7 @@ async function loadBookAggregates(
         byteSize: mediaAssets.byteSize,
         fingerprint: mediaAssets.fingerprint,
         fingerprintKind: mediaAssets.fingerprintKind,
+        renditionKey: mediaAssets.renditionKey,
         durationMs: mediaAssets.durationMs,
       })
       .from(mediaAssets)
@@ -293,6 +294,7 @@ async function loadBookAggregates(
             byteSize: media.byteSize,
             fingerprint: media.fingerprint,
             fingerprintKind: media.fingerprintKind,
+            renditionKey: media.renditionKey,
             durationMs: media.durationMs,
           }
         : null,

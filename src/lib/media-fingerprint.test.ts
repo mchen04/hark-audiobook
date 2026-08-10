@@ -20,4 +20,13 @@ describe("media fingerprints", () => {
 
     expect(await fingerprintMedia(file, "sample-v1")).toMatch(/^[0-9a-f]{64}$/);
   });
+
+  it("stops an inline full-file hash when its import is canceled", async () => {
+    const controller = new AbortController();
+    const file = new File([new Uint8Array(5 * 1024 * 1024)], "canceled.mp3");
+
+    await expect(
+      fingerprintMedia(file, "sha256-v1", () => controller.abort(), controller.signal),
+    ).rejects.toMatchObject({ name: "AbortError" });
+  });
 });

@@ -1,4 +1,5 @@
 import type { PlayerBook } from "@/domain/player";
+import { withAccountWriteLock } from "@/lib/account-deletion-fence";
 import {
   applyPendingProgressNormalizations,
   clearQueuedMutationsForUser,
@@ -25,6 +26,8 @@ import {
   removeOfflineBook,
   retryPendingOfflineDeletions,
 } from "./deletion-journal";
+import { isPermanentOfflineDeletion } from "./deletion-fence";
+import { rekeyMirroredLocalBook } from "./local-import-mirror";
 import { deleteAllTranscriptsForUser } from "./transcript-store";
 
 export async function listOfflineBooks(userId: string): Promise<OfflineBook[]> {
@@ -51,6 +54,24 @@ export async function listStoredOfflineBooks(userId: string): Promise<OfflineBoo
 }
 
 /**
+ * Paint-path records, excluding books whose permanent deletion is already
+ * durable but whose byte cleanup is still waiting on another tab's lock.
+ */
+export async function listVisibleStoredOfflineBooks(userId: string): Promise<OfflineBook[]> {
+  const db = await database();
+  const transaction = db.transaction(["downloads", "deletions"]);
+  const [records, deletions] = await Promise.all([
+    transaction.objectStore("downloads").index("by-user").getAll(userId),
+    transaction.objectStore("deletions").index("by-user").getAll(userId),
+  ]);
+  await transaction.done;
+  const permanentlyDeleted = new Set(
+    deletions.filter(isPermanentOfflineDeletion).map((entry) => entry.bookId),
+  );
+  return records.filter((record) => !permanentlyDeleted.has(record.book.id));
+}
+
+/**
  * One download record exactly as stored — no deletion retry, no reconcile, no
  * Cache Storage read at all.
  *
@@ -72,11 +93,17 @@ export async function getOfflineBook(userId: string, bookId: string) {
     await applyPendingProgressNormalizations(userId, bookId);
     const db = await database();
     const key = offlineBookKey(userId, bookId);
-    const record = await db.get("downloads", key);
-    if (!record) return undefined;
+    const [record, deletion] = await Promise.all([
+      db.get("downloads", key),
+      db.get("deletions", key),
+    ]);
+    if (!record || isPermanentOfflineDeletion(deletion)) return undefined;
 
     const cache = await caches.open(MEDIA_CACHE);
     const reconciled = await reconcileOfflineRecord(db, cache, record);
+    // The marker can land while Cache Storage is being read. Check once more
+    // before handing bytes to the player so that transition is never exposed.
+    if (isPermanentOfflineDeletion(await db.get("deletions", key))) return undefined;
     return reconciled;
   } catch {
     throw new OfflineStorageUnavailableError();
@@ -176,11 +203,10 @@ async function setMediaMissingSince(
  * - `cacheEntries.bookId` and the transcript keys travel with it, so the
  *   eviction sweep and the account purge still find the rows they own.
  *
- * Interruption-safe by construction. The move is ONE IndexedDB transaction
- * across the three stores, so it either happened or did not; either way the
- * queued registration is only settled after this returns, and a replay that
- * runs again gets the same deterministic 409 and the same canonical id. Running
- * it twice is a no-op.
+ * Interruption-safe by construction. The byte identity and mirror identity
+ * each move in one IndexedDB transaction, and the queued registration settles
+ * only after both return. A stop between them leaves the registration queued;
+ * replay gets the same deterministic 409 and finishes the idempotent move.
  */
 export async function reattachLocalBookIdentity(
   userId: string,
@@ -192,6 +218,7 @@ export async function reattachLocalBookIdentity(
   const db = await database();
   const fromKey = offlineBookKey(userId, fromBookId);
   const toKey = offlineBookKey(userId, toBookId);
+  const canonicalBook = toCanonicalBook(canonical);
 
   // Exactly one lock is taken, and it is the SOURCE's. The import holds that
   // same lock across its whole local write (`media-store.ts#withLocalMediaSlot`),
@@ -224,9 +251,10 @@ export async function reattachLocalBookIdentity(
       await db.delete("downloads", fromKey);
       return true;
     }
-    await rekeyLocalBook(db, userId, fromBookId, toBookId, toCanonicalBook(canonical));
+    await rekeyLocalBook(db, userId, fromBookId, toBookId, canonicalBook);
     return false;
   });
+  await rekeyMirroredLocalBook(userId, fromBookId, toBookId, canonicalBook);
   // Outside the lock: the journal takes it again for every entry it completes.
   // A failure here is not a failed merge — the download record is already gone
   // and the journal row is what owns those bytes now, exactly as it does for
@@ -348,18 +376,28 @@ function toCanonicalBook(value: unknown): OfflineBook["book"] | null {
   };
 }
 
-export async function projectOfflineProgress(
+type OfflineProgressProjection = {
+  positionMs: number;
+  completed: boolean;
+  playbackRate: number;
+  eventOccurredAt: string | null;
+  playbackRateOccurredAt: string | null;
+  completedOccurredAt: string | null;
+  stateOccurredAt: string | null;
+};
+
+export function projectOfflineProgress(
   userId: string,
   bookId: string,
-  state: {
-    positionMs: number;
-    completed: boolean;
-    playbackRate: number;
-    eventOccurredAt: string | null;
-    playbackRateOccurredAt: string | null;
-    completedOccurredAt: string | null;
-    stateOccurredAt: string | null;
-  },
+  state: OfflineProgressProjection,
+): Promise<void> {
+  return withAccountWriteLock(userId, () => writeOfflineProgressProjection(userId, bookId, state));
+}
+
+async function writeOfflineProgressProjection(
+  userId: string,
+  bookId: string,
+  state: OfflineProgressProjection,
 ): Promise<void> {
   const db = await database();
   const transaction = db.transaction(["downloads", "playbackStates"], "readwrite");

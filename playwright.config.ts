@@ -2,6 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 import { assertLocalDatabase } from "./scripts/lib/assert-local-database.mjs";
 import { DEFAULT_TEST_ENV_FILE, loadEnvFile } from "./scripts/lib/env-file.mjs";
+import { TEST_CLIENT_HEADERS } from "./tests/shared/test-client-ip";
 import { materializeRandomSyncSeeds } from "./tests/sync/harness/seeds";
 
 // The e2e suite registers accounts and imports books, so it reads .env.test and
@@ -49,6 +50,7 @@ export default defineConfig({
       use: {
         ...devices["iPhone 15"],
         browserName: "webkit",
+        extraHTTPHeaders: TEST_CLIENT_HEADERS.iphone,
       },
     },
     // The suites below drive their own launchPersistentContext, because a fresh

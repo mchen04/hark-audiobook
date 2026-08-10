@@ -1,5 +1,6 @@
 import { openDB, type DBSchema } from "idb";
 
+import { withAccountWriteLock } from "@/lib/account-deletion-fence";
 import {
   applyAuthoritativePlaybackStateWithStatus,
   installPendingPlaybackNormalizations,
@@ -70,7 +71,17 @@ function publishNormalization(
   normalizationChannel()?.postMessage({ userId, bookId, normalization });
 }
 
-export async function persistProgressNormalization(
+export function persistProgressNormalization(
+  userId: string,
+  bookId: string,
+  normalization: PlaybackNormalization,
+): Promise<void> {
+  return withAccountWriteLock(userId, () =>
+    writeProgressNormalization(userId, bookId, normalization),
+  );
+}
+
+async function writeProgressNormalization(
   userId: string,
   bookId: string,
   normalization: PlaybackNormalization,
@@ -90,6 +101,20 @@ export async function applyPendingProgressNormalizations(
   userId: string,
   bookId: string,
 ): Promise<number> {
+  const db = await database();
+  const key = normalizationKey(userId, bookId);
+  const row = await db.get("normalizations", key);
+  if (!row) {
+    installPendingPlaybackNormalizations(userId, bookId, null);
+    return 0;
+  }
+  // The common path is a read-only miss and needs no account-wide lock. A hit
+  // is re-read inside the lock: purge either waits for this mutation and then
+  // removes it, or fences it before it can recreate the departed account.
+  return withAccountWriteLock(userId, () => drainProgressNormalization(userId, bookId));
+}
+
+async function drainProgressNormalization(userId: string, bookId: string): Promise<number> {
   const db = await database();
   const key = normalizationKey(userId, bookId);
   const row = await db.get("normalizations", key);
@@ -161,6 +186,26 @@ export async function listProgressNormalizations(
 ): Promise<ProgressNormalizationRow[]> {
   const db = await database();
   return db.getAllFromIndex("normalizations", "by-user", userId);
+}
+
+export async function listProgressNormalizationUserIds(): Promise<string[]> {
+  const db = await database();
+  const transaction = db.transaction("normalizations", "readonly");
+  // WebKit can reject an index key cursor opened immediately after this
+  // database's first upgrade with `UnknownError: Unable to open cursor`. The
+  // request rejection is observed by the caller, but `idb` also exposes the
+  // resulting transaction abort through `done`; claim that promise now so it
+  // cannot surface later as an unrelated unhandled `AbortError`.
+  const done = transaction.done;
+  void done.catch(() => undefined);
+  const users = new Set<string>();
+  let cursor = await transaction.store.openCursor();
+  while (cursor) {
+    if (cursor.value.userId) users.add(cursor.value.userId);
+    cursor = await cursor.continue();
+  }
+  await done;
+  return [...users];
 }
 
 function applyNormalization(userId: string, bookId: string, normalization: PlaybackNormalization) {

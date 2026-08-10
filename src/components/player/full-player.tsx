@@ -59,6 +59,7 @@ export function FullPlayer({
   autoplay = false,
   details = null,
   mediaFingerprint = null,
+  mediaRenditionKey = null,
   nextInCollection = null,
 }: {
   playerBook: PlayerBook;
@@ -75,6 +76,7 @@ export function FullPlayer({
   autoplay?: boolean;
   details?: BookDetails | null;
   mediaFingerprint?: string | null;
+  mediaRenditionKey?: string | null;
   nextInCollection?: NextInCollection | null;
 }) {
   const router = useRouter();
@@ -421,6 +423,7 @@ export function FullPlayer({
         <BookDetailsDialog
           details={details}
           mediaFingerprint={mediaFingerprint}
+          mediaRenditionKey={mediaRenditionKey}
           open={detailsOpen}
           onClose={() => setDetailsOpen(false)}
         />

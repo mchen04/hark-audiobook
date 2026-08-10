@@ -6,6 +6,7 @@ import postgres from "postgres";
 
 import { awaitSignInBudget } from "../../shared/sign-in-budget";
 import { testAccountPassword } from "../../shared/test-account-password";
+import { TEST_CLIENT_HEADERS } from "../../shared/test-client-ip";
 import { assertLocalDatabase } from "../../../scripts/lib/assert-local-database.mjs";
 import { DEFAULT_TEST_ENV_FILE, loadEnvFile } from "../../../scripts/lib/env-file.mjs";
 
@@ -82,7 +83,10 @@ async function findUserId(email: string): Promise<string | null> {
 
 /** True when the cached cookies still authenticate against the running server. */
 async function stillValid(browser: Browser, storageState: StorageState): Promise<boolean> {
-  const context = await browser.newContext({ storageState });
+  const context = await browser.newContext({
+    storageState,
+    extraHTTPHeaders: TEST_CLIENT_HEADERS.sync,
+  });
   try {
     const response = await context.request.get(`${APP_ORIGIN}/api/sync/pull`);
     return response.status() === 200;
@@ -122,10 +126,13 @@ export async function sharedSession(
     return { account: sharedAccount, storageState: sharedStorageState };
   }
 
-  // The limiter is in the server and does not care which suite spent the
-  // attempts, so this shares one on-disk window with the parity suite.
+  // The limiter is shared by every server instance, while this suite's reserved
+  // client IP and on-disk budget isolate its deliberate authentication traffic.
   await awaitSignInBudget("sync");
-  const context = await browser.newContext({ serviceWorkers: "allow" });
+  const context = await browser.newContext({
+    serviceWorkers: "allow",
+    extraHTTPHeaders: TEST_CLIENT_HEADERS.sync,
+  });
   try {
     const page = await context.newPage();
     if (existing) {
@@ -147,9 +154,9 @@ export async function sharedSession(
         .catch(() => "");
       if (message.includes("Too many requests")) {
         throw new Error(
-          "better-auth rate-limited the sign-in for the shared verifier account. This is the " +
-            "harness hitting `src/server/auth.ts` limits, not a product failure: wait for the " +
-            "window to pass, or restart the app server (the limiter is in memory).",
+          "better-auth rate-limited authentication for the shared verifier account. This is " +
+            "the harness hitting `src/server/auth.ts` limits, not a product failure: wait for " +
+            "the database-backed window to pass.",
         );
       }
       throw error;
@@ -204,7 +211,11 @@ export async function openDevice(
   deviceId: string,
   storageState?: StorageState,
 ): Promise<{ context: BrowserContext; page: Page }> {
-  const context = await browser.newContext({ serviceWorkers: "allow", storageState });
+  const context = await browser.newContext({
+    serviceWorkers: "allow",
+    storageState,
+    extraHTTPHeaders: TEST_CLIENT_HEADERS.sync,
+  });
   const script = await buildDriverScript();
   await context.addInitScript(
     ([id, key]) => {
@@ -391,7 +402,7 @@ export async function waitForServiceWorker(page: Page): Promise<void> {
  * for it to: it hands a buffer to a file input inside the browser.
  */
 export async function importThroughUi(page: Page, name: string, buffer: Buffer): Promise<void> {
-  await page.setInputFiles('input[aria-label="Choose an MP3 file to import"]', {
+  await page.setInputFiles('input[aria-label="Choose an audiobook or document to import"]', {
     name,
     mimeType: "audio/mpeg",
     buffer,

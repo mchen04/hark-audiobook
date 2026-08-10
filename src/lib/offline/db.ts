@@ -75,6 +75,7 @@ type MirrorMediaAsset = {
   byteSize: number;
   fingerprint: string;
   fingerprintKind: string;
+  renditionKey: string;
   durationMs: number;
 };
 
