@@ -73,6 +73,9 @@ describe("local MP3 import", () => {
       // be inside one slot for a later reattach to be able to move all of it.
       { key: expect.stringMatching(/^mobile-user:[0-9a-f-]{36}$/) },
       expect.any(AbortSignal),
+      // The canonical media write stays inside the import's already-held
+      // account fence instead of deadlocking on a second acquisition.
+      expect.objectContaining({ userId: "mobile-user" }),
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const db = await database();
@@ -117,6 +120,7 @@ describe("local MP3 import", () => {
       expect.any(Function),
       { key: expect.stringMatching(/^mobile-user:[0-9a-f-]{36}$/) },
       expect.any(AbortSignal),
+      expect.objectContaining({ userId: "mobile-user" }),
     );
     const db = await database();
     expect(await db.get("books", mirrorKey("mobile-user", canonical.id))).toMatchObject({

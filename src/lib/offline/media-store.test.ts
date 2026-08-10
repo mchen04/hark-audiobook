@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import "fake-indexeddb/auto";
 import { IDBFactory as FakeIDBFactory } from "fake-indexeddb";
 
+import { withAccountWriteLock } from "@/lib/account-deletion-fence";
+
 import { database, MEDIA_CACHE, offlineBookKey } from "./db";
 import {
   createStreamedLocalBookMedia,
@@ -138,6 +140,28 @@ describe("generated media streaming", () => {
 });
 
 describe("imported media streaming", () => {
+  it("reattaches a canonical id without reacquiring its held account lock", async () => {
+    const record = await withAccountWriteLock("duplicate-user", (accountSlot) =>
+      withLocalMediaSlot("duplicate-user", "minted", (mediaSlot) =>
+        storeLocalBookMedia(
+          "duplicate-user",
+          book("canonical"),
+          new File([new Uint8Array([1, 2, 3])], "same.mp3"),
+          null,
+          undefined,
+          mediaSlot,
+          undefined,
+          accountSlot,
+        ),
+      ),
+    );
+
+    expect(record.book.id).toBe("canonical");
+    expect(
+      await (await database()).get("downloads", offlineBookKey("duplicate-user", "canonical")),
+    ).toEqual(record);
+  });
+
   it("rolls back journaled chunks when an import is canceled", async () => {
     const controller = new AbortController();
     const file = new File([new Uint8Array(5 * 1024 * 1024)], "large.mp3");

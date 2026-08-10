@@ -2,6 +2,8 @@ import type { PlayerBook } from "@/domain/player";
 import {
   assertAccountWritable,
   createAccountWriteScope,
+  holdsAccountWriteSlot,
+  type AccountWriteSlot,
   withAccountWriteLock,
 } from "@/lib/account-deletion-fence";
 import { throwIfAborted } from "@/lib/abort";
@@ -80,23 +82,15 @@ export async function storeLocalBookMedia(
   onProgress?: (fraction: number) => void,
   slot?: MediaSlot,
   signal?: AbortSignal,
+  accountSlot?: AccountWriteSlot,
 ): Promise<OfflineBook> {
-  const key = offlineBookKey(userId, book.id);
-  if (holdsMediaSlot(slot, key)) {
+  if (holdsAccountWriteSlot(accountSlot, userId)) {
     return storeLocalBookMediaWithinFence(userId, book, file, artwork, onProgress, slot, signal);
   }
   const scope = createAccountWriteScope(userId, signal);
   try {
     return await withAccountWriteLock(userId, () =>
-      storeLocalBookMediaWithinFence(
-        userId,
-        book,
-        file,
-        artwork,
-        onProgress,
-        undefined,
-        scope.signal,
-      ),
+      storeLocalBookMediaWithinFence(userId, book, file, artwork, onProgress, slot, scope.signal),
     );
   } finally {
     scope.release();

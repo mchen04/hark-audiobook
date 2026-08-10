@@ -2,7 +2,11 @@ import { interpretMp3Metadata, InvalidMp3Error, type ParsedMp3 } from "@/domain/
 import type { LocalBookRegistration } from "@/domain/local-book";
 import type { PlayerBook, PlayerChapter } from "@/domain/player";
 import type { BookTranscript } from "@/domain/transcript";
-import { createAccountWriteScope, withAccountWriteLock } from "@/lib/account-deletion-fence";
+import {
+  createAccountWriteScope,
+  type AccountWriteSlot,
+  withAccountWriteLock,
+} from "@/lib/account-deletion-fence";
 import { throwIfAborted } from "@/lib/abort";
 import { fingerprintMedia } from "@/lib/media-fingerprint";
 import { shouldRetainMutation } from "@/lib/offline-sync";
@@ -141,8 +145,8 @@ export async function importLocalMp3(
 ): Promise<void> {
   const scope = createAccountWriteScope(userId, signal);
   try {
-    await withAccountWriteLock(userId, () =>
-      importLocalMp3WithinFence(userId, file, onProgress, scope.signal),
+    await withAccountWriteLock(userId, (accountSlot) =>
+      importLocalMp3WithinFence(userId, file, onProgress, scope.signal, accountSlot),
     );
   } finally {
     scope.release();
@@ -154,6 +158,7 @@ async function importLocalMp3WithinFence(
   file: File,
   onProgress: (percent: number, stage: string) => void,
   signal: AbortSignal,
+  accountSlot: AccountWriteSlot,
 ): Promise<void> {
   throwIfAborted(signal);
   onProgress(5, "Reading metadata");
@@ -223,6 +228,7 @@ async function importLocalMp3WithinFence(
         // canonical id instead takes its own lock for that one.
         slot,
         signal,
+        accountSlot,
       );
       throwIfAborted(signal);
     } catch (error) {

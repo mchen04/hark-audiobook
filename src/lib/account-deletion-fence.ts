@@ -140,12 +140,36 @@ export function createAccountWriteScope(
 
 const accountLockName = (userId: string) => `chapterline-account-write:${userId}`;
 
+declare const accountWriteSlotBrand: unique symbol;
+export type AccountWriteSlot = {
+  readonly userId: string;
+  readonly [accountWriteSlotBrand]: true;
+};
+const heldAccountWriteSlots = new WeakSet<AccountWriteSlot>();
+
 /** One account-wide critical section shared by imports in every tab. */
-export function withAccountWriteLock<T>(userId: string, operation: () => Promise<T>): Promise<T> {
+export function withAccountWriteLock<T>(
+  userId: string,
+  operation: (slot: AccountWriteSlot) => Promise<T>,
+): Promise<T> {
   return withKeyedLock(accountLockName(userId), async () => {
     assertAccountWritable(userId);
-    return operation();
+    const slot = { userId } as AccountWriteSlot;
+    heldAccountWriteSlots.add(slot);
+    try {
+      return await operation(slot);
+    } finally {
+      heldAccountWriteSlots.delete(slot);
+    }
   });
+}
+
+/** Runtime proof that a caller is inside this account's current write lock. */
+export function holdsAccountWriteSlot(
+  slot: AccountWriteSlot | undefined,
+  userId: string,
+): slot is AccountWriteSlot {
+  return Boolean(slot && slot.userId === userId && heldAccountWriteSlots.has(slot));
 }
 
 /** Purge uses the same lock after installing the fence and cancelling writers. */
