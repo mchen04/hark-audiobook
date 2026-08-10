@@ -2,6 +2,7 @@
   "name": "audiobook-pwa",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "packageManager": "pnpm@9.6.0",
   "engines": {
     "node": ">=20.9.0"
@@ -18,6 +19,8 @@
     "test:e2e:launch": "playwright test --project=launch-perf",
     "test:e2e:parity": "playwright test --project=parity",
     "test:sync": "playwright test --project=sync",
+    "test:resume": "playwright test --project=resume-durability",
+    "test:resume:ci": "playwright test --project=resume-durability --grep-invert \"T1 hidden (online|offline)\"",
     "test:idb-migrate": "vitest run src/lib/offline/idb-migrate.test.ts",
     "test:watch": "vitest",
     "db:test:up": "node scripts/test-db.mjs",
@@ -31,7 +34,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "verify:quick": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "verify:browser": "pnpm test:e2e:ios && pnpm test:e2e:parity && pnpm test:sync && pnpm test:resume:ci && pnpm test:e2e:launch",
+    "verify": "pnpm verify:quick && pnpm verify:browser"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",

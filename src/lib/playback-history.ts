@@ -2,6 +2,7 @@ import { openDB, type DBSchema, type IDBPDatabase, type IDBPObjectStore } from "
 
 import type { PlaybackHistoryEntry, PlaybackHistorySnapshot } from "@/domain/playback-history";
 import { PLAYBACK_HISTORY_LIMIT } from "@/domain/playback-history";
+import { assertAccountWritable, isAccountDeletionFenced } from "@/lib/account-deletion-fence";
 import { withKeyedLock } from "@/lib/keyed-lock";
 import { REPLAY_CONCURRENCY, REPLAY_PAGE_SIZE, shouldRetainMutation } from "@/lib/offline-sync";
 import { singleFlight } from "@/lib/single-flight";
@@ -143,6 +144,7 @@ export async function storePlaybackAction(
   fetchFn: typeof fetch = fetch,
 ): Promise<PlaybackActionStoreResult> {
   try {
+    assertAccountWritable(userId);
     const db = await database();
     const transaction = db.transaction(["actions", "sequences"], "readwrite");
     const sequences = transaction.objectStore("sequences");
@@ -150,6 +152,7 @@ export async function storePlaybackAction(
     const stored = { ...entry, userId, bookId, localOrder, syncState: "pending" as const };
     await transaction.objectStore("actions").put(stored);
     await sequences.put({ key: sequenceKey(userId, bookId), value: localOrder });
+    assertAccountWritable(userId);
     await transaction.done;
     await trimBookHistory(db, userId, bookId);
     return (await syncPlaybackActionInOrder(stored, fetchFn)) ? "stored" : "rejected";
@@ -294,6 +297,7 @@ async function syncPlaybackAction(
           .json()
           .catch(() => null)) as { recordedAt?: unknown } | null)
       : null;
+    if (isAccountDeletionFenced(entry.userId)) return true;
     const db = await database();
     const transaction = db.transaction("actions", "readwrite");
     const current = await transaction.store.get(entry.id);
@@ -301,10 +305,12 @@ async function syncPlaybackAction(
       const recordedAt =
         typeof payload?.recordedAt === "string" ? payload.recordedAt : current.recordedAt;
       await transaction.store.put({ ...current, recordedAt, syncState: "synced" });
+      assertAccountWritable(entry.userId);
       await transaction.done;
       return true;
     }
     if (current?.syncState === "pending") await transaction.store.delete(entry.id);
+    assertAccountWritable(entry.userId);
     await transaction.done;
     return false;
   } catch {

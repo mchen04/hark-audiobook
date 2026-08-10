@@ -1,13 +1,24 @@
 import type { PlayerBook } from "@/domain/player";
 import {
-  reconcileProgressConflict,
-  shouldRetainMutation,
+  applyPendingProgressNormalizations,
+  duplicateProgressRetryFloor,
   nextDeviceSequence,
+  reconcileAcceptedProgressWithStatus,
+  reconcileProgressConflict,
+  reserveDeviceSequenceAbove,
+  shouldRetainMutation,
   toProgressBody,
   withProgressMutationLock,
 } from "@/lib/offline-sync";
 import { commitProgress, mirrorProgress } from "@/lib/offline/outbox";
-import { getDeviceId, saveLocalPlaybackState, type PlaybackWriteSource } from "@/lib/playback-core";
+import {
+  getDeviceId,
+  readLocalProgress,
+  saveLocalPlaybackState,
+  type LocalPosition,
+  type PlaybackPredecessor,
+  type PlaybackWriteSource,
+} from "@/lib/playback-core";
 
 /**
  * The MINIMUM GAP between two cadence-driven durable local writes — and, since
@@ -85,6 +96,9 @@ export type ProgressConflictDetail = {
   positionMs: number;
   completed: boolean;
   playbackRate: number;
+  eventOccurredAt: string | null;
+  playbackRateOccurredAt: string | null;
+  completedOccurredAt: string | null;
 };
 
 export type ProgressPersisterDeps = {
@@ -99,9 +113,9 @@ export type ProgressPersister = ReturnType<typeof createProgressPersister>;
 /**
  * Durable progress: the engine, framework-free.
  *
- * The shape that matters: `saveDurableState` writes the full playback tuple
- * synchronously, OUTSIDE the cross-tab lock and outside every IndexedDB
- * transaction, and every other durable path in this engine runs it first. The
+ * The shape that matters: `saveDurableState` writes playback registers and the
+ * compatibility tuple synchronously, OUTSIDE the cross-tab lock and outside
+ * every IndexedDB transaction, and every other durable path runs it first. The
  * server write, the outbox row and the mirror projection all sit behind awaits
  * and are best-effort; the local write is the one that has to land, because on
  * a terminating iOS page it is the only thing that can.
@@ -128,6 +142,21 @@ export function createProgressPersister({
    */
   let lastDurableWriteAt = 0;
   const completion = new Map<string, boolean>();
+  const predecessorByRecord = new WeakMap<LocalPosition, PlaybackPredecessor>();
+  const progressBaselines = new Map<
+    string,
+    {
+      /** Last rounded position observed on this tab's media element. */
+      positionMs: number;
+      /** Position value that owns `occurredAt`; may differ after smart rewind. */
+      durablePositionMs: number;
+      occurredAt: number;
+      playbackRate: number;
+      playbackRateOccurredAt: number;
+      completed: boolean;
+      completedOccurredAt: number;
+    }
+  >();
   /**
    * Has anything happened to this book's position since it was opened?
    *
@@ -145,7 +174,7 @@ export function createProgressPersister({
   };
 
   /**
-   * The synchronous durable write. No await before the `setItem`, by contract:
+   * The synchronous durable write. No await before the storage writes, by contract:
    * a `pagehide`/`visibilitychange` handler on iOS gets one task and may never
    * get a continuation.
    *
@@ -163,18 +192,67 @@ export function createProgressPersister({
     bookOverride?: PlayerBook,
   ) => {
     const activeBook = bookOverride || getActiveBook();
-    if (!activeBook) return;
+    if (!activeBook) return null;
     if (completed !== undefined) completion.set(activeBook.id, completed);
-    if (!positionChanged) return;
+    if (!positionChanged) return null;
     const audio = getAudio();
     const position = positionMs ?? (audio ? audio.currentTime * 1000 : 0);
-    if (!Number.isFinite(position) || position < 0) return;
-    lastDurableWriteAt = Date.now();
-    saveLocalPlaybackState(getUserId(), activeBook.id, {
-      positionMs: position,
-      playbackRate: audio?.playbackRate || 1,
-      completed: completed ?? completion.get(activeBook.id) ?? activeBook.completed,
+    if (!Number.isFinite(position) || position < 0) return null;
+    const playbackRate = audio?.playbackRate || 1;
+    const durableCompleted = completed ?? completion.get(activeBook.id) ?? activeBook.completed;
+    const baseline = progressBaselines.get(activeBook.id) ?? {
+      positionMs: Math.round(activeBook.initialPositionMs),
+      durablePositionMs: Math.round(activeBook.initialPositionMs),
+      occurredAt: clockMoment(activeBook.initialProgressOccurredAt),
+      playbackRate: activeBook.initialPlaybackRate,
+      playbackRateOccurredAt: clockMoment(
+        activeBook.initialPlaybackRateOccurredAt ?? activeBook.initialProgressOccurredAt,
+      ),
+      completed: activeBook.completed,
+      completedOccurredAt: clockMoment(
+        activeBook.initialCompletedOccurredAt ?? activeBook.initialProgressOccurredAt,
+      ),
+    };
+    const writtenAt = Date.now();
+    lastDurableWriteAt = writtenAt;
+    const roundedPosition = Math.round(position);
+    const playbackRateFieldChanged = playbackRate !== baseline.playbackRate;
+    const completedFieldChanged = durableCompleted !== baseline.completed;
+    // Smart rewind is a listening aid, not a seek. Natural playback below the
+    // durable floor keeps carrying its old value/clock until it catches up.
+    // An explicit seek or restarting a completed book intentionally moves the
+    // floor backward; changing rate never does.
+    const canMovePositionBackward =
+      source === "seek" ||
+      source === "ended" ||
+      (completedFieldChanged && durableCompleted === false);
+    const positionFieldChanged =
+      source !== "rate-change" &&
+      roundedPosition !== baseline.durablePositionMs &&
+      (roundedPosition > baseline.durablePositionMs || canMovePositionBackward);
+    const occurredAt = positionFieldChanged
+      ? nextFieldClock(writtenAt, baseline.occurredAt)
+      : baseline.occurredAt;
+    const playbackRateOccurredAt = playbackRateFieldChanged
+      ? nextFieldClock(writtenAt, baseline.playbackRateOccurredAt)
+      : baseline.playbackRateOccurredAt;
+    const completedOccurredAt = completedFieldChanged
+      ? nextFieldClock(writtenAt, baseline.completedOccurredAt)
+      : baseline.completedOccurredAt;
+    const userId = getUserId();
+    const predecessor = playbackPredecessor(readLocalProgress(userId, activeBook.id));
+    const record = saveLocalPlaybackState(userId, activeBook.id, {
+      positionMs: positionFieldChanged ? roundedPosition : baseline.durablePositionMs,
+      occurredAt,
+      playbackRate,
+      playbackRateOccurredAt,
+      completed: durableCompleted,
+      completedOccurredAt,
+      positionChanged: positionFieldChanged,
+      playbackRateChanged: playbackRateFieldChanged,
+      completedChanged: completedFieldChanged,
       source,
+      positionAtWrite: roundedPosition,
       /**
        * WAS THERE STILL A SESSION RUNNING? Read off the element at the moment
        * of the write, from every path, for the same reason `source` is: the
@@ -194,6 +272,31 @@ export function createProgressPersister({
        */
       playing: !!audio && !audio.paused,
     });
+    if (record) {
+      predecessorByRecord.set(record, predecessor);
+      // The joined record can contain a peer tab's newer field. It is what this
+      // write should publish, but it is not evidence that this tab's media
+      // element moved there. Keep this tab's causal baseline on the values it
+      // actually observed so a later unchanged flush cannot mint a false clock.
+      progressBaselines.set(activeBook.id, {
+        positionMs: roundedPosition,
+        durablePositionMs: positionFieldChanged ? record.positionMs : baseline.durablePositionMs,
+        occurredAt: positionFieldChanged ? record.occurredAt : occurredAt,
+        playbackRate: playbackRateFieldChanged
+          ? (record.playbackRate ?? playbackRate)
+          : playbackRate,
+        playbackRateOccurredAt: playbackRateFieldChanged
+          ? (record.playbackRateOccurredAt ?? playbackRateOccurredAt)
+          : playbackRateOccurredAt,
+        completed: completedFieldChanged
+          ? (record.completed ?? durableCompleted)
+          : durableCompleted,
+        completedOccurredAt: completedFieldChanged
+          ? (record.completedOccurredAt ?? completedOccurredAt)
+          : completedOccurredAt,
+      });
+    }
+    return record;
   };
 
   /**
@@ -221,24 +324,51 @@ export function createProgressPersister({
    * durable local write has already happened by the time this is called.
    */
   const sendProgress = async (
-    positionMs: number,
+    durableState: LocalPosition,
     completed?: boolean,
     bookOverride?: PlayerBook,
   ) => {
     const activeBook = bookOverride || getActiveBook();
     if (!activeBook || !positionChanged) return;
-    const durableCompleted = completed ?? completion.get(activeBook.id) ?? activeBook.completed;
-    const playbackRate = getAudio()?.playbackRate || 1;
     const userId = getUserId();
     await withProgressMutationLock(activeBook.id, async () => {
+      // A receipt can be committed by another tab before its BroadcastChannel
+      // message reaches this realm. Revalidate the durable journal inside the
+      // same serialization boundary that mints and sends the next event; a
+      // provisional synchronous read must never become a server write.
+      await applyPendingProgressNormalizations(userId, activeBook.id);
+      const currentDurable = mergeProgressState(
+        durableState,
+        readLocalProgress(userId, activeBook.id),
+      );
+      const durableCompleted =
+        currentDurable.completed ??
+        completed ??
+        completion.get(activeBook.id) ??
+        activeBook.completed;
+      const playbackRate = currentDurable.playbackRate ?? getAudio()?.playbackRate ?? 1;
+      const playbackRateOccurredAt =
+        currentDurable.playbackRateOccurredAt ??
+        currentDurable.writtenAt ??
+        currentDurable.occurredAt;
+      const completedOccurredAt =
+        currentDurable.completedOccurredAt ?? currentDurable.writtenAt ?? currentDurable.occurredAt;
       const event = {
         bookId: activeBook.id,
         deviceId: getDeviceId(),
-        deviceSequence: await nextDeviceSequence(activeBook.id),
-        positionMs: Math.round(positionMs),
+        deviceSequence: await nextDeviceSequence(activeBook.id, userId),
+        positionMs: currentDurable.positionMs,
         playbackRate,
         completed: durableCompleted,
-        eventOccurredAt: new Date().toISOString(),
+        eventOccurredAt: new Date(currentDurable.occurredAt).toISOString(),
+        playbackRateOccurredAt: new Date(playbackRateOccurredAt).toISOString(),
+        completedOccurredAt: new Date(completedOccurredAt).toISOString(),
+        // Kept on the wire while rows and clients that predate the independent
+        // clocks drain. New servers arbitrate on the two clocks above.
+        stateOccurredAt: new Date(
+          Math.max(playbackRateOccurredAt, completedOccurredAt),
+        ).toISOString(),
+        predecessor: predecessorByRecord.get(durableState),
       };
 
       /**
@@ -272,14 +402,53 @@ export function createProgressPersister({
       if (response.status === 409) {
         await reconcileProgressConflict({ userId, ...event }, response);
       } else if (response.ok) {
+        const duplicateFloor = await duplicateProgressRetryFloor({ userId, ...event }, response);
+        if (duplicateFloor !== null) {
+          const deviceSequence = await reserveDeviceSequenceAbove(
+            activeBook.id,
+            duplicateFloor,
+            userId,
+          );
+          await commitProgress({ userId, ...event, deviceSequence });
+          return;
+        }
         // Accepted by the server, so there is no intent to journal — but
         // this device's own shelf still has to show it before the next pull.
-        await mirrorProgress({ userId, ...event });
-      } else if (shouldRetainMutation(response.status)) {
+        const reconciled = await reconcileAcceptedProgressWithStatus(
+          { userId, ...event },
+          response,
+        );
+        if (!reconciled.persisted) {
+          await commitProgress({ userId, ...event });
+          return;
+        }
+        const accepted = reconciled.progress;
+        if (accepted) {
+          const livePosition = getAudio()?.currentTime;
+          progressBaselines.set(activeBook.id, {
+            positionMs:
+              typeof livePosition === "number" && Number.isFinite(livePosition)
+                ? Math.round(livePosition * 1_000)
+                : accepted.positionMs,
+            durablePositionMs: accepted.positionMs,
+            occurredAt: Date.parse(accepted.eventOccurredAt),
+            playbackRate: accepted.playbackRate,
+            playbackRateOccurredAt: Date.parse(
+              accepted.playbackRateOccurredAt ?? accepted.eventOccurredAt,
+            ),
+            completed: accepted.completed,
+            completedOccurredAt: Date.parse(
+              accepted.completedOccurredAt ?? accepted.eventOccurredAt,
+            ),
+          });
+          completion.set(activeBook.id, accepted.completed);
+        }
+        await mirrorProgress(accepted ?? { userId, ...event });
+      } else if (response.status === 400 || shouldRetainMutation(response.status)) {
         await commitProgress({ userId, ...event });
       }
       /**
-       * Everything else — 400, 404, 410, 413, 422 — is a REFUSAL, and the
+       * Everything else — 404, 410, 413, 422 — is a REFUSAL, and the
        * `else` used to treat it as an acceptance. `shouldRetainMutation` only
        * claims a status is worth retrying; it never claimed the rest were
        * applied, and reading it that way mirrored writes the server had
@@ -315,8 +484,9 @@ export function createProgressPersister({
     completed?: boolean,
     bookOverride?: PlayerBook,
   ) => {
-    saveDurableState(source, positionMs, completed, bookOverride);
-    return sendProgress(positionMs, completed, bookOverride).catch(() => undefined);
+    const durableState = saveDurableState(source, positionMs, completed, bookOverride);
+    if (!durableState) return Promise.resolve();
+    return sendProgress(durableState, completed, bookOverride).catch(() => undefined);
   };
 
   /**
@@ -361,6 +531,15 @@ export function createProgressPersister({
    */
   const reconcileCompletion = (detail: ProgressConflictDetail) => {
     completion.set(detail.bookId, detail.completed);
+    progressBaselines.set(detail.bookId, {
+      positionMs: Math.round(detail.positionMs),
+      durablePositionMs: Math.round(detail.positionMs),
+      occurredAt: clockMoment(detail.eventOccurredAt),
+      playbackRate: detail.playbackRate,
+      playbackRateOccurredAt: clockMoment(detail.playbackRateOccurredAt ?? detail.eventOccurredAt),
+      completed: detail.completed,
+      completedOccurredAt: clockMoment(detail.completedOccurredAt ?? detail.eventOccurredAt),
+    });
   };
 
   /**
@@ -427,4 +606,57 @@ export function createProgressPersister({
     startCadence,
     stopCadence,
   };
+}
+
+function clockMoment(value: string | null | undefined): number {
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function nextFieldClock(now: number, previous: number): number {
+  return Math.max(now, previous + 1);
+}
+
+function playbackPredecessor(state: LocalPosition | null): PlaybackPredecessor {
+  if (!state) return {};
+  const rateClock = state.playbackRateOccurredAt ?? state.writtenAt ?? state.occurredAt;
+  const completedClock = state.completedOccurredAt ?? state.writtenAt ?? state.occurredAt;
+  return {
+    position: { value: state.positionMs, occurredAt: state.occurredAt },
+    ...(typeof state.playbackRate === "number"
+      ? { playbackRate: { value: state.playbackRate, occurredAt: rateClock } }
+      : {}),
+    ...(typeof state.completed === "boolean"
+      ? { completed: { value: state.completed, occurredAt: completedClock } }
+      : {}),
+  };
+}
+
+function mergeProgressState(event: LocalPosition, shared: LocalPosition | null): LocalPosition {
+  if (!shared) return event;
+  const merged = { ...event };
+  if (shared.occurredAt > event.occurredAt) {
+    merged.positionMs = shared.positionMs;
+    merged.occurredAt = shared.occurredAt;
+  }
+  const eventRateClock = event.playbackRateOccurredAt ?? event.writtenAt ?? event.occurredAt;
+  const sharedRateClock = shared.playbackRateOccurredAt ?? shared.writtenAt ?? shared.occurredAt;
+  if (
+    typeof shared.playbackRate === "number" &&
+    (typeof event.playbackRate !== "number" || sharedRateClock > eventRateClock)
+  ) {
+    merged.playbackRate = shared.playbackRate;
+    merged.playbackRateOccurredAt = sharedRateClock;
+  }
+  const eventCompletedClock = event.completedOccurredAt ?? event.writtenAt ?? event.occurredAt;
+  const sharedCompletedClock = shared.completedOccurredAt ?? shared.writtenAt ?? shared.occurredAt;
+  if (
+    typeof shared.completed === "boolean" &&
+    (typeof event.completed !== "boolean" || sharedCompletedClock > eventCompletedClock)
+  ) {
+    merged.completed = shared.completed;
+    merged.completedOccurredAt = sharedCompletedClock;
+  }
+  return merged;
 }

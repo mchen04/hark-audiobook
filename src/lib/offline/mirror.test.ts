@@ -2,11 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import "fake-indexeddb/auto";
 import { IDBFactory as FakeIDBFactory } from "fake-indexeddb";
 
+import { PENDING_ACCOUNT_DELETION_KEY } from "@/lib/app-keys";
+import { saveLocalPlaybackState } from "@/lib/playback-core";
+
 import { database } from "./db";
 import {
   applyPullBatch,
   getMirrorContinueBook,
+  getMirrorPlayerBook,
   getSyncMeta,
+  healMirrorPlaybackFromLocal,
   listMirrorBooks,
   listMirrorTagNames,
   purgeUser,
@@ -84,6 +89,30 @@ beforeEach(() => {
 });
 
 describe("applyPullBatch", () => {
+  it("rejects a batch for an account behind the durable deletion fence", async () => {
+    const values = new Map([
+      [
+        PENDING_ACCOUNT_DELETION_KEY,
+        JSON.stringify({
+          userId: USER_A,
+          deleteToken: "token-with-enough-entropy-for-the-fence-123456",
+          phase: "purged",
+          createdAt: Date.now(),
+        }),
+      ],
+    ]);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+    });
+
+    await expect(applyPullBatch(USER_A, batch({ books: [book("private-book")] }))).rejects.toThrow(
+      /deletion/i,
+    );
+    expect(await storeContents("books")).toStrictEqual([]);
+
+    vi.unstubAllGlobals();
+  });
+
   it("writes a whole batch across every affected store", async () => {
     await applyPullBatch(
       USER_A,
@@ -135,6 +164,61 @@ describe("applyPullBatch", () => {
       expect(await storeContents(store), `${store} written`).toHaveLength(1);
     }
     expect((await getSyncMeta(USER_A))?.cursor).toBe("2026-07-02T00:00:00.000Z");
+  });
+
+  it("refreshes a downloaded player's values and independent clocks from pull", async () => {
+    const key = `${USER_A}:book-1`;
+    const db = await database();
+    await db.put("downloads", {
+      key,
+      userId: USER_A,
+      book: {
+        id: "book-1",
+        title: "Downloaded",
+        author: "Author",
+        durationMs: 600_000,
+        chapters: [],
+        initialPositionMs: 5_000,
+        initialProgressOccurredAt: "2026-07-02T00:01:00.000Z",
+        initialPlaybackRate: 1,
+        initialPlaybackRateOccurredAt: "2026-07-02T00:01:00.000Z",
+        completed: false,
+        initialCompletedOccurredAt: "2026-07-02T00:01:00.000Z",
+      },
+      offlineMediaUrl: "/offline-media/book-1",
+      offlineCoverUrl: null,
+      byteSize: 1_000,
+      downloadedAt: "2026-07-02T00:00:00.000Z",
+    });
+    db.close();
+
+    await applyPullBatch(
+      USER_A,
+      batch({
+        playbackStates: [
+          {
+            ...progress("book-1", 60_000, "2026-07-02T00:05:00.000Z", true),
+            playbackRate: 2,
+            playbackRateOccurredAt: "2026-07-02T00:04:00.000Z",
+            completedOccurredAt: "2026-07-02T00:05:00.000Z",
+            stateOccurredAt: "2026-07-02T00:05:00.000Z",
+          },
+        ],
+      }),
+    );
+
+    const refreshedDb = await database();
+    await expect(refreshedDb.get("downloads", key)).resolves.toMatchObject({
+      book: {
+        initialPositionMs: 60_000,
+        initialProgressOccurredAt: "2026-07-02T00:05:00.000Z",
+        initialPlaybackRate: 2,
+        initialPlaybackRateOccurredAt: "2026-07-02T00:04:00.000Z",
+        completed: true,
+        initialCompletedOccurredAt: "2026-07-02T00:05:00.000Z",
+      },
+    });
+    refreshedDb.close();
   });
 
   it("applies nothing when a row late in the batch cannot be written", async () => {
@@ -396,6 +480,141 @@ describe("tombstones", () => {
   });
 });
 
+describe("healMirrorPlaybackFromLocal", () => {
+  it("discovers register-only state when the joined snapshot write fails", async () => {
+    const values = new Map<string, string>();
+    const legacyKey = `chapterline:position:${USER_A}:book-1`;
+    vi.stubGlobal("localStorage", {
+      get length() {
+        return values.size;
+      },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (key === legacyKey) throw new DOMException("Quota exceeded", "QuotaExceededError");
+        values.set(key, value);
+      },
+      removeItem: (key: string) => void values.delete(key),
+    } as Storage);
+
+    saveLocalPlaybackState(USER_A, "book-1", {
+      positionMs: 75_000,
+      occurredAt: Date.parse("2026-07-05T00:05:00.000Z"),
+      playbackRate: 2,
+      playbackRateOccurredAt: Date.parse("2026-07-05T00:06:00.000Z"),
+      completed: false,
+      completedOccurredAt: Date.parse("2026-07-05T00:04:00.000Z"),
+      positionChanged: true,
+      playbackRateChanged: true,
+      completedChanged: true,
+    });
+    expect(values.has(legacyKey)).toBe(false);
+
+    await expect(healMirrorPlaybackFromLocal(USER_A)).resolves.toBe(1);
+    const healedDb = await database();
+    await expect(healedDb.get("playbackStates", `${USER_A}:book-1`)).resolves.toMatchObject({
+      positionMs: 75_000,
+      eventOccurredAt: "2026-07-05T00:05:00.000Z",
+      playbackRate: 2,
+      playbackRateOccurredAt: "2026-07-05T00:06:00.000Z",
+      completed: false,
+      completedOccurredAt: "2026-07-05T00:04:00.000Z",
+    });
+    healedDb.close();
+    vi.unstubAllGlobals();
+  });
+
+  it("projects a newer local rate without replacing newer position or completion fields", async () => {
+    const key = `${USER_A}:book-1`;
+    const db = await database();
+    await db.put("playbackStates", {
+      key,
+      userId: USER_A,
+      bookId: "book-1",
+      positionMs: 600_000,
+      playbackRate: 1,
+      completed: true,
+      deviceId: "device-2",
+      deviceSequence: 4,
+      eventOccurredAt: "2026-07-05T00:05:00.000Z",
+      playbackRateOccurredAt: "2026-07-05T00:04:00.000Z",
+      completedOccurredAt: "2026-07-05T00:05:00.000Z",
+      stateOccurredAt: "2026-07-05T00:05:00.000Z",
+      updatedAt: "2026-07-05T00:05:00.000Z",
+    });
+    await db.put("downloads", {
+      key,
+      userId: USER_A,
+      book: {
+        id: "book-1",
+        title: "Downloaded",
+        author: "Author",
+        durationMs: 600_000,
+        chapters: [],
+        initialPositionMs: 600_000,
+        initialProgressOccurredAt: "2026-07-05T00:05:00.000Z",
+        initialPlaybackRate: 1,
+        initialPlaybackRateOccurredAt: "2026-07-05T00:04:00.000Z",
+        completed: true,
+        initialCompletedOccurredAt: "2026-07-05T00:05:00.000Z",
+      },
+      offlineMediaUrl: "/offline-media/book-1",
+      offlineCoverUrl: null,
+      byteSize: 1_000,
+      downloadedAt: "2026-07-05T00:00:00.000Z",
+    });
+    db.close();
+
+    const values = new Map([
+      [
+        `chapterline:position:${USER_A}:book-1`,
+        JSON.stringify({
+          positionMs: 15_000,
+          occurredAt: Date.parse("2026-07-05T00:01:00.000Z"),
+          playbackRate: 2,
+          playbackRateOccurredAt: Date.parse("2026-07-05T00:06:00.000Z"),
+          completed: false,
+          completedOccurredAt: Date.parse("2026-07-05T00:01:00.000Z"),
+          writtenAt: Date.parse("2026-07-05T00:06:00.000Z"),
+        }),
+      ],
+    ]);
+    vi.stubGlobal("localStorage", {
+      get length() {
+        return values.size;
+      },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      getItem: (storageKey: string) => values.get(storageKey) ?? null,
+    });
+
+    try {
+      await expect(healMirrorPlaybackFromLocal(USER_A)).resolves.toBe(1);
+      const healedDb = await database();
+      await expect(healedDb.get("playbackStates", key)).resolves.toMatchObject({
+        positionMs: 600_000,
+        playbackRate: 2,
+        completed: true,
+        eventOccurredAt: "2026-07-05T00:05:00.000Z",
+        playbackRateOccurredAt: "2026-07-05T00:06:00.000Z",
+        completedOccurredAt: "2026-07-05T00:05:00.000Z",
+      });
+      await expect(healedDb.get("downloads", key)).resolves.toMatchObject({
+        book: {
+          initialPositionMs: 600_000,
+          initialProgressOccurredAt: "2026-07-05T00:05:00.000Z",
+          initialPlaybackRate: 2,
+          initialPlaybackRateOccurredAt: "2026-07-05T00:06:00.000Z",
+          completed: true,
+          initialCompletedOccurredAt: "2026-07-05T00:05:00.000Z",
+        },
+      });
+      healedDb.close();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("purgeUser", () => {
   it("removes every row of one account from every mirror store and no other", async () => {
     const populated = (prefix: string) =>
@@ -555,6 +774,22 @@ describe("local library reads", () => {
     expect(dune?.tags).toStrictEqual(["Sci-Fi"]);
     expect(dune?.durationMs).toBe(3_600_000);
     expect(dune?.positionMs).toBe(5_000);
+  });
+
+  it("builds a missing-media player route directly from the mirror", async () => {
+    const route = await getMirrorPlayerBook(USER_A, "book-attic");
+
+    expect(route).toMatchObject({
+      mediaFingerprint: "f".repeat(64),
+      mediaFingerprintKind: "sha256-v1",
+      byteSize: 1_000_000,
+      playerBook: {
+        id: "book-attic",
+        title: "Attic Notes",
+        durationMs: 3_600_000,
+        chapters: [{ position: 0, title: "Opening", startMs: 0, endMs: 3_600_000 }],
+      },
+    });
   });
 
   it("picks the most recently progressed unfinished book to continue", async () => {

@@ -97,6 +97,9 @@ export type FuzzOp =
       playbackRate: number;
       completed: boolean;
       eventOccurredAt: string;
+      playbackRateOccurredAt?: string;
+      completedOccurredAt?: string;
+      stateOccurredAt?: string;
     };
 
 /** Mirror stores only. `downloads`, `transcripts`, `deletions` and `cacheEntries` are untouched. */
@@ -180,6 +183,10 @@ class Driver {
           playbackRate: op.playbackRate,
           completed: op.completed,
           eventOccurredAt: op.eventOccurredAt,
+          playbackRateOccurredAt:
+            op.playbackRateOccurredAt ?? op.stateOccurredAt ?? op.eventOccurredAt,
+          completedOccurredAt: op.completedOccurredAt ?? op.stateOccurredAt ?? op.eventOccurredAt,
+          stateOccurredAt: op.stateOccurredAt ?? op.eventOccurredAt,
         },
         deviceId: origin.deviceId,
         deviceSequence,

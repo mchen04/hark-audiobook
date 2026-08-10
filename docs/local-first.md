@@ -208,8 +208,11 @@ same transaction that journals the delete: no window in which both rows exist,
 and no ordering left to get right. It links them two ways, because a user can be
 looking at either kind of row — by book id (a device-only book the library
 projects from a download record) and by fingerprint (read from the mirror, never
-sent on the wire). A registration queued _after_ a delete is kept: re-importing
-something you deleted is a new intent, not a stale one.
+sent on the wire). When a book route already knows the fingerprint but the
+mirror row is unavailable, that route carries the same value into the delete;
+otherwise deleting from the attach gate would lose the ordering key precisely
+when the mirror cannot supply it. A registration queued _after_ a delete is
+kept: re-importing something you deleted is a new intent, not a stale one.
 
 ### 5.5 When the server renames a book mid-flight
 
@@ -268,12 +271,42 @@ The repo already has a working model and this design adds no second one:
   `playback_action_receipts` is the durable idempotency ledger.
 - `src/server/playback/progress-policy.ts` and `listening-session-policy.ts`
   hold the rules. `PROGRESS_CONFLICT_EVENT` already surfaces conflicts to the UI.
+- Immediately before replay, a progress row is compared with the complete
+  durable local tuple. Position, playback rate, and completion are separate
+  last-writer-wins registers: `eventOccurredAt` clocks the position,
+  `playbackRateOccurredAt` clocks the rate, and `completedOccurredAt` clocks the
+  completion flag. Replay folds in only the fields whose local clocks are
+  newer, then gives the replacement a fresh device sequence. A late stale-tab
+  flush can therefore carry a real rate change without moving the position or
+  changing completion.
+- `stateOccurredAt` remains a combined rate/completion clock for rows and
+  clients from before the split. Nullable per-field database columns fall back
+  to it during migration. A legacy input that supplies only this one clock is
+  necessarily still a tuple: the server cannot distinguish a rate-only write
+  from an intentional restart, so guessing would silently discard one of those
+  valid legacy operations. New clients always send both independent clocks.
+- Player bootstrap chooses the freshest local/server value for each register
+  independently and hydrates the selected tuple with its original clocks.
+  Position cadence therefore advances only the position clock; merely carrying
+  an unchanged rate or completion value never claims that it changed now.
+- In `localStorage`, each document writes per-field registers under its own
+  writer id and reads the newest clock across writers. A rate-only tab therefore
+  never replaces another tab's position key, even if their reads and writes
+  interleave. The joined `chapterline:position:*` tuple remains for older builds
+  and diagnostics, but is no longer the sole durable authority.
+- The one queued progress row per book/device field-merges before replacement;
+  the highest device sequence is only its replay envelope. Any merged payload
+  receives a new mutation id so an acknowledgement already in flight cannot
+  settle a field that arrived after the request began.
+- During a rolling deploy, a `400` from a predecessor server that does not know
+  the per-field keys retains the v2 event unchanged. It is retried after rollout
+  instead of being downgraded to the ambiguous legacy combined tuple.
 
 Per entity:
 
 | Entity                                  | Rule                                                                                                                          |
 | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| playback state                          | existing device-sequence policy, unchanged                                                                                    |
+| playback state                          | per-device sequence idempotency plus independent LWW clocks for position, rate, and completion                                |
 | listening sessions                      | append-only, dedupe by id; existing session policy                                                                            |
 | book metadata (title, author, archived) | last-writer-wins on `updatedAt`, ties broken by `deviceId`                                                                    |
 | tag / collection edges                  | add-wins; an explicit remove carries a tombstone that outranks a concurrent add only when its `updatedAt` is newer            |
@@ -317,6 +350,10 @@ Icon tap → painted content:
 3. The client reads the mirror from IndexedDB and renders real book cards.
    `data-launch-ready` is set at this point, and **only** when real content or
    the genuine empty state is on screen — never when a skeleton mounts.
+   A cached `/books/:id` route also waits for that first device snapshot before
+   treating the temporary empty map as a miss. Once a book is active, unload
+   events are scoped by account and book id, so deleting some other missing
+   book cannot stop it.
 4. _After_ paint, revalidation runs: session check and `GET /api/sync/pull`.
    Results patch into the already-rendered list in place — no flash, no layout
    jump, no scroll reset.
@@ -432,6 +469,10 @@ never reset the position.
 Storing the file's path cannot rescue this: `<input type="file">` yields a
 `File`, never a path, and File System Access is unavailable in Safari on iOS.
 Re-picking the file is the only recovery, which is why it must be lossless.
+The cold offline `/books/:id` route reads this metadata directly from the
+mirror, independent of the current library filters, and renders the attach gate
+even when the MP3 is absent. A player URL must never fall through to a library
+grid whose header and mini-player disagree with the route.
 
 ## 11. Account lifecycle
 
@@ -442,6 +483,12 @@ Purge runs on **both** sign-out and sign-in, and covers: every mirror store by
 `by-user` index, the outbox, Cache Storage entries for pages and media,
 localStorage keys for that user, and `ACTIVE_USER_KEY`. Purging on sign-in as
 well as sign-out is what protects against a crash between the two.
+
+`ACTIVE_USER_KEY` is also a cross-tab revocation boundary. Every mounted shell
+subscribes to its storage changes (plus a same-document event); removing it
+unmounts the account's providers, stops playback, and redirects the peer tab to
+`/login`. A stale server-rendered `userId` may bootstrap the device once, but it
+must never override a later removal from browser storage.
 
 The two purges have deliberately different targets:
 
@@ -459,6 +506,15 @@ interrupted) without destroying the only copy of something irreplaceable.
 The cached shell is user-agnostic and holds no user data, so it may survive an
 account switch. Every store that does hold user data is keyed by `userId`, which
 is what makes the purge provable rather than best-effort.
+
+Account deletion adds a durable two-phase boundary. Password verification first
+issues a short-lived bearer intent. The browser journals it, runs the complete
+local purge without revoking the still-needed session, records that the purge
+finished, and only then makes an idempotent server commit. The consumed token is
+kept briefly as a deletion receipt, so retrying after a lost HTTP response still
+returns success. A root-level runner resumes either the purge or commit after a
+tab crash; server deletion is never allowed to outrun an incomplete device
+purge.
 
 ## 12. Migration for devices that already have data
 

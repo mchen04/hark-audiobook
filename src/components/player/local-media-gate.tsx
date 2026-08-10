@@ -44,7 +44,7 @@ export function LocalMediaGate({
   mediaFingerprint: string | null;
   mediaFingerprintKind: MediaFingerprintKind | null;
   byteSize: number | null;
-  historySnapshot: PlaybackHistorySnapshot;
+  historySnapshot?: PlaybackHistorySnapshot;
   autoplay: boolean;
   details: BookDetails | null;
   nextInCollection: NextInCollection | null;
@@ -54,7 +54,12 @@ export function LocalMediaGate({
   const [checkAttempt, setCheckAttempt] = useState(0);
   // The book must stay deletable even when this device lacks the audio,
   // otherwise a book imported elsewhere could never be removed from here.
-  const { deleteBook, deleting, deleteLabel } = useDeleteBook(userId, playerBook.id, setError);
+  const { deleteBook, deleting, deleteLabel } = useDeleteBook(
+    userId,
+    playerBook.id,
+    setError,
+    mediaFingerprint,
+  );
   const inputRef = useRef<HTMLInputElement>(null);
   const readyMediaUrl = state.phase === "ready" ? state.mediaUrl : null;
   const readyCoverUrl = state.phase === "ready" ? state.coverUrl : null;
@@ -125,7 +130,9 @@ export function LocalMediaGate({
           initialPositionMs: playerBook.initialPositionMs,
           initialProgressOccurredAt: playerBook.initialProgressOccurredAt,
           initialPlaybackRate: playerBook.initialPlaybackRate,
+          initialPlaybackRateOccurredAt: playerBook.initialPlaybackRateOccurredAt,
           completed: playerBook.completed,
+          initialCompletedOccurredAt: playerBook.initialCompletedOccurredAt,
         },
         file,
         (await parseLocalMp3(file)).artwork,
@@ -150,6 +157,7 @@ export function LocalMediaGate({
         historySnapshot={historySnapshot}
         autoplay={autoplay}
         details={details}
+        mediaFingerprint={mediaFingerprint}
         nextInCollection={nextInCollection}
       />
     );

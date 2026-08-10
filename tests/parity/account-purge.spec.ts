@@ -473,3 +473,51 @@ test("a sign-in finishes a purge a crash interrupted", async ({ browser }) => {
     await device.context.close();
   }
 });
+
+test("signing out in one tab revokes a playing peer before it can recreate account data", async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  await resetAccount(accountA.userId);
+  const device: Device = await openDevice(browser, { deviceId: "purge-peer-000000001" });
+  let peer: Page | null = null;
+  try {
+    await signInThroughUi(device.page, accountA);
+    await warmUp(device.page);
+    await importThroughUi(device.page, "purge-peer.mp3", bookBuffer(KEPT_BOOK, 0));
+    await expect(device.page.getByRole("link", { name: KEPT_BOOK.title, exact: true })).toBeVisible(
+      {
+        timeout: 60_000,
+      },
+    );
+    let bookId: string | undefined;
+    await expect
+      .poll(async () => {
+        const listed = await apiCall(device.page, "GET", "/api/books?status=all");
+        bookId = (listed.body as { books: Array<{ id: string; title: string }> }).books.find(
+          (book) => book.title === KEPT_BOOK.title,
+        )?.id;
+        return bookId;
+      })
+      .toBeTruthy();
+    expect(bookId, "the peer-tab book was never registered").toBeTruthy();
+
+    peer = await device.context.newPage();
+    await peer.goto(`${device.origin}/books/${bookId}`, { waitUntil: "domcontentloaded" });
+    await expect(peer.getByRole("button", { name: "Play" })).toBeVisible({ timeout: 60_000 });
+    await peer.getByRole("button", { name: "Play" }).click();
+    await expect(peer.getByRole("button", { name: "Pause" })).toBeVisible();
+
+    await signOutAndReportLostWrites(device.page);
+
+    await peer.waitForURL(/\/login/, { timeout: 15_000 });
+    await expect(peer.locator("audio")).toHaveCount(0);
+    // Longer than the player's 15-second server heartbeat: a stale provider
+    // would have had time to repopulate local progress and the outbox by now.
+    await peer.waitForTimeout(16_000);
+    await expectNothingOfAccountARemains(peer, accountA, null);
+  } finally {
+    await peer?.close();
+    await device.context.close();
+  }
+});

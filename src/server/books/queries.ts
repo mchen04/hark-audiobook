@@ -265,6 +265,9 @@ export async function getBookForUser(userId: string, bookId: string) {
       completed: playbackStates.completed,
       progressUpdatedAt: playbackStates.updatedAt,
       progressOccurredAt: playbackStates.eventOccurredAt,
+      playbackRateOccurredAt: playbackStates.playbackRateOccurredAt,
+      completedOccurredAt: playbackStates.completedOccurredAt,
+      stateOccurredAt: playbackStates.stateOccurredAt,
     })
     .from(books)
     .leftJoin(mediaAssets, eq(mediaAssets.bookId, books.id))

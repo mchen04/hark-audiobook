@@ -675,8 +675,8 @@ test("X2: a stale tab on one device must not republish over another device", asy
   ).toBeLessThanOrEqual(AHEAD_BAR_MS);
 
   // 4. And B must not be thrown BACKWARDS by A's republish. Smart rewind is
-  //    credited here because both devices paused through the UI and a real
-  //    absence is a legitimate, bounded walk back; anything past it is not.
+  //    credited because both devices paused through the UI; anything past that
+  //    bounded walk back is not.
   expect(
     row.deviceBLostMs - row.rewindCreditedB,
     `X2: device B listened to ${row.deviceBListenedToMs}ms and came back at ` +
@@ -699,33 +699,10 @@ test("X2: a stale tab on one device must not republish over another device", asy
 });
 
 /**
- * X3 — the finding this axis was added to look for, and it is RED.
- *
- * Kept as its own test on purpose. It is not a weaker or stricter version of
- * X2; it is a different requirement that the same journey answers differently,
- * and folding it into X2 would let one verdict hide the other.
- *
- * MEASURED, HEAD `8afb574`, WebKit: device A listens to 6815 ms and its tab is
- * left open. Device B takes the book to 15693 ms; the server correctly holds
- * that, and X2 passes on every clobber assertion. Then A's tab is navigated
- * away from — closing it, or following any link, does the same thing — and the
- * unconditional `pagehide` flush rewrites A's OWN durable local record: same
- * stale position, 6815 ms, with a brand new `occurredAt` (measured: the stamp
- * moved 15.4 s forward while the position did not move at all).
- *
- * That fresh stamp is what `localWinsOver` reads. So when the user comes back
- * to device A the local record beats the server's newer cross-device position,
- * and A resumes 8878 ms behind where they actually got to — nine seconds of
- * device B's listening silently discarded, with no user input.
- *
- * This is the LOST-PROGRESS twin of the skip-ahead the same commit fixed on the
- * visible edge, on the edge that was deliberately left unconditional. The
- * server is NOT clobbered (`clobberedByPagehideMs: 0`, measured), so other
- * devices stay correct; the damage is confined to the tab that was left open,
- * which is also the tab the user is most likely to come back to.
- *
- * It is left failing rather than annotated away. A bar is not moved for it and
- * no check is skipped.
+ * X3 is the local half of X2's cross-device guard. The stale tab may neither
+ * publish over the server nor keep preferring its own old tuple when the user
+ * opens the book again. It remains separate because a server-safe pagehide can
+ * still leave only that one device behind.
  */
 test("X3: closing a stale tab must not discard another device's newer listening", async () => {
   test.setTimeout(900_000);
@@ -737,10 +714,9 @@ test("X3: closing a stale tab must not discard another device's newer listening"
       `${row.furthestMs}ms — ${row.deviceALostMs}ms behind, of which only ` +
       `${row.rewindCreditedA}ms is smart rewind. The mechanism is in the row: A's durable local ` +
       `record went from ${JSON.stringify(row.localABeforeNav)} to ` +
-      `${JSON.stringify(row.localAAfterNav)} across its own navigation — the same stale ` +
-      "position with a brand new `occurredAt`, written by the unconditional `pagehide` flush. " +
-      "`localWinsOver` then prefers it over the server's newer cross-device position, so the " +
-      "listening the user did on device B is thrown away on device A. The server itself was " +
+      `${JSON.stringify(row.localAAfterNav)} across its own navigation. A terminal flush may ` +
+      "record when it wrote, but it may not make an unchanged stale position beat the server's " +
+      "newer cross-device listening. The server itself was " +
       `not clobbered (it still holds ${row.serverAfterANavigatedMs}ms), so this is confined to ` +
       "the tab that was left open.",
   ).toBeLessThanOrEqual(CALLBACK_BAR_MS);

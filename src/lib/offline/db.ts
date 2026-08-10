@@ -125,6 +125,10 @@ export type MirrorPlaybackState = {
   deviceId: string;
   deviceSequence: number;
   eventOccurredAt: string;
+  playbackRateOccurredAt?: string;
+  completedOccurredAt?: string;
+  /** Combined legacy clock retained while older mirror rows drain. */
+  stateOccurredAt?: string;
   updatedAt: string;
 };
 
@@ -208,9 +212,13 @@ export interface OfflineDatabase extends DBSchema {
       key: string;
       userId: string;
       bookId: string;
+      /** Identifies one removal attempt across retries and account-purge races. */
+      operationId?: string;
       offlineMediaUrl?: string;
       offlineCoverUrl?: string | null;
       offlineCoverThumbUrl?: string | null;
+      /** Permanent book deletion also owns its listening-history sweep. */
+      clearPlaybackHistory?: boolean;
       completedAt?: number;
     };
     indexes: { "by-user": string };

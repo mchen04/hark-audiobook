@@ -1,0 +1,2 @@
+ALTER TABLE "playback_states" ADD COLUMN "playback_rate_occurred_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "playback_states" ADD COLUMN "completed_occurred_at" timestamp with time zone;

@@ -1,17 +1,26 @@
 // @vitest-environment jsdom
 
+import "fake-indexeddb/auto";
 import { cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PlayerBook } from "@/domain/player";
+import { bootstrapPlaybackState, readLocalProgress } from "@/lib/playback-core";
+import { mergeProgressFields } from "@/server/playback/progress-policy";
 
-const { commitProgress, mirrorProgress, reconcileProgressConflict, replayQueuedMutations } =
-  vi.hoisted(() => ({
-    commitProgress: vi.fn(),
-    mirrorProgress: vi.fn(),
-    reconcileProgressConflict: vi.fn(),
-    replayQueuedMutations: vi.fn(),
-  }));
+const {
+  commitProgress,
+  mirrorProgress,
+  reconcileProgressConflict,
+  replayQueuedMutations,
+  reserveDeviceSequenceAbove,
+} = vi.hoisted(() => ({
+  commitProgress: vi.fn(),
+  mirrorProgress: vi.fn(),
+  reconcileProgressConflict: vi.fn(),
+  replayQueuedMutations: vi.fn(),
+  reserveDeviceSequenceAbove: vi.fn(),
+}));
 
 vi.mock("@/lib/offline/outbox", () => ({ commitProgress, mirrorProgress }));
 vi.mock("@/lib/offline-sync", async () => {
@@ -21,11 +30,16 @@ vi.mock("@/lib/offline-sync", async () => {
     reconcileProgressConflict,
     replayQueuedMutations,
     nextDeviceSequence: vi.fn().mockResolvedValue(1),
+    reserveDeviceSequenceAbove,
     withProgressMutationLock: (_bookId: string, run: () => Promise<void>) => run(),
   };
 });
 
-import { nextDeviceSequence } from "@/lib/offline-sync";
+import {
+  applyPendingProgressNormalizations,
+  listProgressNormalizations,
+  nextDeviceSequence,
+} from "@/lib/offline-sync";
 
 import { useProgressPersistence } from "./use-progress-persistence";
 
@@ -43,16 +57,26 @@ const book: PlayerBook = {
   completed: false,
 };
 
-function mountHook({ paused = true }: { paused?: boolean } = {}) {
+function mountHook({
+  paused = true,
+  activeBook = book,
+  currentTime = 12,
+  playbackRate = 1,
+}: {
+  paused?: boolean;
+  activeBook?: PlayerBook;
+  currentTime?: number;
+  playbackRate?: number;
+} = {}) {
   const audio = {
-    currentTime: 12,
-    playbackRate: 1,
+    currentTime,
+    playbackRate,
     paused,
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
   } as unknown as HTMLAudioElement;
   const audioRef = { current: audio };
-  const activeBookRef = { current: book };
+  const activeBookRef = { current: activeBook };
   const { result } = renderHook(() => useProgressPersistence("user-a", audioRef, activeBookRef));
   // Nothing is written for a book whose position has not moved on this open;
   // these rows are about a real listening session, so say so.
@@ -84,6 +108,7 @@ describe("the server half of a progress write", () => {
     mirrorProgress.mockReset().mockResolvedValue(undefined);
     reconcileProgressConflict.mockReset().mockResolvedValue(undefined);
     replayQueuedMutations.mockReset().mockResolvedValue(undefined);
+    reserveDeviceSequenceAbove.mockReset().mockResolvedValue(7);
   });
 
   afterEach(() => {
@@ -96,6 +121,77 @@ describe("the server half of a progress write", () => {
     await result.current.persistProgress("pause", 12_000);
     expect(mirrorProgress).toHaveBeenCalledOnce();
     expect(commitProgress).not.toHaveBeenCalled();
+  });
+
+  it("journals a fresh sequence when a duplicate response skipped the live write", async () => {
+    const fetchMock = vi.fn(async () => {
+      return Response.json({
+        kind: "duplicate",
+        lastSequence: 6,
+        state: {
+          positionMs: 0,
+          playbackRate: "1.00",
+          completed: false,
+          deviceId: "device-1",
+          deviceSequence: 6,
+          eventOccurredAt: "2026-07-09T00:00:00.000Z",
+          playbackRateOccurredAt: "2026-07-09T00:00:00.000Z",
+          completedOccurredAt: "2026-07-09T00:00:00.000Z",
+          stateOccurredAt: "2026-07-09T00:00:00.000Z",
+        },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = mountHook();
+
+    await result.current.persistProgress("pause", 12_000);
+
+    expect(reserveDeviceSequenceAbove).toHaveBeenCalledWith("book-1", 6, "user-a");
+    expect(commitProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ bookId: "book-1", deviceSequence: 7, positionMs: 12_000 }),
+    );
+    expect(mirrorProgress).not.toHaveBeenCalled();
+  });
+
+  it("records pending normalization without requeueing an accepted live write", async () => {
+    const values = new Map<string, string>();
+    let blockAuthoritativeRegisters = false;
+    vi.stubGlobal("localStorage", {
+      get length() {
+        return values.size;
+      },
+      key: (index: number) => [...values.keys()][index] ?? null,
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (blockAuthoritativeRegisters && key.startsWith("chapterline:playback-")) {
+          throw new DOMException("Full", "QuotaExceededError");
+        }
+        values.set(key, value);
+      },
+      removeItem: (key: string) => void values.delete(key),
+    } as Storage);
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      blockAuthoritativeRegisters = true;
+      return Response.json({
+        kind: "saved",
+        state: { ...body, playbackRate: String(body.playbackRate) },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = mountHook();
+
+    await result.current.persistProgress("pause", 12_000);
+
+    expect(commitProgress).not.toHaveBeenCalled();
+    expect(mirrorProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ bookId: "book-1", positionMs: 12_000 }),
+    );
+    expect(await listProgressNormalizations("user-a")).toHaveLength(1);
+
+    blockAuthoritativeRegisters = false;
+    await expect(applyPendingProgressNormalizations("user-a", "book-1")).resolves.toBe(0);
+    expect(await listProgressNormalizations("user-a")).toStrictEqual([]);
   });
 
   it("journals a retryable rejection and projects nothing", async () => {
@@ -114,7 +210,7 @@ describe("the server half of a progress write", () => {
    * correct it. A 404 is the live case: the book was deleted on another device,
    * the write is refused forever, and the card kept showing a position for it.
    */
-  for (const status of [400, 404, 410, 413, 422]) {
+  for (const status of [404, 410, 413, 422]) {
     it(`neither projects nor journals a permanently refused write (${status})`, async () => {
       respondWith(status);
       const result = mountHook();
@@ -131,6 +227,22 @@ describe("the server half of a progress write", () => {
       ).not.toHaveBeenCalled();
     });
   }
+
+  it("retains a v2 event when a predecessor server rejects its new clock keys", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 400 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const result = mountHook();
+
+    await result.current.persistProgress("pause", 12_000);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      playbackRateOccurredAt: expect.any(String),
+      completedOccurredAt: expect.any(String),
+    });
+    expect(commitProgress).toHaveBeenCalledOnce();
+    expect(mirrorProgress).not.toHaveBeenCalled();
+  });
 
   it("journals a write that never reached a server", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Load failed")));
@@ -193,6 +305,367 @@ describe("the server half of a progress write", () => {
     expect(JSON.parse(localStorage.getItem("chapterline:position:user-a:book-1")!)).toMatchObject({
       positionMs: 12_000,
     });
+  });
+
+  it("keeps a rate-only write from claiming a newer position clock", async () => {
+    const positionOccurredAt = "2026-07-09T19:58:00.000Z";
+    const rateBook: PlayerBook = {
+      ...book,
+      initialPositionMs: 12_000,
+      initialProgressOccurredAt: positionOccurredAt,
+      initialPlaybackRate: 0.75,
+      initialPlaybackRateOccurredAt: positionOccurredAt,
+      initialCompletedOccurredAt: positionOccurredAt,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const bootstrap = bootstrapPlaybackState("user-a", rateBook);
+
+    const result = mountHook({ activeBook: bootstrap.book });
+    await result.current.persistProgress("rate-change", 12_000);
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.eventOccurredAt).toBe(positionOccurredAt);
+    expect(Date.parse(body.playbackRateOccurredAt)).toBeGreaterThan(Date.parse(positionOccurredAt));
+    expect(body.completedOccurredAt).toBe(positionOccurredAt);
+    expect(body.stateOccurredAt).toBe(body.playbackRateOccurredAt);
+  });
+
+  it("does not persist smart rewind when the only action is changing rate", async () => {
+    const positionClock = "2026-07-09T20:00:05.000Z";
+    const rateClock = "2026-07-09T20:00:30.000Z";
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const storedBook: PlayerBook = {
+        ...book,
+        initialPositionMs: 60_000,
+        initialProgressOccurredAt: positionClock,
+        initialPlaybackRate: 1,
+        initialPlaybackRateOccurredAt: positionClock,
+        initialCompletedOccurredAt: positionClock,
+      };
+      const bootstrap = bootstrapPlaybackState("user-a", storedBook);
+      const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const result = mountHook({
+        activeBook: bootstrap.book,
+        currentTime: 45,
+        playbackRate: 2,
+      });
+
+      vi.setSystemTime(new Date(rateClock));
+      await result.current.persistProgress("rate-change", 45_000);
+      await result.current.persistProgress("pagehide-flush", 45_000);
+      expect(readLocalProgress("user-a", "book-1")).toMatchObject({
+        positionMs: 60_000,
+        positionAtWrite: 45_000,
+        source: "pagehide-flush",
+      });
+      await result.current.persistProgress("media-tick", 50_000);
+
+      const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)));
+      expect(bodies).toHaveLength(3);
+      expect(bodies[0]).toMatchObject({
+        positionMs: 60_000,
+        eventOccurredAt: positionClock,
+        playbackRate: 2,
+        playbackRateOccurredAt: rateClock,
+      });
+      expect(bodies[1]).toMatchObject({ positionMs: 60_000, eventOccurredAt: positionClock });
+      expect(bodies[2]).toMatchObject({ positionMs: 60_000, eventOccurredAt: positionClock });
+      expect(readLocalProgress("user-a", "book-1")).toMatchObject({
+        positionMs: 60_000,
+        occurredAt: Date.parse(positionClock),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lets an explicit seek intentionally move backward through the rewind floor", async () => {
+    const positionClock = "2026-07-09T20:00:05.000Z";
+    const seekClock = "2026-07-09T20:00:30.000Z";
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(seekClock));
+      const storedBook: PlayerBook = {
+        ...book,
+        initialPositionMs: 60_000,
+        initialProgressOccurredAt: positionClock,
+        initialPlaybackRateOccurredAt: positionClock,
+        initialCompletedOccurredAt: positionClock,
+      };
+      const bootstrap = bootstrapPlaybackState("user-a", storedBook);
+      const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const result = mountHook({ activeBook: bootstrap.book, currentTime: 45 });
+
+      await result.current.persistProgress("seek", 45_000);
+
+      expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+        positionMs: 45_000,
+        eventOccurredAt: seekClock,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("mints changed field clocks monotonically when the device clock moved backward", async () => {
+    const futureClock = "2026-07-09T20:01:00.000Z";
+    const deviceNow = "2026-07-09T20:00:00.000Z";
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(deviceNow));
+      const futureBook: PlayerBook = {
+        ...book,
+        initialPositionMs: 60_000,
+        initialProgressOccurredAt: futureClock,
+        initialPlaybackRate: 1,
+        initialPlaybackRateOccurredAt: futureClock,
+        initialCompletedOccurredAt: futureClock,
+      };
+      const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const result = mountHook({ activeBook: futureBook, currentTime: 60, playbackRate: 2 });
+
+      await result.current.persistProgress("rate-change", 60_000);
+      await result.current.persistProgress("seek", 45_000);
+      await result.current.persistProgress("ended", 60_000, true);
+
+      const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)));
+      expect(bodies[0]).toMatchObject({
+        eventOccurredAt: futureClock,
+        playbackRateOccurredAt: "2026-07-09T20:01:00.001Z",
+        completedOccurredAt: futureClock,
+      });
+      expect(bodies[1]).toMatchObject({
+        eventOccurredAt: "2026-07-09T20:01:00.001Z",
+        playbackRateOccurredAt: "2026-07-09T20:01:00.001Z",
+        completedOccurredAt: futureClock,
+      });
+      expect(bodies[2]).toMatchObject({
+        eventOccurredAt: "2026-07-09T20:01:00.002Z",
+        playbackRateOccurredAt: "2026-07-09T20:01:00.001Z",
+        completedOccurredAt: "2026-07-09T20:01:00.001Z",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not adopt a peer position as this tab's causal baseline", async () => {
+    const staleClock = "2026-07-09T20:00:05.000Z";
+    const peerPositionClock = "2026-07-09T20:00:20.000Z";
+    const rateClock = "2026-07-09T20:00:30.000Z";
+    const flushClock = "2026-07-09T20:00:40.000Z";
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      localStorage.setItem(
+        "chapterline:playback-position:user-a:book-1:peer-b",
+        JSON.stringify({ value: 100_000, occurredAt: Date.parse(peerPositionClock) }),
+      );
+      const staleBook: PlayerBook = {
+        ...book,
+        initialPositionMs: 0,
+        initialProgressOccurredAt: staleClock,
+        initialPlaybackRate: 1,
+        initialPlaybackRateOccurredAt: staleClock,
+        initialCompletedOccurredAt: staleClock,
+      };
+      const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+      const result = mountHook({ activeBook: staleBook, currentTime: 0, playbackRate: 2 });
+
+      vi.setSystemTime(new Date(rateClock));
+      await result.current.persistProgress("rate-change", 0);
+      vi.setSystemTime(new Date(flushClock));
+      await result.current.persistProgress("pagehide-flush", 0);
+
+      const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)));
+      expect(bodies).toHaveLength(2);
+      expect(bodies[1]).toMatchObject({
+        positionMs: 100_000,
+        eventOccurredAt: peerPositionClock,
+        playbackRate: 2,
+        playbackRateOccurredAt: rateClock,
+      });
+      expect(readLocalProgress("user-a", "book-1")).toMatchObject({
+        positionMs: 100_000,
+        occurredAt: Date.parse(peerPositionClock),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("lets a cold stale device advance position without overwriting newer remote fields", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const staleClock = "2026-07-09T19:58:00.000Z";
+      const remoteClock = "2026-07-09T19:59:00.000Z";
+      const listenClock = "2026-07-09T20:00:00.000Z";
+      vi.setSystemTime(new Date(listenClock));
+      const staleBook: PlayerBook = {
+        ...book,
+        initialPositionMs: 5_000,
+        initialProgressOccurredAt: staleClock,
+        initialPlaybackRate: 1,
+        initialPlaybackRateOccurredAt: staleClock,
+        completed: false,
+        initialCompletedOccurredAt: staleClock,
+      };
+      const bootstrap = bootstrapPlaybackState("user-a", staleBook);
+      const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = mountHook({ activeBook: bootstrap.book });
+      await result.current.persistProgress("media-tick", 12_000);
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+
+      expect(body).toMatchObject({
+        eventOccurredAt: listenClock,
+        playbackRateOccurredAt: staleClock,
+        completedOccurredAt: staleClock,
+      });
+
+      const merge = mergeProgressFields(
+        {
+          positionMs: 10_000,
+          playbackRate: 2,
+          completed: true,
+          eventOccurredAt: new Date(remoteClock),
+          playbackRateOccurredAt: new Date(remoteClock),
+          completedOccurredAt: new Date(remoteClock),
+        },
+        {
+          positionMs: body.positionMs,
+          playbackRate: body.playbackRate,
+          completed: body.completed,
+          eventOccurredAt: new Date(body.eventOccurredAt),
+          playbackRateOccurredAt: new Date(body.playbackRateOccurredAt),
+          completedOccurredAt: new Date(body.completedOccurredAt),
+          stateOccurredAt: new Date(body.stateOccurredAt),
+        },
+        new Date(listenClock),
+        book.durationMs,
+      );
+
+      expect(merge.merged).toMatchObject({
+        positionMs: 12_000,
+        playbackRate: 2,
+        completed: true,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps bootstrap field clocks even when localStorage rejects the hydration write", async () => {
+    const staleClock = "2026-07-09T19:58:00.000Z";
+    const listenClock = "2026-07-09T20:00:00.000Z";
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(listenClock));
+      vi.stubGlobal("localStorage", {
+        get length() {
+          return 0;
+        },
+        key: () => null,
+        getItem: () => null,
+        setItem: () => {
+          throw new DOMException("Quota exceeded", "QuotaExceededError");
+        },
+        removeItem: () => undefined,
+      } as unknown as Storage);
+      const staleBook: PlayerBook = {
+        ...book,
+        initialPositionMs: 5_000,
+        initialProgressOccurredAt: staleClock,
+        initialPlaybackRateOccurredAt: staleClock,
+        initialCompletedOccurredAt: staleClock,
+      };
+      const bootstrap = bootstrapPlaybackState("user-a", staleBook);
+      const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = mountHook({ activeBook: bootstrap.book });
+      await result.current.persistProgress("media-tick", 12_000);
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+
+      expect(body).toMatchObject({
+        eventOccurredAt: listenClock,
+        playbackRateOccurredAt: staleClock,
+        completedOccurredAt: staleClock,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not mint a position clock when the first action only changes rate", async () => {
+    const remoteClock = "2026-07-09T19:59:00.000Z";
+    const rateClock = "2026-07-09T20:00:00.000Z";
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(rateClock));
+      const untouchedBook: PlayerBook = {
+        ...book,
+        initialPositionMs: 0,
+        initialProgressOccurredAt: null,
+        initialPlaybackRate: 0.75,
+        initialPlaybackRateOccurredAt: null,
+        completed: false,
+        initialCompletedOccurredAt: null,
+      };
+      const bootstrap = bootstrapPlaybackState("user-a", untouchedBook);
+      const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const result = mountHook({
+        activeBook: bootstrap.book,
+        currentTime: 0,
+        playbackRate: 1,
+      });
+      await result.current.persistProgress("rate-change", 0);
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+
+      expect(body).toMatchObject({
+        eventOccurredAt: "1970-01-01T00:00:00.000Z",
+        playbackRateOccurredAt: rateClock,
+        completedOccurredAt: "1970-01-01T00:00:00.000Z",
+      });
+
+      const merge = mergeProgressFields(
+        {
+          positionMs: 45_000,
+          playbackRate: 0.75,
+          completed: false,
+          eventOccurredAt: new Date(remoteClock),
+          playbackRateOccurredAt: new Date(0),
+          completedOccurredAt: new Date(0),
+        },
+        {
+          positionMs: body.positionMs,
+          playbackRate: body.playbackRate,
+          completed: body.completed,
+          eventOccurredAt: new Date(body.eventOccurredAt),
+          playbackRateOccurredAt: new Date(body.playbackRateOccurredAt),
+          completedOccurredAt: new Date(body.completedOccurredAt),
+          stateOccurredAt: new Date(body.stateOccurredAt),
+        },
+        new Date(rateClock),
+        book.durationMs,
+      );
+
+      expect(merge.merged).toMatchObject({
+        positionMs: 45_000,
+        playbackRate: 1,
+        completed: false,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -541,7 +1014,13 @@ describe("the provenance of a lifecycle write", () => {
    */
   it("carries a caller's mechanism through to the record unchanged", async () => {
     for (const source of ["pause", "seek", "ended", "rate-change", "book-unload"] as const) {
-      const result = mountHook();
+      cleanup();
+      const keys = Array.from({ length: localStorage.length }, (_, index) =>
+        localStorage.key(index),
+      ).filter((key): key is string => !!key);
+      keys.forEach((key) => localStorage.removeItem(key));
+      const bootstrap = bootstrapPlaybackState("user-a", book);
+      const result = mountHook({ activeBook: bootstrap.book });
       await result.current.persistProgress(source, 12_000);
       expect(storedSource()).toBe(source);
     }

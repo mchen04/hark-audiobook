@@ -54,7 +54,19 @@ export default async function BookPage({
     initialPositionMs: book.positionMs || 0,
     initialProgressOccurredAt: book.progressOccurredAt?.toISOString() || null,
     initialPlaybackRate: Number(book.playbackRate || 1),
+    initialPlaybackRateOccurredAt:
+      (
+        book.playbackRateOccurredAt ??
+        book.stateOccurredAt ??
+        book.progressOccurredAt
+      )?.toISOString() || null,
     completed: book.completed || false,
+    initialCompletedOccurredAt:
+      (
+        book.completedOccurredAt ??
+        book.stateOccurredAt ??
+        book.progressOccurredAt
+      )?.toISOString() || null,
   };
 
   const details: BookDetails = {

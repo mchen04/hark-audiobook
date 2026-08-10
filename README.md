@@ -50,10 +50,12 @@ contract for that is `docs/local-first.md`.
   touching the network, so a cold database and airplane mode cost what wifi
   costs: warm-launch p95 measures 291-370ms across fast, slow,
   3000ms-cold-database and offline profiles — a 70-73ms spread — with zero server
-  document hits and zero Postgres queries. Those figures are taken under 4x CPU
-  throttling with a fresh browser process per launch, so they mean something on
-  a phone rather than on a desktop. Imported audio is served by the service
-  worker with full seeking, and queued writes replay when the app is next open.
+  document hits and zero Postgres queries. Those recorded figures used a 4x CPU
+  throttle whose fixed proof loop cost 16ms. Current runs calibrate each host to
+  that same 16ms CPU budget, with a fresh browser process per launch, so a slow
+  shared runner cannot silently turn 4x into a much harsher device. Imported
+  audio is served by the service worker with full seeking, and queued writes
+  replay when the app is next open.
 - **Organize**: search, status and tag filters, an "On this device" facet, sort
   orders, grid/list views, collections with optional next-book autoplay,
   archive, and delete. There is one library screen: books whose audio is not on
@@ -106,13 +108,17 @@ aborts the e2e config, the standalone test server, and this bootstrap script if
 
 | Command                              | What it does                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pnpm verify`                        | The full non-browser gate: format check, lint, typecheck, all tests, production build.                                                                                                                                                                                                                                                                                                                                   |
+| `pnpm verify`                        | The complete executable local gate: quick checks plus iPhone WebKit, offline parity, sync integrity, the 24 automatable resume cells, and launch performance. Start the test database and install the pinned browsers first.                                                                                                                                                                                             |
+| `pnpm verify:quick`                  | The fast non-browser gate: format check, lint, typecheck, all Vitest suites, and a production build.                                                                                                                                                                                                                                                                                                                     |
+| `pnpm verify:browser`                | Every executable Playwright gate, matching the browser matrix required by `.github/workflows/ci.yml`. The two real-iOS hidden-state gaps remain deliberately outside CI.                                                                                                                                                                                                                                                 |
 | `pnpm test`                          | Vitest suites (MP3 and transcript parsing contracts, service-worker range/navigation/shell logic, progress conflict policy, the outbox and the mirror, IndexedDB upgrades, playback).                                                                                                                                                                                                                                    |
 | `pnpm test:idb-migrate`              | Just the IndexedDB upgrade suite: every shipped version of both databases is opened from a fixture and carried forward, so downloads, transcripts and a pending deletion journal survive `chapterline-offline-v1` v7 and outbox v4.                                                                                                                                                                                      |
 | `pnpm test:e2e:ios`                  | Production iPhone/WebKit flow: register, choose from Downloads, play, seek, relaunch, and play offline.                                                                                                                                                                                                                                                                                                                  |
 | `pnpm test:e2e:launch`               | The launch benchmark in `tests/perf/`: warm launch to real library content over four networks (fast, slow, 3000ms cold database, offline), asserting p95, spread, server document hits and Postgres queries.                                                                                                                                                                                                             |
 | `pnpm test:e2e:parity`               | The parity project in `tests/parity/`, whose harness removes the network at the socket instead of through Playwright interception, because interception sits above the service worker and can be bypassed.                                                                                                                                                                                                               |
 | `pnpm test:sync`                     | The data-integrity project in `tests/sync/`: outbox durability and coalescing, two-device convergence, progress conflicts, mirror/audio eviction recovery, lossless re-import, a seeded mutation fuzz across offline/online transitions, and one spec that makes its edits by clicking the real controls with the network off — the fuzz drives the engine directly, so only that one can prove the shipping UI uses it. |
+| `pnpm test:resume:ci`                | The 24 resume-durability rows the pinned WebKit engine can execute honestly. It excludes only T1 hidden online/offline, because Playwright WebKit cannot produce a real hidden transition.                                                                                                                                                                                                                               |
+| `pnpm test:resume`                   | The full 26-row resume oracle, including the two T1 rows that intentionally fail as `UNCOVERED` unless the engine can genuinely background the page. Use it when evaluating a new engine or real-device bridge.                                                                                                                                                                                                          |
 | `node scripts/test-db.mjs`           | Starts the local Postgres container, migrates it, and seeds the e2e account. Subcommands `up`, `reset`, `down`, `migrate`, `seed`, `guard`, `psql` are also exposed as `pnpm db:test:*`.                                                                                                                                                                                                                                 |
 | `pnpm db:migrate`                    | Applies ordered SQL migrations (idempotent; proven from an empty database).                                                                                                                                                                                                                                                                                                                                              |
 | `node scripts/seed-perf.mjs <email>` | Seeds 1,000 books / ~60k rows onto an existing account for performance work.                                                                                                                                                                                                                                                                                                                                             |
@@ -120,6 +126,15 @@ aborts the e2e config, the standalone test server, and this bootstrap script if
 Browser-level verification uses `agent-browser` against the production build,
 exercising the core flows (register, import, play, offline, resume) across
 phone, tablet, and desktop viewports.
+
+Pull requests run `verify:quick` and all five executable browser gates as
+separate, required-capable GitHub checks. Each job provisions its own local
+Postgres and project-pinned browser binaries; failed browser jobs retain their
+screenshots and traces as artifacts. The resume job runs 24 proven cells, while
+the two real-iOS hidden-state cells stay explicit in
+`docs/resume-durability-device-check.md` instead of making CI permanently red.
+Protect `main` with `Verify quick` and every `Browser (…)` check before treating
+a green deployment as a merge gate.
 
 Three limits are worth stating before reading a green run as more than it is.
 The launch benchmark measures in a **Chromium** persistent context with iPhone 15

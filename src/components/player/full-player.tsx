@@ -22,6 +22,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 import type { BookDetails } from "@/components/book/book-details-dialog";
+import { useOpenLocalLibrary } from "@/components/app-navigation";
 import type { PlaybackHistorySnapshot } from "@/domain/playback-history";
 import type { NextInCollection, PlayerBook } from "@/domain/player";
 import type { TranscriptSentence } from "@/domain/transcript";
@@ -57,6 +58,7 @@ export function FullPlayer({
   onBack,
   autoplay = false,
   details = null,
+  mediaFingerprint = null,
   nextInCollection = null,
 }: {
   playerBook: PlayerBook;
@@ -72,9 +74,11 @@ export function FullPlayer({
   onBack?: () => void;
   autoplay?: boolean;
   details?: BookDetails | null;
+  mediaFingerprint?: string | null;
   nextInCollection?: NextInCollection | null;
 }) {
   const router = useRouter();
+  const openLocalLibrary = useOpenLocalLibrary();
   const playback = usePlayback();
   const { preferences } = usePreferences();
   const currentChapter = useCurrentChapter();
@@ -185,6 +189,14 @@ export function FullPlayer({
   // callback and needing a non-null assertion to say so.
   const suspensionGap = recovery.gap;
 
+  function followBackHref() {
+    if (backHref === "/library" && openLocalLibrary) {
+      openLocalLibrary();
+      return;
+    }
+    router.push(backHref);
+  }
+
   return (
     <div className="player-page">
       <div className="player-topbar" inert={sheetView ? true : undefined}>
@@ -194,10 +206,10 @@ export function FullPlayer({
             <span>{backLabel}</span>
           </button>
         ) : (
-          <Link href={backHref} className="icon-text-button">
+          <button type="button" className="icon-text-button" onClick={followBackHref}>
             <ArrowLeft size={19} aria-hidden="true" />
             <span>{backLabel}</span>
-          </Link>
+          </button>
         )}
         <span>{currentChapter?.title || "Full audiobook"}</span>
         <div className="player-topbar-actions">
@@ -408,6 +420,7 @@ export function FullPlayer({
       {details && (
         <BookDetailsDialog
           details={details}
+          mediaFingerprint={mediaFingerprint}
           open={detailsOpen}
           onClose={() => setDetailsOpen(false)}
         />

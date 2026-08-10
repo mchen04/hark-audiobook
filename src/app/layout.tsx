@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { ReactNode } from "react";
 
 import { PwaRegister } from "@/components/pwa-register";
+import { PendingAccountDeletionRunner } from "@/components/pending-account-deletion-runner";
 
 import "./globals.css";
 
@@ -43,6 +44,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body>
         {children}
+        <PendingAccountDeletionRunner />
         <PwaRegister />
       </body>
     </html>

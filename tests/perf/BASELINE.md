@@ -216,6 +216,14 @@ spread of p95 across profiles: 73ms (bar 150ms)
 CPU throttle: a fixed 8M-iteration loop ran in 5ms at 17ms at 4x (3.67x observed)
 ```
 
+The two historical runs above used a literal 4x throttle. Current runs preserve
+their measured CPU budget rather than their host-relative multiplier: the
+harness chooses the rate that makes the same fixed loop target 16ms, and refuses
+to run if an unthrottled host cannot stay within a conservative 24ms ceiling.
+This keeps the frozen 500ms p95 and 150ms spread bars comparable on both the
+M-series baseline host and slower shared CI runners; it does not relax either
+bar.
+
 | Profile         | p95 before  | p95 after (pass 1 / pass 2) | doc hits | Postgres queries |
 | --------------- | ----------- | --------------------------- | -------- | ---------------- |
 | A fast          | 92ms        | 291ms / 298ms               | 6 → 0    | 81 → 0           |

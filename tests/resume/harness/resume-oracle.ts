@@ -13,6 +13,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { isRendererCommand } from "../../shared/render-process";
 import { awaitSignInBudget } from "../../shared/sign-in-budget";
 import { testAccountPassword } from "../../shared/test-account-password";
 // Reused, not re-implemented: the sync suite owns the local-database connection
@@ -97,14 +98,19 @@ export const APP_ORIGIN = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:3
  * renderer process (`WebKit.WebContent`), which is precisely what iOS does to a
  * backgrounded PWA — the app's process dies and the device's storage does not.
  *
- * Measured across that kill: cookies, localStorage, IndexedDB and the
+ * Measured across ordinary kills: cookies, localStorage, IndexedDB and the
  * service-worker registration all survive. Those are every witness the resume
  * position lives in, so the thing under measurement crosses the gap on its own.
- * Cache Storage RECORDS do not survive, which is a Playwright/WebKit artifact
- * and not something an iPhone does; they hold the audiobook BYTES, which are
- * not under measurement. So the oracle snapshots Cache Storage before the kill
- * and puts it back after the relaunch (`snapshotCaches`/`restoreCaches`), and
- * verifies the restore rather than assuming it.
+ * Under a long run of repeated renderer kills, WebKit has also discarded its
+ * entire cookie jar once. The oracle plants an HttpOnly sentinel beside the
+ * auth cookie and repairs only when BOTH disappear while the exact snapshotted
+ * session is still active in Postgres. A real sign-out removes the auth cookie
+ * but leaves that sentinel, and therefore still fails. Cache Storage RECORDS
+ * disappear more routinely, which is also a Playwright/WebKit artifact and not
+ * something an iPhone does; they hold the audiobook BYTES, which are not under
+ * measurement. So the oracle snapshots Cache Storage before the kill and puts
+ * it back after the relaunch (`snapshotCaches`/`restoreCaches`), and verifies
+ * the restore rather than assuming it.
  */
 export type Engine = "webkit" | "chromium";
 export const ENGINE: Engine = process.env.HARK_RESUME_ENGINE === "chromium" ? "chromium" : "webkit";
@@ -975,6 +981,17 @@ let fixture: Fixture | null = null;
 type Device = { browser: Browser; context: BrowserContext };
 let device: Device | null = null;
 
+const SESSION_COOKIE_NAME = "chapterline.session_token";
+const SESSION_COOKIE_SENTINEL = "resume-oracle.session-cookie-sentinel";
+type ContextCookie = Awaited<ReturnType<BrowserContext["cookies"]>>[number];
+type SessionCookieWitness = {
+  userId: string;
+  origin: string;
+  session: ContextCookie;
+  sentinel: ContextCookie;
+};
+let sessionCookieWitness: SessionCookieWitness | null = null;
+
 /**
  * Renderer processes that were already running when this run started. They
  * belong to somebody else and are never killed. (Another session on this
@@ -988,15 +1005,12 @@ let foreignRenderPids = new Set<string>();
  * Scoped to the exact browser BUILD this run drives, because more than one
  * Playwright browser build is usually installed on a developer machine and
  * killing another run's renderer would be both rude and untraceable. WebKit's
- * `executablePath()` is `<build>/pw_run.sh`, and its renderer is the
- * `com.apple.WebKit.WebContent` XPC service inside that same build directory.
+ * `executablePath()` is `<build>/pw_run.sh`; macOS names its renderer
+ * `com.apple.WebKit.WebContent`, while Linux GTK/WPE names it
+ * `WebKitWebProcess`/`WPEWebProcess`.
  */
 function isRenderProcess(line: string): boolean {
-  const executable = browserType().executablePath();
-  if (ENGINE === "webkit") {
-    return line.includes(`${path.dirname(executable)}/com.apple.WebKit.WebContent`);
-  }
-  return line.includes(executable) && line.includes("--type=renderer");
+  return isRendererCommand(line, ENGINE, browserType().executablePath());
 }
 
 function renderPids(): string[] {
@@ -1035,6 +1049,103 @@ async function openDevice(): Promise<Device> {
   return device;
 }
 
+/**
+ * Gives the one auth cookie a control cookie with matching lifetime and
+ * attributes. Application code cannot clear either HttpOnly cookie directly;
+ * Better Auth's sign-out endpoint clears only its own cookie, leaving the
+ * sentinel behind so this harness can distinguish sign-out from WebKit losing
+ * the context's whole cookie jar.
+ */
+async function armSessionCookieWitness(
+  context: BrowserContext,
+  origin: string,
+  userId: string,
+): Promise<void> {
+  const session = (await context.cookies(origin)).find(
+    (cookie) => cookie.name === SESSION_COOKIE_NAME,
+  );
+  expect(
+    session,
+    "sign-in reached the library without leaving the Better Auth session cookie on the device",
+  ).toBeTruthy();
+
+  await context.addCookies([
+    {
+      ...session!,
+      name: SESSION_COOKIE_SENTINEL,
+      value: "cookie-jar-present",
+    },
+  ]);
+  const sentinel = (await context.cookies(origin)).find(
+    (cookie) => cookie.name === SESSION_COOKIE_SENTINEL,
+  );
+  expect(
+    sentinel,
+    "the resume instrument could not plant its HttpOnly cookie-jar sentinel",
+  ).toBeTruthy();
+  sessionCookieWitness = { userId, origin, session: session!, sentinel: sentinel! };
+}
+
+/**
+ * Repairs one WebKit-only instrument failure without masking an auth failure.
+ *
+ * The saved cookie contains `<database token>.<signature>`, so the database
+ * check proves that the exact session WebKit dropped is still active. This is
+ * deliberately direct rather than an HTTP request: offline rows must not touch
+ * the network while reconstructing their device after a kill.
+ */
+async function restoreDiscardedCookieJar(context: BrowserContext): Promise<void> {
+  const witness = sessionCookieWitness;
+  if (!witness) return;
+
+  const current = await context.cookies(witness.origin);
+  const session = current.find((cookie) => cookie.name === SESSION_COOKIE_NAME);
+  const sentinel = current.find((cookie) => cookie.name === SESSION_COOKIE_SENTINEL);
+  if (session) {
+    expect(
+      session.value,
+      "the resume device changed authenticated sessions during one shared-device run",
+    ).toBe(witness.session.value);
+    if (!sentinel) await context.addCookies([witness.sentinel]);
+    return;
+  }
+
+  expect(
+    sentinel,
+    "the auth cookie disappeared while the independent cookie-jar sentinel survived; this is " +
+      "a real auth transition, not WebKit discarding the whole cookie jar",
+  ).toBeFalsy();
+
+  const token = witness.session.value.split(".", 1)[0]!;
+  const [row] = await sql()<{ active: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM "session"
+      WHERE token = ${token}
+        AND user_id = ${witness.userId}
+        AND expires_at > now()
+    ) AS active
+  `;
+  expect(
+    row?.active,
+    "WebKit discarded the cookie jar, but the exact saved server session is no longer active; " +
+      "restoring it would mask a real authentication failure",
+  ).toBe(true);
+
+  await context.addCookies([witness.session, witness.sentinel]);
+  const repaired = await context.cookies(witness.origin);
+  expect(
+    repaired.some(
+      (cookie) => cookie.name === SESSION_COOKIE_NAME && cookie.value === witness.session.value,
+    ),
+    "WebKit discarded the cookie jar and did not accept the still-active session when restored",
+  ).toBe(true);
+  console.log(
+    "[resume-oracle] WebKit discarded the whole cookie jar; restored the still-active shared " +
+      "session before the app was allowed to look",
+  );
+}
+
 type Session = { page: Page };
 
 /**
@@ -1059,7 +1170,9 @@ function trackCrash(page: Page): Page {
 /** A fresh page on the device. Not a fresh device: that is the whole point. */
 async function launch(): Promise<Session> {
   const { context } = await openDevice();
-  return { page: trackCrash(await context.newPage()) };
+  const page = trackCrash(await context.newPage());
+  await restoreDiscardedCookieJar(context);
+  return { page };
 }
 
 /**
@@ -1553,6 +1666,7 @@ export async function resumeFixture(
       SELECT id FROM "user" WHERE lower(email) = ${EMAIL.toLowerCase()}
     `;
     const userId = row!.id;
+    await armSessionCookieWitness(page.context(), net.origin, userId);
     await resetAccount(userId);
     await enableSmartRewindForOracle(page, userId, `${net.origin}/library`);
     await assertEngineCanStoreMedia(page);
@@ -1675,6 +1789,7 @@ export async function closeResumeFixture(): Promise<void> {
     await device.browser.close().catch(() => undefined);
     device = null;
   }
+  sessionCookieWitness = null;
   await closeSql();
 }
 
@@ -1793,6 +1908,7 @@ async function relaunch(
     ]);
   }
   const page = trackCrash(await context.newPage());
+  await restoreDiscardedCookieJar(context);
   await page.goto(`${origin}${RESTORE_PATH}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
   expect(
     await page.title(),
@@ -2176,6 +2292,7 @@ async function readQueuedProgress(
 /** This device's durable local record for one book, exactly as written. */
 export type LocalRecord = {
   positionMs: number | null;
+  positionAtWrite: number | null;
   occurredAt: number | null;
   completed: boolean | null;
   playbackRate: number | null;
@@ -2188,6 +2305,7 @@ export type LocalRecord = {
   source: string | null;
   writtenAt: number | null;
   playingAtWrite: boolean | null;
+  writerId: string | null;
 };
 
 async function readLocalRecord(page: Page, userId: string, bookId: string): Promise<LocalRecord> {
@@ -2195,12 +2313,14 @@ async function readLocalRecord(page: Page, userId: string, bookId: string): Prom
     ([user, book]) => {
       const empty = {
         positionMs: null,
+        positionAtWrite: null,
         occurredAt: null,
         completed: null,
         playbackRate: null,
         source: null,
         writtenAt: null,
         playingAtWrite: null,
+        writerId: null,
       };
       try {
         const raw = localStorage.getItem(`chapterline:position:${user}:${book}`);
@@ -2208,12 +2328,15 @@ async function readLocalRecord(page: Page, userId: string, bookId: string): Prom
         const parsed = JSON.parse(raw) as Record<string, unknown>;
         return {
           positionMs: typeof parsed.positionMs === "number" ? parsed.positionMs : null,
+          positionAtWrite:
+            typeof parsed.positionAtWrite === "number" ? parsed.positionAtWrite : null,
           occurredAt: typeof parsed.occurredAt === "number" ? parsed.occurredAt : null,
           completed: typeof parsed.completed === "boolean" ? parsed.completed : null,
           playbackRate: typeof parsed.playbackRate === "number" ? parsed.playbackRate : null,
           source: typeof parsed.source === "string" ? parsed.source : null,
           writtenAt: typeof parsed.writtenAt === "number" ? parsed.writtenAt : null,
           playingAtWrite: typeof parsed.playingAtWrite === "boolean" ? parsed.playingAtWrite : null,
+          writerId: typeof parsed.writerId === "string" ? parsed.writerId : null,
         };
       } catch {
         return empty;
@@ -3531,6 +3654,7 @@ export async function measureCrossBookAbsence(spec: {
   const otherTitle = bookTitleFor(spec.otherBookIndex);
   const absentId = books.get(absentTitle)!.id;
   const otherId = books.get(otherTitle)!.id;
+  const otherDurationMs = books.get(otherTitle)!.durationMs;
   await sql()`DELETE FROM playback_states WHERE book_id IN (${absentId}, ${otherId})`;
 
   net.restore();
@@ -3557,6 +3681,12 @@ export async function measureCrossBookAbsence(spec: {
     playedMs = Math.round(sample.positionMs - startedAtMs);
     const otherStoredMs = Math.round(sample.positionMs);
     expect(ticks, `${spec.scenario}: nothing played, so nothing was measured`).toBeGreaterThan(2);
+    expect(
+      otherStoredMs,
+      `${spec.scenario}: the untouched book reached ${otherStoredMs}ms in a ` +
+        `${otherDurationMs}ms fixture. Reopening inside the final second correctly restarts a ` +
+        "completed book from zero, so this row has no headroom to measure cross-book rewind.",
+    ).toBeLessThan(otherDurationMs - 1_000);
 
     // The book the user really is away from: play it, pause it, leave it.
     await openPlayer(session.page, origin, absentId, absentTitle);
@@ -4098,17 +4228,27 @@ export async function measureCompletionAcrossBooks(spec: {
       (window as unknown as { __f2SameDocument?: number }).__f2SameDocument = Date.now();
     });
     await scrubber.fill(String(nearEndMs));
+    let endedObserved = false;
     await expect
-      .poll(() => session.page.evaluate(() => document.querySelector("audio")?.ended ?? false), {
-        timeout: 60_000,
-        message:
-          `${spec.scenario}: the book never reached its end after being scrubbed to ` +
-          `${nearEndMs}ms of ${durationMs}ms, so it was never finished`,
-      })
+      .poll(
+        async () => {
+          const ended = await session.page.evaluate(
+            () => document.querySelector("audio")?.ended ?? false,
+          );
+          // Autoplay immediately swaps the audio element to the next book. Latch
+          // this witness inside the successful poll instead of rereading a
+          // different source after the assertion has already proved the end.
+          if (ended) endedObserved = true;
+          return ended;
+        },
+        {
+          timeout: 60_000,
+          message:
+            `${spec.scenario}: the book never reached its end after being scrubbed to ` +
+            `${nearEndMs}ms of ${durationMs}ms, so it was never finished`,
+        },
+      )
       .toBe(true);
-    const endedObserved = await session.page.evaluate(
-      () => document.querySelector("audio")?.ended ?? false,
-    );
     notes.push(`scrubbed to ${nearEndMs}ms of ${durationMs}ms and played to the end`);
 
     // Read AT ONCE, and never by polling the server.
@@ -4271,10 +4411,10 @@ export type TwoDeviceRow = {
   deviceALostMs: number;
   deviceBLostMs: number;
   /**
-   * The rewind the app's own ladder credits each device on its final open.
-   * Both devices paused through the UI, and the cross-device leg takes real
-   * wall-clock time, so a bounded smart rewind is legitimate here and is
-   * subtracted from the "lost" columns rather than being charged to the bug.
+   * The rewind the app's own ladder credits each device on its final open. The
+   * app-created pause markers are pinned inside one stable rung by the harness,
+   * so mounting across a threshold cannot make the measurement disagree with
+   * the rewind the app actually applies.
    */
   rewindCreditedA: number;
   rewindCreditedB: number;
@@ -4454,8 +4594,17 @@ export async function measureTwoDeviceResume(spec: {
     const serverAfterForegroundMs = (await readServerProgress(bookId))?.positionMs ?? null;
 
     // ------------------------------------------------- what each device shows
-    // The rewind each device is owed is read BEFORE its open, because the open
-    // is what consumes the marker.
+    // Pin both app-created markers inside the 5 s rung before their final open.
+    // This journey naturally finishes near the 60 s boundary under load; reading
+    // the marker at 59 s and mounting the player at 61 s otherwise reports 0 ms
+    // of credit for the 5 s rewind the app correctly applies. Ageing refuses to
+    // create a marker, and two minutes leaves ample room below the next rung.
+    const stableAbsenceMs = 2 * 60_000;
+    const agedB = await ageAbsenceMarker(pageB, userId, bookId, stableAbsenceMs);
+    expect(
+      agedB,
+      `${spec.scenario}: device B did not retain the pause marker its own UI wrote`,
+    ).not.toBeNull();
     const inputsB = await readRewindInputs(pageB, userId, bookId);
     assertMarkerKeyShape(spec.scenario, userId, inputsB.markerKeysSeen);
     const rewindCreditedB = expectedRewindMs(inputsB);
@@ -4477,6 +4626,11 @@ export async function measureTwoDeviceResume(spec: {
       `device A local record before its own navigation ${JSON.stringify(localABeforeNav)}, ` +
         `after ${JSON.stringify(localAAfterNav)}`,
     );
+    const agedA = await ageAbsenceMarker(pageA, userId, bookId, stableAbsenceMs);
+    expect(
+      agedA,
+      `${spec.scenario}: device A did not retain the pause marker its own UI wrote`,
+    ).not.toBeNull();
     const inputsA = await readRewindInputs(pageA, userId, bookId);
     assertMarkerKeyShape(spec.scenario, userId, inputsA.markerKeysSeen);
     const rewindCreditedA = expectedRewindMs(inputsA);

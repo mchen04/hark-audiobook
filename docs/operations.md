@@ -1,19 +1,22 @@
 # Operations
 
-Last reviewed: 2026-07-28
+Last reviewed: 2026-08-09
 
 ## Deployment shape
 
-- Single Next.js instance (`pnpm build && pnpm start`) behind HTTPS. The
-  service worker and installability require a secure origin (localhost counts
-  for development).
+- Next.js (`pnpm build && pnpm start`, or Vercel) behind HTTPS. The service
+  worker and installability require a secure origin (localhost counts for
+  development). Application instances are stateless; sessions, metadata, and
+  auth attempt budgets are shared through Postgres.
 - Set `BETTER_AUTH_URL` to the public origin; mutation requests from any other
   origin are rejected.
 - The server stores metadata only; audio bytes live in each device's browser
   storage. There is no object storage to provision.
-- Auth rate limiting is in-memory and assumes a single instance. Multi-instance
-  deployments need a shared store (Better Auth supports database storage at
-  ~2 extra database round trips per auth request).
+- Auth rate limiting uses an app-owned atomic database adapter over the
+  `rate_limit` table, so cold starts and multiple instances share one
+  per-IP/path attempt budget. Its cleanup retention is derived from every
+  configured rule (currently ten minutes); Better Auth 1.6's built-in database
+  cleanup omits custom-rule windows and must not replace it.
 - Session validation is authoritative against Postgres so password resets and
   explicit revocations take effect immediately on every API route.
 - Postgres: Vercel runs `pnpm db:migrate` before its production build. Preview
@@ -49,9 +52,11 @@ restore live data from Neon snapshots or `pg_dump`, never from Drizzle metadata.
 
 - Book deletion: the rows cascade server-side and the client removes the
   device-local bytes in the same flow.
-- Account deletion: requires the email and current password; cascades every row,
-  expires the session cookie, and clears the device's local data for that user
-  (local books, queues, positions, preferences).
+- Account deletion: requires the email and current password, then journals a
+  short-lived deletion intent on the device. The device purge completes before
+  the idempotent server commit cascades every row and expires the cookie. A
+  crash or lost success response resumes from that journal, so a deleted
+  account cannot leave its local mirror behind.
 - Export: `GET /api/account/export` returns all metadata, chapters, progress,
   playback history, legacy saved positions, collections, tags, sessions, and preferences as JSON.
   Audio bytes are the user's own files and are not duplicated.
@@ -65,20 +70,29 @@ restore live data from Neon snapshots or `pg_dump`, never from Drizzle metadata.
   authentication, imports, storage, service workers, or playback.
 - Media Session action support varies by browser; unsupported actions are
   feature-detected and skipped without affecting playback.
+- CI runs the 24 resume rows Playwright WebKit can exercise honestly. The full
+  `pnpm test:resume` command also runs the two real-iOS hidden-state rows and is
+  expected to label them `UNCOVERED` on this engine; use the physical-device
+  checklist rather than weakening or silently skipping that residual.
 - Browsers may evict Cache Storage under storage pressure; the app requests
   persistent storage when importing, clears stale download metadata when the
   matching media entry is gone, and surfaces an original-file reattach flow
   instead of pretending the book is playable.
 - Playback actions are written to IndexedDB first and replayed after reconnect;
   both local and server stores retain only the newest 50 actions per audiobook.
+- `chapterline:active-user` is observed across tabs. Completing sign-out in one
+  tab revokes peer shells, stops their player, and redirects them to `/login`;
+  the parity gate waits beyond a heartbeat and proves no departed-account data
+  is recreated.
 
 ## Troubleshooting
 
 - **Stale UI after deploy**: the service worker takes over on the next
-  navigation (skipWaiting + clients.claim); hashed chunks keep old pages
-  working. If a client ever shows chunk 404s, one reload fixes it — that state
-  only arises when the server was restarted mid-deploy against a half-written
-  `.next`.
+  navigation (skipWaiting + clients.claim). A shell refresh promotes the new
+  document only after all of its hashed chunks are cached, so a transient chunk
+  failure keeps the previous working shell. If a development client sees a
+  chunk 404 after `.next` was replaced under a running server, restart that
+  server and reload once.
 - **Import fails with "not a valid MP3"**: the file must be a real MPEG
   Layer 3 file; renamed non-MP3s are rejected by the in-browser parser.
 - **"This device does not have enough free storage"**: the import is bounded

@@ -1,4 +1,5 @@
 import { ACTIVE_USER_KEY } from "@/lib/app-keys";
+import { forgetActiveUserId } from "@/lib/active-user";
 import {
   listQueuedMutationUserIds,
   listQueuedMutations,
@@ -143,16 +144,16 @@ export async function purgeAccount(userId: string): Promise<void> {
   // signing back in cannot restart its counters below what the server already
   // recorded. See `purgeDeviceSequencesForUser`.
   await step("device sequence purge", () => purgeDeviceSequencesForUser(userId));
-  // Sign-out is an unconditional statement that this device is no longer the
-  // account's, so the key goes even when a step above could not finish.
+  // Every account boundary is an unconditional statement that this device is
+  // no longer writable as the account, so the key goes even when a sweep step
+  // above could not finish. Account deletion installs its durable fence first.
   await step("active user key", async () => forgetActiveUser(userId));
 
   if (failures.length) throw asPurgeFailure("the account purge", failures);
 }
 
 function forgetActiveUser(userId: string): void {
-  if (typeof localStorage === "undefined") return;
-  if (localStorage.getItem(ACTIVE_USER_KEY) === userId) localStorage.removeItem(ACTIVE_USER_KEY);
+  forgetActiveUserId(userId);
 }
 
 /** One error when there is one, an aggregate when the sweep lost several. */

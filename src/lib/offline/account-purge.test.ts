@@ -3,6 +3,7 @@ import "fake-indexeddb/auto";
 import { IDBFactory as FakeIDBFactory } from "fake-indexeddb";
 
 import { ACTIVE_USER_KEY } from "@/lib/app-keys";
+import { subscribeActiveUser } from "@/lib/active-user";
 import { listQueuedMutations, nextDeviceSequence } from "@/lib/offline-sync";
 import { listPendingPlaybackActions, storePlaybackAction } from "@/lib/playback-history";
 import {
@@ -391,7 +392,7 @@ describe("account purge", () => {
 describe("purge runs on both sign-out and sign-in", () => {
   async function fire(url: string, data?: unknown) {
     const { runAccountPurge } = await import("@/lib/auth-client");
-    vi.stubGlobal("window", globalThis);
+    vi.stubGlobal("window", new EventTarget());
     await runAccountPurge({ request: { url }, data });
   }
 
@@ -441,7 +442,7 @@ describe("purge runs on both sign-out and sign-in", () => {
    */
   it("captures the departing account before the caller can clear the key", async () => {
     const { runAccountPurge } = await import("@/lib/auth-client");
-    vi.stubGlobal("window", globalThis);
+    vi.stubGlobal("window", new EventTarget());
     await seedAccount(USER_A);
     storage.setItem(ACTIVE_USER_KEY, USER_A);
 
@@ -679,6 +680,26 @@ describe("a failing purge step does not abandon the ones after it", () => {
     expect(await deletionRowsFor(USER_A), "the deletion journal outlived the failure").toBe(0);
     expect(await sequenceRowsFor(USER_A), "the replay counters outlived the failure").toBe(0);
     expect(storage.getItem(ACTIVE_USER_KEY)).toBe(null);
+  });
+
+  it("notifies the initiating document when the active account is revoked", async () => {
+    await seedAccount(USER_A);
+    storage.setItem(ACTIVE_USER_KEY, USER_A);
+    const currentWindow = new EventTarget();
+    vi.stubGlobal("window", currentWindow);
+    const changed = vi.fn();
+    const unsubscribe = subscribeActiveUser(changed);
+
+    try {
+      await purgeAccount(USER_A);
+    } finally {
+      unsubscribe();
+    }
+
+    expect(
+      changed,
+      "the purge removed the key before the notifying owner could emit the same-document event",
+    ).toHaveBeenCalledTimes(1);
   });
 });
 

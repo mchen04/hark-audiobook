@@ -2,8 +2,8 @@
 
 ## Status
 
-Decision record started 2026-07-09; last reconciled with the code on 2026-07-28
-after the resume-durability pass and repository-anatomy audit.
+Decision record started 2026-07-09; last reconciled with the code on 2026-08-09
+after the full-codebase UI, offline, sync, and authentication audit.
 Update this document whenever executable reality changes.
 
 `docs/local-first.md` is the design contract for that pass — what is mirrored,
@@ -34,9 +34,16 @@ The app accepts one MP3 as one audiobook. Every account is a solo private worksp
   the update lifecycle
 - Vitest for unit/integration logic, Playwright for the WebKit PWA flow and the
   launch/parity/sync projects, and `agent-browser` for end-to-end UI verification
+- GitHub Actions runs the non-browser gate and every executable Playwright gate
+  in isolated jobs backed by local Postgres; browser failures retain visual traces
 - A docker-compose Postgres 18 on `127.0.0.1:54329` for every test suite, with a
   guard (`scripts/lib/assert-local-database.mjs`) that refuses a hosted
   `DATABASE_URL`
+
+The resume job intentionally runs the 24 rows this Playwright WebKit can
+exercise. The full 26-row command retains two real-iOS hidden-state assertions
+as honest `UNCOVERED` failures; the physical-device procedure lives in
+`docs/resume-durability-device-check.md`.
 
 ## Why this stack
 
@@ -92,6 +99,16 @@ critical path.
   `playback_action_receipts` idempotency ledger are server-authoritative and are
   never mirrored: a device may not mint its own session, and only the server
   writes its own receipt ledger.
+- Rate-limit enforcement uses an atomic Postgres adapter whose cleanup horizon
+  includes custom ten-minute signup and reset rules; process-local memory and
+  Better Auth's shorter built-in cleanup are not enforcement boundaries.
+- The active account is a subscribed browser external store, not a server prop
+  that stays authoritative forever. Storage events revoke peer tabs after
+  sign-out so a mounted player cannot retain or recreate the departed account.
+- A cached `/books/:id` fallback is resolved directly from mirrored book,
+  chapter, media, and progress metadata. Missing local audio renders the same
+  verified attach gate as the online route; it never falls through to library
+  chrome at a player URL.
 
 ## Media flow
 
@@ -151,8 +168,9 @@ pending deletion journal comes through intact.
   IndexedDB database (`hark-playback-history-v1`). Reads reconcile IndexedDB
   against Cache Storage so an OS-evicted media entry becomes an honest reattach
   flow instead of a broken player.
-- Account deletion clears that user's local books, mirror, queues, positions,
-  and preferences on the device; sign-out purges the account that is leaving,
+- Account deletion journals a verified intent, clears that user's local books,
+  mirror, queues, positions, and preferences, and then performs an idempotent
+  server commit; sign-out purges the account that is leaving,
   and sign-in purges every account _other_ than the one signing in — never the
   incoming account's own downloads, which exist nowhere else.
 
@@ -173,6 +191,10 @@ Writes go through the outbox (`src/lib/offline-sync/`, database
   `archive`, `delete`, `history`. `MUTATION_COALESCING` states the policy per
   kind: progress collapses to the highest device sequence, renames/archive/tag
   and collection edges replace, and `import`/`delete`/`history` never coalesce.
+- Replay reconciles the complete local playback tuple before sending. A newer
+  position is ordered by `occurredAt`; a same-position rate or completion
+  change is ordered by `writtenAt`. Either replacement mints a fresh device
+  sequence, while a late write of an older position remains stale.
 - **Retry on launch and reconnect, never in the background.** iOS will not wake
   a closed PWA, so the queue drains only while the app is open, and no UI
   implies otherwise.
@@ -192,7 +214,7 @@ reconnect.
 
 ## Launch path
 
-`public/sw.js` (shell cache `chapterline-shell-v6`) answers a `/library`
+`public/sw.js` (shell cache `chapterline-shell-v7`) answers a `/library`
 navigation from the cached user-agnostic shell **without calling `fetch` at
 all**. That shell is the `/offline` document, which renders the same `AppShell`
 and the same `LibraryClient` as `/library` and contains no book rows and no user
@@ -209,10 +231,20 @@ renders no user rows.
   render for itself (`/`, `/library`, `/offline`, `/books/:id`) gets the shell,
   and an auth page gets a self-contained notice rather than being bounced back
   to `/login` forever.
-- Install precaches the shell plus the `/_next/static` chunks parsed out of it,
-  because a shell whose chunks are missing is a blank screen with extra steps.
-  A deployment renames those chunks without changing `sw.js`, so the page posts
-  `REFRESH_SHELL` once it has gone idle after launch.
+- Install precaches the shell and every parsed `/_next/static` chunk into a
+  unique immutable generation, but leaves the active document untouched. It
+  records a durable ready pointer outside the live cache; activation claims the
+  clients before promoting that generation, so the old worker can never serve
+  a new document whose chunks only the new handler can find. A deployment also
+  prompts the active page to post `REFRESH_SHELL` after launch goes idle. Both
+  paths publish `/library?source=pwa` as the single commit point only after the
+  generation is complete, so a failed asset fetch leaves the previous shell
+  live. Cleanup deletes whole unreferenced generations rather than individual
+  chunks. It retains generations named by either live document, a pending
+  install, or a durable lease for a live window; long-lived offline tabs can
+  therefore lazy-load their original chunks across any number of refreshes,
+  while closed-window leases and their generations are reclaimed on the next
+  sweep.
 - Revalidation (`src/lib/launch-revalidation.ts`) waits for the render that sets
   `data-launch-ready`, then for 500ms of quiet and an idle callback, before it
   touches the network. A device that has never completed a pull is the one

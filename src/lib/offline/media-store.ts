@@ -1,4 +1,5 @@
 import type { PlayerBook } from "@/domain/player";
+import { assertAccountWritable } from "@/lib/account-deletion-fence";
 import { createCoverThumbnail } from "@/lib/cover-thumbnail";
 import { runBounded } from "@/lib/run-bounded";
 
@@ -54,6 +55,7 @@ export async function storeLocalBookMedia(
   onProgress?: (fraction: number) => void,
   slot?: MediaSlot,
 ): Promise<OfflineBook> {
+  assertAccountWritable(userId);
   const key = offlineBookKey(userId, book.id);
   const startedAt = Date.now();
   const write = async () => {
@@ -211,6 +213,7 @@ async function storeLocalBookMediaUnlocked(
   let existing: OfflineBook | undefined;
   try {
     existing = await getStoredOfflineBook(userId, book.id);
+    assertAccountWritable(userId);
     await db.put("downloads", record);
     const [storedRecord, storedMedia] = await Promise.all([
       db.get("downloads", key),

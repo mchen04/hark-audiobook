@@ -128,6 +128,10 @@ export const progressSchema = z.strictObject({
   playbackRate: z.number().min(0.5).max(3),
   completed: z.boolean(),
   eventOccurredAt: z.coerce.date(),
+  playbackRateOccurredAt: z.coerce.date().optional(),
+  completedOccurredAt: z.coerce.date().optional(),
+  /** Accepted from clients that predate the independent field clocks. */
+  stateOccurredAt: z.coerce.date().optional(),
 });
 
 export const playbackActionSchema = z.strictObject({

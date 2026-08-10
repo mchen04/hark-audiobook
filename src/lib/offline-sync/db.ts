@@ -7,6 +7,7 @@ import {
 } from "idb";
 
 import { ACTIVE_USER_KEY } from "@/lib/app-keys";
+import type { PlaybackPredecessor } from "@/lib/playback-core";
 
 const DATABASE_NAME = "chapterline-sync-v1";
 const SYNC_DATABASE_VERSION = 5;
@@ -38,6 +39,8 @@ export type QueuedMutation = {
   deviceSequence: number;
   queuedAt: number;
   attempts: number;
+  /** Local-only causal predecessor for an acknowledged progress write. */
+  progressPredecessor?: PlaybackPredecessor;
 };
 
 export type QueuedProgress = {
@@ -49,6 +52,12 @@ export type QueuedProgress = {
   playbackRate: number;
   completed: boolean;
   eventOccurredAt: string;
+  playbackRateOccurredAt?: string;
+  completedOccurredAt?: string;
+  /** Legacy combined clock accepted from queued rows written by older clients. */
+  stateOccurredAt?: string;
+  /** Never serialized; distinguishes a lost local save from a later held action. */
+  predecessor?: PlaybackPredecessor;
 };
 
 /** The legacy v1–v3 record, read only by the v4 upgrade. */
@@ -215,6 +224,11 @@ export function progressPayload(entry: Omit<QueuedProgress, "userId">): Record<s
     playbackRate: entry.playbackRate,
     completed: entry.completed,
     eventOccurredAt: entry.eventOccurredAt,
+    ...(entry.playbackRateOccurredAt
+      ? { playbackRateOccurredAt: entry.playbackRateOccurredAt }
+      : {}),
+    ...(entry.completedOccurredAt ? { completedOccurredAt: entry.completedOccurredAt } : {}),
+    ...(entry.stateOccurredAt ? { stateOccurredAt: entry.stateOccurredAt } : {}),
   };
 }
 

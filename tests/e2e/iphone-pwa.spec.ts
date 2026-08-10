@@ -79,8 +79,14 @@ test("imports from iPhone Downloads, plays, seeks, relaunches, and works offline
     .poll(() => page.getByRole("slider", { name: "Audiobook position" }).inputValue())
     .not.toBe("0");
 
-  await page.getByRole("slider", { name: "Audiobook position" }).fill("4000");
-  await expect(page.getByRole("slider", { name: "Audiobook position" })).toHaveValue("4000");
+  // Pause before the synthetic seek so the padded multi-chunk fixture cannot
+  // race WebKit's decoder to `ended`. The seek is deliberately well inside the
+  // eight seconds of real MPEG frames; the trailing four MiB only exercises
+  // storage chunking and is not playable media.
+  await page.getByRole("button", { name: "Pause" }).click();
+  await expect(page.getByRole("button", { name: "Play" })).toBeVisible();
+  await page.getByRole("slider", { name: "Audiobook position" }).fill("2000");
+  await expect(page.getByRole("slider", { name: "Audiobook position" })).toHaveValue("2000");
 
   await page.reload();
   await expect(page.getByRole("heading", { name: "iPhone Downloads Test" })).toBeVisible();

@@ -29,6 +29,7 @@ export {
   MUTATION_COALESCING,
   newMutationId,
   queueMutation,
+  queueMutationWithOutcome,
   queueProgress,
   toProgressBody,
   withProgressMutationLock,
@@ -38,6 +39,7 @@ export {
   currentDeviceSequence,
   nextDeviceSequence,
   purgeDeviceSequencesForUser,
+  reserveDeviceSequenceAbove,
 } from "./offline-sync/sequences";
 export {
   REPLAY_CONCURRENCY,
@@ -48,7 +50,16 @@ export {
   type ReplayRequest,
 } from "./offline-sync/replay";
 export {
+  duplicateProgressRetryFloor,
+  reconcileAcceptedProgress,
+  reconcileAcceptedProgressWithStatus,
   reconcileProgressConflict,
   registerImportReattachedHandler,
   registerProgressConflictHandler,
 } from "./offline-sync/reconcile";
+export {
+  applyPendingProgressNormalizations,
+  applyPendingProgressNormalizationsForUser,
+  listProgressNormalizations,
+  purgeProgressNormalizationsForUser,
+} from "./offline-sync/normalizations";

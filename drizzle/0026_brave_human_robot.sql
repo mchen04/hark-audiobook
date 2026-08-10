@@ -1,0 +1,1 @@
+ALTER TABLE "playback_states" ADD COLUMN "state_occurred_at" timestamp with time zone;

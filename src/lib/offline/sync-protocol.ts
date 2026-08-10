@@ -55,6 +55,10 @@ export type PulledPlaybackState = {
   deviceId: string;
   deviceSequence: number;
   eventOccurredAt: string;
+  playbackRateOccurredAt?: string;
+  completedOccurredAt?: string;
+  /** Legacy combined clock, retained for older pulled rows and clients. */
+  stateOccurredAt?: string;
   updatedAt: string;
 };
 
@@ -143,6 +147,7 @@ export function isPullBatch(value: unknown): value is PullBatch {
     Array.isArray(batch.books) &&
     batch.books.every(isPulledBook) &&
     Array.isArray(batch.playbackStates) &&
+    batch.playbackStates.every(isPulledPlaybackState) &&
     Array.isArray(batch.tags) &&
     Array.isArray(batch.collections) &&
     batch.collections.every((entry) => Array.isArray(entry?.books)) &&
@@ -153,6 +158,25 @@ export function isPullBatch(value: unknown): value is PullBatch {
         batch.liveBookIds.every((id) => typeof id === "string"))) &&
     (batch.tombstones === undefined ||
       (Array.isArray(batch.tombstones) && batch.tombstones.every(isPulledTombstone)))
+  );
+}
+
+function isPulledPlaybackState(value: unknown): value is PulledPlaybackState {
+  const state = value as PulledPlaybackState | null;
+  return (
+    !!state &&
+    typeof state.bookId === "string" &&
+    typeof state.positionMs === "number" &&
+    typeof state.playbackRate === "number" &&
+    typeof state.completed === "boolean" &&
+    typeof state.deviceId === "string" &&
+    typeof state.deviceSequence === "number" &&
+    typeof state.eventOccurredAt === "string" &&
+    (state.playbackRateOccurredAt === undefined ||
+      typeof state.playbackRateOccurredAt === "string") &&
+    (state.completedOccurredAt === undefined || typeof state.completedOccurredAt === "string") &&
+    (state.stateOccurredAt === undefined || typeof state.stateOccurredAt === "string") &&
+    typeof state.updatedAt === "string"
   );
 }
 

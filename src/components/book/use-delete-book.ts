@@ -3,12 +3,12 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { UNLOAD_PLAYER_EVENT } from "@/lib/app-keys";
+import { useOpenLocalLibrary } from "@/components/app-navigation";
+import { UNLOAD_PLAYER_EVENT, type UnloadPlayerDetail } from "@/lib/app-keys";
 import { replayQueuedMutations } from "@/lib/offline-sync";
 import { removeOfflineBook } from "@/lib/offline/deletion-journal";
 import { commitBookDeletion } from "@/lib/offline/outbox";
 import { clearLocalPlaybackState, getDeviceId } from "@/lib/playback-core";
-import { clearPlaybackHistoryForBook } from "@/lib/playback-history";
 
 /**
  * The one delete-book flow: confirm tap, journalled delete, player unload,
@@ -20,8 +20,14 @@ import { clearPlaybackHistoryForBook } from "@/lib/playback-history";
  * durable *before* this device destroys the only copy of the audio, so the
  * server can never be left holding a book whose bytes are already gone.
  */
-export function useDeleteBook(userId: string, bookId: string, onError: (message: string) => void) {
+export function useDeleteBook(
+  userId: string,
+  bookId: string,
+  onError: (message: string) => void,
+  mediaFingerprint?: string | null,
+) {
   const router = useRouter();
+  const openLocalLibrary = useOpenLocalLibrary();
   const [deleting, setDeleting] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
@@ -32,14 +38,16 @@ export function useDeleteBook(userId: string, bookId: string, onError: (message:
     }
     setDeleting(true);
     try {
-      await commitBookDeletion({ userId, deviceId: getDeviceId() }, bookId);
+      await commitBookDeletion({ userId, deviceId: getDeviceId() }, bookId, mediaFingerprint);
     } catch {
       setDeleting(false);
       setConfirming(false);
       onError("This device could not record the deletion. Try again.");
       return;
     }
-    window.dispatchEvent(new Event(UNLOAD_PLAYER_EVENT));
+    window.dispatchEvent(
+      new CustomEvent<UnloadPlayerDetail>(UNLOAD_PLAYER_EVENT, { detail: { userId, bookId } }),
+    );
     // AFTER the unload, never before. `UNLOAD_PLAYER_EVENT` is dispatched
     // synchronously and `unloadBook` makes the position durable on its way out
     // — correct for leaving a player, wrong for a book that is being destroyed.
@@ -48,13 +56,12 @@ export function useDeleteBook(userId: string, bookId: string, onError: (message:
     // would otherwise use to resurrect a playback row for a deleted book on
     // every launch.
     clearLocalPlaybackState(userId, bookId);
-    await clearPlaybackHistoryForBook(userId, bookId).catch(() => undefined);
-    await removeOfflineBook(userId, bookId).catch(() => {
+    await removeOfflineBook(userId, bookId, { clearPlaybackHistory: true }).catch(() => {
       onError("The book was deleted, but device cleanup will retry automatically.");
     });
     void replayQueuedMutations(userId).catch(() => undefined);
-    router.push("/library");
-    if (navigator.onLine) router.refresh();
+    if (openLocalLibrary) openLocalLibrary();
+    else router.push("/library");
   }
 
   return {

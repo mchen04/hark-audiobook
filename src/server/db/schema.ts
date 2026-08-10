@@ -100,7 +100,10 @@ export const rateLimit = pgTable(
     count: integer("count").notNull(),
     lastRequest: bigint("last_request", { mode: "number" }).notNull(),
   },
-  (table) => [check("rate_limit_count_nonnegative", sql`${table.count} >= 0`)],
+  (table) => [
+    index("rate_limit_last_request_idx").on(table.lastRequest),
+    check("rate_limit_count_nonnegative", sql`${table.count} >= 0`),
+  ],
 );
 
 export const books = pgTable(
@@ -235,6 +238,10 @@ export const playbackStates = pgTable(
     deviceId: varchar("device_id", { length: 100 }).notNull(),
     deviceSequence: bigint("device_sequence", { mode: "number" }).default(0).notNull(),
     eventOccurredAt: timestamp("event_occurred_at", { withTimezone: true }).notNull(),
+    playbackRateOccurredAt: timestamp("playback_rate_occurred_at", { withTimezone: true }),
+    completedOccurredAt: timestamp("completed_occurred_at", { withTimezone: true }),
+    /** Combined legacy clock retained for rolling deploys and older clients. */
+    stateOccurredAt: timestamp("state_occurred_at", { withTimezone: true }),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [

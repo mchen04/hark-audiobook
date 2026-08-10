@@ -1,11 +1,17 @@
 # Resume durability: the one check that needs a real iPhone
 
-Last reviewed: 2026-07-28
+Last reviewed: 2026-08-09
 
 Everything else about resume position is measured automatically in WebKit by the
 `resume-durability` Playwright project (`tests/resume/`). This file covers the single
 question that project **cannot** answer, why it cannot, and how to settle it by hand in
 about two minutes.
+
+CI runs `pnpm test:resume:ci`: 24 executable rows. `pnpm test:resume` keeps all
+26 rows and therefore reports T1 hidden online/offline as `UNCOVERED` on the
+pinned Playwright WebKit. Those two failures are intentional evidence gaps, not
+product failures and not green checks. If a future engine produces a genuine
+hidden transition, the full command is the promotion test.
 
 ## What is already proven, automatically
 

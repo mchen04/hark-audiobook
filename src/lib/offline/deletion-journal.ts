@@ -1,4 +1,5 @@
 import { runBounded } from "@/lib/run-bounded";
+import { clearPlaybackHistoryForBook } from "@/lib/playback-history";
 
 import {
   database,
@@ -16,19 +17,34 @@ const CACHE_DELETE_CONCURRENCY = 8;
  * Deletions are journaled before any bytes are removed so a crash mid-delete
  * leaves a retryable record instead of orphaned cache entries.
  */
-export async function removeOfflineBook(userId: string, bookId: string) {
+export async function removeOfflineBook(
+  userId: string,
+  bookId: string,
+  options: { clearPlaybackHistory?: boolean } = {},
+) {
   const key = offlineBookKey(userId, bookId);
   await withMediaWriteLock(key, async () => {
     const db = await database();
     const existing = await db.get("downloads", key);
-    await db.put("deletions", {
+    const pending = await db.get("deletions", key);
+    const operationId =
+      pending && !pending.completedAt
+        ? (pending.operationId ?? crypto.randomUUID())
+        : crypto.randomUUID();
+    const journal = {
+      ...pending,
       key,
       userId,
       bookId,
+      operationId,
       offlineMediaUrl: existing?.offlineMediaUrl,
       offlineCoverUrl: existing?.offlineCoverUrl,
       offlineCoverThumbUrl: existing?.offlineCoverThumbUrl,
-    });
+      clearPlaybackHistory:
+        pending?.clearPlaybackHistory === true || options.clearPlaybackHistory === true,
+    };
+    delete journal.completedAt;
+    await db.put("deletions", journal);
     await completeOfflineDeletion(db, key);
   });
 }
@@ -74,17 +90,35 @@ async function completeOfflineDeletion(db: OfflineDb, key: string): Promise<void
   const bookId = pending?.bookId || existing?.book.id;
   const userId = pending?.userId || existing?.userId;
   if (bookId && userId) {
-    await deleteBookTranscript(db, userId, bookId).catch(() => undefined);
+    await deleteBookTranscript(db, userId, bookId);
+    if (pending?.clearPlaybackHistory) {
+      await clearPlaybackHistoryForBook(userId, bookId);
+    }
   }
   await db.delete("downloads", key);
   if (pending) {
-    await db.put("deletions", {
-      ...pending,
-      offlineMediaUrl: undefined,
-      offlineCoverUrl: undefined,
-      offlineCoverThumbUrl: undefined,
-      completedAt: Date.now(),
-    });
+    // Account purge may have deleted this row while Cache Storage or history
+    // cleanup was awaited. Re-read and complete it in one transaction: a
+    // removed row stays removed, and a newer removal attempt is never marked
+    // complete using the older attempt's work.
+    const transaction = db.transaction("deletions", "readwrite");
+    const current = await transaction.store.get(key);
+    if (
+      current &&
+      (pending.operationId
+        ? current.operationId === pending.operationId
+        : current.operationId === undefined)
+    ) {
+      await transaction.store.put({
+        ...current,
+        offlineMediaUrl: undefined,
+        offlineCoverUrl: undefined,
+        offlineCoverThumbUrl: undefined,
+        clearPlaybackHistory: current.clearPlaybackHistory,
+        completedAt: Date.now(),
+      });
+    }
+    await transaction.done;
   }
 }
 
