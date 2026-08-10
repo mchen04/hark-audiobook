@@ -109,6 +109,10 @@ critical path.
 - The active account is a subscribed browser external store, not a server prop
   that stays authoritative forever. Storage events revoke peer tabs after
   sign-out so a mounted player cannot retain or recreate the departed account.
+- Sign-out adds a separate origin-wide write fence after its final queue drain.
+  Long media work observes that fence as cancellation and shares an account
+  lock with purge; a verification pass catches any short write that was already
+  between fence checks.
 - A cached `/books/:id` fallback is resolved directly from mirrored book,
   chapter, media, and progress metadata. Missing local audio renders the same
   verified attach gate as the online route; it never falls through to library

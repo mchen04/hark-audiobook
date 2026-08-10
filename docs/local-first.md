@@ -510,6 +510,15 @@ The two purges have deliberately different targets:
 - **Sign-in** purges every account _other_ than the one signing in — never the
   incoming account's own data.
 
+Sign-out drains queued writes first, then installs an origin-wide write fence
+before the auth request leaves. The fence cancels document narration and media
+writes in every tab; those operations share an account lock with purge, so the
+sweep cannot snapshot around a writer or wait for hours of uncancelled speech.
+After the lock drains, purge verifies that no account-indexed row was recreated
+and repeats the sweep once if a write already in flight crossed the boundary.
+The fence is cleared when a failed sign-out leaves the session usable, or after
+a completed purge has removed the active identity.
+
 That asymmetry is load-bearing. Purging the incoming account's own data on every
 login would delete its downloaded audio, and per section 1 those MP3s exist
 nowhere else in the world — the server has never held the bytes. Wiping every

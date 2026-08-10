@@ -72,7 +72,7 @@ describe("local MP3 import", () => {
       // the server answered with: everything written under the minted id has to
       // be inside one slot for a later reattach to be able to move all of it.
       { key: expect.stringMatching(/^mobile-user:[0-9a-f-]{36}$/) },
-      undefined,
+      expect.any(AbortSignal),
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const db = await database();
@@ -116,7 +116,7 @@ describe("local MP3 import", () => {
       null,
       expect.any(Function),
       { key: expect.stringMatching(/^mobile-user:[0-9a-f-]{36}$/) },
-      undefined,
+      expect.any(AbortSignal),
     );
     const db = await database();
     expect(await db.get("books", mirrorKey("mobile-user", canonical.id))).toMatchObject({

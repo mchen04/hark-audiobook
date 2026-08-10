@@ -1,4 +1,9 @@
 import { ACTIVE_USER_KEY } from "@/lib/app-keys";
+import {
+  clearAccountSignOutFence,
+  installAccountSignOutFence,
+  withAccountPurgeLock,
+} from "@/lib/account-deletion-fence";
 import { forgetActiveUserId } from "@/lib/active-user";
 import {
   listQueuedMutationUserIds,
@@ -120,6 +125,33 @@ function isUserAgnosticShellEntry(url: string): boolean {
  * is to keep removing what can still be removed and report the aggregate.
  */
 export async function purgeAccount(userId: string): Promise<void> {
+  installAccountSignOutFence(userId);
+  try {
+    await withAccountPurgeLock(userId, async () => {
+      await purgeAccountPass(userId);
+      // A cross-tab writer that was already between its two fence checks gets
+      // one task to settle. Its journal makes the account enumerable, so a
+      // second pass removes it before the fence is released.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      const { users, failures } = await enumerateLocalUsers();
+      if (failures.length) throw asPurgeFailure("the post-purge verification", failures);
+      if (users.includes(userId)) {
+        await purgeAccountPass(userId);
+        const verified = await enumerateLocalUsers();
+        if (verified.failures.length) {
+          throw asPurgeFailure("the final purge verification", verified.failures);
+        }
+        if (verified.users.includes(userId)) {
+          throw new Error("Account data was recreated while sign-out was purging it.");
+        }
+      }
+    });
+  } finally {
+    clearAccountSignOutFence(userId);
+  }
+}
+
+async function purgeAccountPass(userId: string): Promise<void> {
   const failures: unknown[] = [];
   const step = async (name: string, run: () => Promise<void>) => {
     try {
@@ -277,12 +309,44 @@ export async function purgeOnSignOut(
   userId: string,
   options: PurgeOptions = {},
 ): Promise<SignOutOutcome> {
-  const undelivered = options.alreadyDrained ?? (await drainBeforeSignOut(userId, options));
+  const drained = options.alreadyDrained ?? (await drainBeforeSignOut(userId, options));
+  const undelivered = mergeUndelivered(drained, await listUndeliveredWrites(userId));
   const failure = await purgeAccount(userId).then(
     () => null,
     (error: unknown) => error,
   );
   return { undelivered, failure };
+}
+
+async function listUndeliveredWrites(userId: string): Promise<UndeliveredWrite[]> {
+  const [queued, actions] = await Promise.all([
+    listQueuedMutations(userId).catch(() => []),
+    listPendingPlaybackActions(userId).catch(() => []),
+  ]);
+  return [
+    ...queued.map((mutation) => ({
+      kind: mutation.kind,
+      entityId: mutation.entityId,
+      queuedAt: mutation.queuedAt,
+    })),
+    ...actions.map((action) => ({
+      kind: "playback-action" as const,
+      entityId: action.bookId,
+      queuedAt: Date.parse(action.occurredAt) || 0,
+    })),
+    ...listPendingPreferenceWrites(userId),
+  ];
+}
+
+function mergeUndelivered(
+  first: UndeliveredWrite[],
+  second: UndeliveredWrite[],
+): UndeliveredWrite[] {
+  const merged = new Map<string, UndeliveredWrite>();
+  for (const write of [...first, ...second]) {
+    merged.set(`${write.kind}:${write.entityId}:${write.queuedAt}`, write);
+  }
+  return [...merged.values()];
 }
 
 /**

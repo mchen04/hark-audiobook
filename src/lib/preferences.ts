@@ -8,7 +8,7 @@ import {
   PREFERENCES_WRITE_ID_HEADER,
   SKIP_BOUNDS_MS,
 } from "@/domain/preferences";
-import { isAccountDeletionFenced } from "@/lib/account-deletion-fence";
+import { assertAccountWritable, isAccountWriteFenced } from "@/lib/account-deletion-fence";
 
 const activePreferenceWrites = new Map<string, Promise<void>>();
 const armedReconnectRetries = new Map<string, () => void>();
@@ -148,7 +148,7 @@ function finiteOr(value: unknown, fallback: number): number {
 }
 
 function cachePreferences(userId: string, cached: CachedPreferences): void {
-  if (isAccountDeletionFenced(userId)) return;
+  if (isAccountWriteFenced(userId)) return;
   localStorage.setItem(cacheKey(userId), JSON.stringify(cached));
 }
 
@@ -192,6 +192,7 @@ export async function savePreferences(
   current: PlayerPreferences,
   patch: Partial<PlayerPreferences>,
 ): Promise<PlayerPreferences> {
+  assertAccountWritable(userId);
   const next = normalize({ ...current, ...patch });
   const cached = readCache(userId);
   const revision = cached.revision + 1;

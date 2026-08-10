@@ -1,5 +1,9 @@
 import type { PlayerBook } from "@/domain/player";
-import { assertAccountWritable } from "@/lib/account-deletion-fence";
+import {
+  assertAccountWritable,
+  createAccountWriteScope,
+  withAccountWriteLock,
+} from "@/lib/account-deletion-fence";
 import { throwIfAborted } from "@/lib/abort";
 import { createCoverThumbnail } from "@/lib/cover-thumbnail";
 import { runBounded } from "@/lib/run-bounded";
@@ -69,6 +73,37 @@ export function withLocalMediaSlot<T>(
  * request may materialize a whole audiobook-sized Blob.
  */
 export async function storeLocalBookMedia(
+  userId: string,
+  book: Omit<PlayerBook, "mediaUrl" | "coverUrl">,
+  file: File,
+  artwork: { data: Uint8Array; mimeType: string } | null,
+  onProgress?: (fraction: number) => void,
+  slot?: MediaSlot,
+  signal?: AbortSignal,
+): Promise<OfflineBook> {
+  const key = offlineBookKey(userId, book.id);
+  if (holdsMediaSlot(slot, key)) {
+    return storeLocalBookMediaWithinFence(userId, book, file, artwork, onProgress, slot, signal);
+  }
+  const scope = createAccountWriteScope(userId, signal);
+  try {
+    return await withAccountWriteLock(userId, () =>
+      storeLocalBookMediaWithinFence(
+        userId,
+        book,
+        file,
+        artwork,
+        onProgress,
+        undefined,
+        scope.signal,
+      ),
+    );
+  } finally {
+    scope.release();
+  }
+}
+
+async function storeLocalBookMediaWithinFence(
   userId: string,
   book: Omit<PlayerBook, "mediaUrl" | "coverUrl">,
   file: File,

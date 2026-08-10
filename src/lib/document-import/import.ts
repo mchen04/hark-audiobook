@@ -10,6 +10,7 @@ import {
 } from "mediabunny";
 
 import type { PlayerBook, PlayerChapter } from "@/domain/player";
+import { createAccountWriteScope, withAccountWriteLock } from "@/lib/account-deletion-fence";
 import { throwIfAborted } from "@/lib/abort";
 import { KESTREL_DOWNLOAD_BYTES } from "@/lib/kestrel/assets";
 import { KestrelClient } from "@/lib/kestrel/client";
@@ -51,6 +52,25 @@ export async function importLocalDocument(
   file: File,
   onProgress: DocumentImportProgress,
   options: DocumentImportOptions = {},
+): Promise<OfflineBook> {
+  const scope = createAccountWriteScope(userId, options.signal);
+  try {
+    return await withAccountWriteLock(userId, () =>
+      importLocalDocumentWithinFence(userId, file, onProgress, {
+        ...options,
+        signal: scope.signal,
+      }),
+    );
+  } finally {
+    scope.release();
+  }
+}
+
+async function importLocalDocumentWithinFence(
+  userId: string,
+  file: File,
+  onProgress: DocumentImportProgress,
+  options: DocumentImportOptions,
 ): Promise<OfflineBook> {
   const { target, signal } = options;
   throwIfAborted(signal);

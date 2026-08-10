@@ -2,6 +2,7 @@ import { interpretMp3Metadata, InvalidMp3Error, type ParsedMp3 } from "@/domain/
 import type { LocalBookRegistration } from "@/domain/local-book";
 import type { PlayerBook, PlayerChapter } from "@/domain/player";
 import type { BookTranscript } from "@/domain/transcript";
+import { createAccountWriteScope, withAccountWriteLock } from "@/lib/account-deletion-fence";
 import { throwIfAborted } from "@/lib/abort";
 import { fingerprintMedia } from "@/lib/media-fingerprint";
 import { storeLocalBookMedia, withLocalMediaSlot } from "@/lib/offline/media-store";
@@ -134,6 +135,22 @@ export async function importLocalMp3(
   file: File,
   onProgress: (percent: number, stage: string) => void,
   signal?: AbortSignal,
+): Promise<void> {
+  const scope = createAccountWriteScope(userId, signal);
+  try {
+    await withAccountWriteLock(userId, () =>
+      importLocalMp3WithinFence(userId, file, onProgress, scope.signal),
+    );
+  } finally {
+    scope.release();
+  }
+}
+
+async function importLocalMp3WithinFence(
+  userId: string,
+  file: File,
+  onProgress: (percent: number, stage: string) => void,
+  signal: AbortSignal,
 ): Promise<void> {
   throwIfAborted(signal);
   onProgress(5, "Reading metadata");

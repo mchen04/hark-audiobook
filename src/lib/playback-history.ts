@@ -2,7 +2,7 @@ import { openDB, type DBSchema, type IDBPDatabase, type IDBPObjectStore } from "
 
 import type { PlaybackHistoryEntry, PlaybackHistorySnapshot } from "@/domain/playback-history";
 import { PLAYBACK_HISTORY_LIMIT } from "@/domain/playback-history";
-import { assertAccountWritable, isAccountDeletionFenced } from "@/lib/account-deletion-fence";
+import { assertAccountWritable, isAccountWriteFenced } from "@/lib/account-deletion-fence";
 import { withKeyedLock } from "@/lib/keyed-lock";
 import { REPLAY_CONCURRENCY, REPLAY_PAGE_SIZE, shouldRetainMutation } from "@/lib/offline-sync";
 import { singleFlight } from "@/lib/single-flight";
@@ -297,7 +297,7 @@ async function syncPlaybackAction(
           .json()
           .catch(() => null)) as { recordedAt?: unknown } | null)
       : null;
-    if (isAccountDeletionFenced(entry.userId)) return true;
+    if (isAccountWriteFenced(entry.userId)) return true;
     const db = await database();
     const transaction = db.transaction("actions", "readwrite");
     const current = await transaction.store.get(entry.id);
