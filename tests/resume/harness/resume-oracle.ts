@@ -13,6 +13,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { isRendererCommand } from "../../shared/render-process";
 import { awaitSignInBudget } from "../../shared/sign-in-budget";
 import { testAccountPassword } from "../../shared/test-account-password";
 // Reused, not re-implemented: the sync suite owns the local-database connection
@@ -1004,15 +1005,12 @@ let foreignRenderPids = new Set<string>();
  * Scoped to the exact browser BUILD this run drives, because more than one
  * Playwright browser build is usually installed on a developer machine and
  * killing another run's renderer would be both rude and untraceable. WebKit's
- * `executablePath()` is `<build>/pw_run.sh`, and its renderer is the
- * `com.apple.WebKit.WebContent` XPC service inside that same build directory.
+ * `executablePath()` is `<build>/pw_run.sh`; macOS names its renderer
+ * `com.apple.WebKit.WebContent`, while Linux GTK/WPE names it
+ * `WebKitWebProcess`/`WPEWebProcess`.
  */
 function isRenderProcess(line: string): boolean {
-  const executable = browserType().executablePath();
-  if (ENGINE === "webkit") {
-    return line.includes(`${path.dirname(executable)}/com.apple.WebKit.WebContent`);
-  }
-  return line.includes(executable) && line.includes("--type=renderer");
+  return isRendererCommand(line, ENGINE, browserType().executablePath());
 }
 
 function renderPids(): string[] {
