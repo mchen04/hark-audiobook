@@ -412,7 +412,7 @@ export async function warmUp(page: Page): Promise<string> {
 
 /** Imports an MP3 through the real hidden file input the library renders. */
 export async function importThroughUi(page: Page, name: string, buffer: Buffer): Promise<void> {
-  await page.setInputFiles('input[aria-label="Choose an MP3 file to import"]', {
+  await page.setInputFiles('input[aria-label="Choose an audiobook or document to import"]', {
     name,
     mimeType: "audio/mpeg",
     buffer,

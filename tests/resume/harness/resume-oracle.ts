@@ -1681,7 +1681,7 @@ export async function resumeFixture(
     await page.waitForSelector("[data-launch-ready]", { state: "attached", timeout: 90_000 });
 
     for (const [index, title] of titles.entries()) {
-      await page.setInputFiles('input[aria-label="Choose an MP3 file to import"]', {
+      await page.setInputFiles('input[aria-label="Choose an audiobook or document to import"]', {
         name: `${title}.mp3`,
         mimeType: "audio/mpeg",
         buffer: buildLongMp3(repeatByIndex[index] ?? FIXTURE_REPEAT, 64 + index * 16, title),
@@ -4521,7 +4521,7 @@ export async function measureTwoDeviceResume(spec: {
     // B has the account but not the bytes. It gets them the way a second device
     // does: the same file, which the server recognises by fingerprint and
     // re-points onto the book that already exists.
-    await pageB.setInputFiles('input[aria-label="Choose an MP3 file to import"]', {
+    await pageB.setInputFiles('input[aria-label="Choose an audiobook or document to import"]', {
       name: `${bookTitle}.mp3`,
       mimeType: "audio/mpeg",
       buffer: buildLongMp3(FIXTURE_REPEAT, 64 + spec.bookIndex * 16, bookTitle),

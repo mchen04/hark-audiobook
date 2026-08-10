@@ -391,7 +391,7 @@ export async function waitForServiceWorker(page: Page): Promise<void> {
  * for it to: it hands a buffer to a file input inside the browser.
  */
 export async function importThroughUi(page: Page, name: string, buffer: Buffer): Promise<void> {
-  await page.setInputFiles('input[aria-label="Choose an MP3 file to import"]', {
+  await page.setInputFiles('input[aria-label="Choose an audiobook or document to import"]', {
     name,
     mimeType: "audio/mpeg",
     buffer,
