@@ -201,7 +201,7 @@ Rules:
    already encode it. 401/403 retain (the session may come back). 4xx other than
    409 is terminal. 409 goes to conflict reconciliation.
 
-### 5.4 A delete supersedes an unsent registration of the same file
+### 5.4 A delete supersedes an unsent registration of the same rendition
 
 The outbox drains in key order with several rows in flight, which is NOT the
 order the user expressed their intents. `delete` sorts before `import`, so a
@@ -211,17 +211,17 @@ deleted. The fuzz found this on seed 20260105 and called it what it is: a
 resurrection. Nothing was lost in transit — the delete was undone by an intent
 the user had already superseded.
 
-So `commitBookDeletion` drops any unsent registration of the same file, in the
-same transaction that journals the delete: no window in which both rows exist,
-and no ordering left to get right. It links them two ways, because a user can be
-looking at either kind of row — by book id (a device-only book, normally in the
-mirror and always in `downloads`) and by fingerprint (read from the mirror,
-never sent on the wire). When a book route already knows the fingerprint but
-the mirror row is unavailable, that route carries the same value into the
-delete; otherwise deleting from the attach gate would lose the ordering key
-precisely when the mirror cannot supply it. A registration queued _after_ a
-delete is kept: re-importing something you deleted is a new intent, not a stale
-one.
+So `commitBookDeletion` drops any unsent registration of the same source and
+rendition, in the same transaction that journals the delete: no window in which
+both rows exist, and no ordering left to get right. It links them two ways,
+because a user can be looking at either kind of row — by book id (a device-only
+book, normally in the mirror and always in `downloads`) and by the
+fingerprint/rendition tuple (read from the mirror, never sent on the wire).
+Fingerprint alone is not enough: deleting rendition A must not erase a queued
+replacement B. When a book route already knows the tuple but the mirror row is
+unavailable, that route carries both values into the delete. A registration
+queued _after_ a delete is kept: re-importing something you deleted is a new
+intent, not a stale one.
 
 ### 5.5 When the server renames a book mid-flight
 

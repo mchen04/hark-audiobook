@@ -35,11 +35,13 @@ export type BookDetails = {
 export function BookDetailsDialog({
   details,
   mediaFingerprint,
+  mediaRenditionKey,
   open,
   onClose,
 }: {
   details: BookDetails;
   mediaFingerprint?: string | null;
+  mediaRenditionKey?: string | null;
   open: boolean;
   onClose: () => void;
 }) {
@@ -58,6 +60,7 @@ export function BookDetailsDialog({
     details.id,
     setError,
     mediaFingerprint,
+    mediaRenditionKey,
   );
   function origin() {
     return { userId: playback.userId, deviceId: getDeviceId() };

@@ -33,7 +33,7 @@ vi.mock("music-metadata", () => ({
   }),
 }));
 
-import { importLocalMp3 } from "./local-import";
+import { importLocalMp3, LOCAL_REGISTRATION_TIMEOUT_MS } from "./local-import";
 
 describe("local MP3 import", () => {
   beforeEach(() => {
@@ -182,6 +182,72 @@ describe("local MP3 import", () => {
         endMs: 8_000,
       }),
     ]);
+  });
+
+  it("keeps completed audio when registration receives a retryable response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      Response.json({ error: "temporarily unavailable" }, { status: 503 }),
+    );
+    const file = new File([new Uint8Array([10, 11, 12])], "retry.mp3", {
+      type: "audio/mpeg",
+    });
+
+    await importLocalMp3("mobile-user", file, vi.fn());
+
+    expect(storeLocalBookMedia).toHaveBeenCalledOnce();
+    const storedBook = storeLocalBookMedia.mock.calls[0]![1];
+    const db = await database();
+    expect(await db.get("books", mirrorKey("mobile-user", storedBook.id))).toMatchObject({
+      bookId: storedBook.id,
+      media: { renditionKey: "source-v1" },
+    });
+  });
+
+  it("bounds a registration request that never answers", async () => {
+    const realSetTimeout = globalThis.setTimeout;
+    const accelerateRegistrationTimeout = (
+      handler: (...args: unknown[]) => void,
+      timeout?: number,
+      ...args: unknown[]
+    ): ReturnType<typeof setTimeout> => {
+      if (timeout === LOCAL_REGISTRATION_TIMEOUT_MS) {
+        queueMicrotask(() => handler(...args));
+        return 1 as unknown as ReturnType<typeof setTimeout>;
+      }
+      return realSetTimeout(handler, timeout, ...args);
+    };
+    vi.spyOn(globalThis, "setTimeout").mockImplementation(
+      accelerateRegistrationTimeout as unknown as typeof setTimeout,
+    );
+    vi.spyOn(globalThis, "fetch").mockImplementationOnce(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("timed out", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+    const file = new File([new Uint8Array([13, 14, 15])], "timeout.mp3", {
+      type: "audio/mpeg",
+    });
+
+    await importLocalMp3("mobile-user", file, vi.fn());
+
+    expect(storeLocalBookMedia).toHaveBeenCalledOnce();
+  });
+
+  it("does not turn a terminal validation error into a local success", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      Response.json({ error: "invalid chapters" }, { status: 422 }),
+    );
+    const file = new File([new Uint8Array([16, 17, 18])], "invalid.mp3", {
+      type: "audio/mpeg",
+    });
+
+    await expect(importLocalMp3("mobile-user", file, vi.fn())).rejects.toThrow("invalid chapters");
+    expect(storeLocalBookMedia).not.toHaveBeenCalled();
   });
 });
 

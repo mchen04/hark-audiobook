@@ -4,6 +4,10 @@ import { withKeyedLock } from "@/lib/keyed-lock";
 import { runBounded } from "@/lib/run-bounded";
 
 import { database, type QueuedMutation, type SyncDb } from "./db";
+import {
+  queuedMediaRegistrationIdentity,
+  sameQueuedMediaRegistration,
+} from "./media-registration-identity";
 import { newMutationId, withProgressMutationLock } from "./queue";
 import {
   awaitsRegistration,
@@ -145,29 +149,19 @@ function withMutationLock<T>(mutation: QueuedMutation, operation: () => Promise<
   // so a replay and a heartbeat cannot interleave on one book.
   if (mutation.kind === "progress") return withProgressMutationLock(mutation.entityId, operation);
 
-  // A delete followed by a re-import of the same bytes is one causal stream.
+  // A delete followed by a re-import of the same rendition is one causal stream.
   // The rows have different entities (book id versus fingerprint) and unique
   // mutation keys, but sending them concurrently can make the import observe
   // the not-yet-deleted book, reconcile its 409 back onto that old id, and then
   // be erased when the delete finally lands. Lock both rows by fingerprint so
   // the order already encoded by the outbox is also the order the server sees.
-  const fingerprint = replayFingerprint(mutation);
+  const identity = queuedMediaRegistrationIdentity(mutation);
   return withKeyedLock(
-    fingerprint
-      ? `chapterline:media-registration:${mutation.userId}:${fingerprint}`
+    identity
+      ? `chapterline:media-registration:${mutation.userId}:${identity.fingerprint}:${identity.renditionKey}`
       : `chapterline:mutation:${mutation.key}`,
     operation,
   );
-}
-
-function replayFingerprint(mutation: QueuedMutation): string | null {
-  if (mutation.kind === "import") {
-    return typeof mutation.payload.fingerprint === "string"
-      ? mutation.payload.fingerprint
-      : mutation.entityId;
-  }
-  if (mutation.kind !== "delete") return null;
-  return typeof mutation.payload.fingerprint === "string" ? mutation.payload.fingerprint : null;
 }
 
 /**
@@ -333,8 +327,8 @@ async function refreshDuplicateProgress(
 async function replayMutation(snapshot: QueuedMutation, fetchFn: typeof fetch): Promise<void> {
   await withMutationLock(snapshot, async () => {
     const task = await supersedeStaleProgress(snapshot);
-    if (task.kind === "import" && (await hasPendingDeleteForFingerprint(task))) {
-      // The shared fingerprint lock means any earlier delete has finished its
+    if (task.kind === "import" && (await hasPendingDeleteForRegistration(task))) {
+      // The shared rendition-identity lock means any earlier delete has finished its
       // request before this read. If its row remains, the server refused it or
       // could not be reached, so registering the replacement now would either
       // merge it back onto the doomed id or undo the user's delete. Keep the
@@ -410,9 +404,9 @@ async function replayMutation(snapshot: QueuedMutation, fetchFn: typeof fetch): 
   });
 }
 
-async function hasPendingDeleteForFingerprint(registration: QueuedMutation): Promise<boolean> {
-  const fingerprint = replayFingerprint(registration);
-  if (!fingerprint) return false;
+async function hasPendingDeleteForRegistration(registration: QueuedMutation): Promise<boolean> {
+  const identity = queuedMediaRegistrationIdentity(registration);
+  if (!identity) return false;
   const db = await database();
   let cursor = await db
     .transaction("mutations")
@@ -422,8 +416,7 @@ async function hasPendingDeleteForFingerprint(registration: QueuedMutation): Pro
     const row = cursor.value;
     if (
       row.kind === "delete" &&
-      typeof row.payload.fingerprint === "string" &&
-      row.payload.fingerprint === fingerprint
+      sameQueuedMediaRegistration(queuedMediaRegistrationIdentity(row), identity)
     ) {
       return true;
     }

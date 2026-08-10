@@ -12,6 +12,10 @@ import {
   type SyncDatabase,
 } from "./db";
 import { progressMutationKey } from "./keys";
+import {
+  queuedMediaRegistrationIdentity,
+  sameQueuedMediaRegistration,
+} from "./media-registration-identity";
 import { reserveDeviceSequenceAboveInStore } from "./sequences";
 
 /**
@@ -104,7 +108,7 @@ type MutationStore = IDBPObjectStore<
 >;
 
 /**
- * A delete supersedes an UNSENT import of the same file.
+ * A delete supersedes an UNSENT import of the same source rendition.
  *
  * Deleting a book and re-picking its MP3 are two intents about one file, and
  * the outbox replays rows in key order with four in flight — not in the order
@@ -121,21 +125,22 @@ type MutationStore = IDBPObjectStore<
  * because there are two ways the user can be looking at one. `payload.bookId`
  * matches the row the import itself created on this device — the "device-only"
  * book the library projects from a download record before any pull mentions it.
- * The fingerprint matches the other case: a re-import of a book this device
- * already knows, where the registration carries an id the server will discard.
+ * The fingerprint plus rendition matches the other case: a re-import of a book
+ * this device already knows, where the registration carries an id the server
+ * will discard. Fingerprint alone is intentionally insufficient.
  */
 async function dropSupersededImports(
   store: MutationStore,
   deletion: QueuedMutation,
 ): Promise<void> {
-  const fingerprint =
-    typeof deletion.payload.fingerprint === "string" ? deletion.payload.fingerprint : null;
+  const deletedIdentity = queuedMediaRegistrationIdentity(deletion);
   let cursor = await store.index("by-user").openCursor(deletion.userId);
   while (cursor) {
     const row = cursor.value;
     const supersedes =
       row.kind === "import" &&
-      (row.payload.bookId === deletion.entityId || (!!fingerprint && row.entityId === fingerprint));
+      (row.payload.bookId === deletion.entityId ||
+        sameQueuedMediaRegistration(queuedMediaRegistrationIdentity(row), deletedIdentity));
     if (supersedes) await cursor.delete();
     cursor = await cursor.continue();
   }

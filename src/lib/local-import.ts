@@ -5,6 +5,7 @@ import type { BookTranscript } from "@/domain/transcript";
 import { createAccountWriteScope, withAccountWriteLock } from "@/lib/account-deletion-fence";
 import { throwIfAborted } from "@/lib/abort";
 import { fingerprintMedia } from "@/lib/media-fingerprint";
+import { shouldRetainMutation } from "@/lib/offline-sync";
 import { storeLocalBookMedia, withLocalMediaSlot } from "@/lib/offline/media-store";
 import { projectLocalBookRegistration } from "@/lib/offline/local-import-mirror";
 import { commitImport } from "@/lib/offline/outbox";
@@ -25,6 +26,8 @@ export type RegisteredLocalBook = {
   bookId: string;
   canonicalBook: Omit<PlayerBook, "mediaUrl" | "coverUrl"> | null;
 };
+
+export const LOCAL_REGISTRATION_TIMEOUT_MS = 15_000;
 
 /** Parses an MP3 entirely in the browser; the bytes never leave the device. */
 export async function parseLocalMp3(file: File, signal?: AbortSignal): Promise<ParsedLocalMp3> {
@@ -255,14 +258,9 @@ export async function registerLocalBook(
   await commitImport({ userId, deviceId: getDeviceId() }, registration.fingerprint, registration);
   throwIfAborted(signal);
 
-  const response = await fetch("/api/books/local", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(registration),
-    signal,
-  }).catch(() => null);
+  const response = await postLocalRegistration(registration, signal);
   throwIfAborted(signal);
-  if (!response) {
+  if (!response || shouldRetainMutation(response.status)) {
     // The outbox is the durable write. Airplane-mode imports keep the id the
     // device already minted and register when the connection returns.
     await projectLocalBookRegistration(userId, registration);
@@ -296,4 +294,28 @@ export async function registerLocalBook(
     };
   }
   throw new Error(payload?.error || "The audiobook could not be imported.");
+}
+
+async function postLocalRegistration(
+  registration: LocalBookRegistration,
+  signal?: AbortSignal,
+): Promise<Response | null> {
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort(signal?.reason);
+  signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timeout = setTimeout(() => controller.abort(), LOCAL_REGISTRATION_TIMEOUT_MS);
+  try {
+    return await fetch("/api/books/local", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(registration),
+      signal: controller.signal,
+    });
+  } catch {
+    throwIfAborted(signal);
+    return null;
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", abortFromCaller);
+  }
 }

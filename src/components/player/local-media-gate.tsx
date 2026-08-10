@@ -67,6 +67,7 @@ export function LocalMediaGate({
     playerBook.id,
     setError,
     mediaFingerprint,
+    mediaRenditionKey,
   );
   const inputRef = useRef<HTMLInputElement>(null);
   const attachmentRef = useRef<AbortController | null>(null);
@@ -200,6 +201,7 @@ export function LocalMediaGate({
         autoplay={autoplay}
         details={details}
         mediaFingerprint={mediaFingerprint}
+        mediaRenditionKey={mediaRenditionKey}
         nextInCollection={nextInCollection}
       />
     );

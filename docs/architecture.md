@@ -137,9 +137,11 @@ critical path.
    encoder, and partial storage as one import job.
 3. `POST /api/books/local` registers metadata only — validated title/author,
    duration, byte size, fingerprint, and the full chapter list (revalidated
-   server-side, batch-inserted, capped at 10,000 chapters). A database-unique
-   owner/fingerprint/rendition tuple makes concurrent duplicate imports atomic; a match
-   answers 409 with the existing book id for device reattachment. On that
+   server-side, batch-inserted, capped at 10,000 chapters). The expand migration
+   adds the owner/fingerprint/rendition uniqueness key while retaining the live
+   server's older arbiter until a later contract release; targetless conflict
+   handling works across both. An exact match answers 409 with the existing book
+   id for device reattachment. On that
    duplicate path, if the newly parsed chapter list is a complete sequence and
    the stored one was truncated by an earlier import, the server repairs the
    existing book's chapters in the same transaction.
@@ -149,8 +151,10 @@ critical path.
    with a downscaled thumbnail so small surfaces (library cards, downloads
    list, mini player) never decode full-size art. Fingerprint hashing runs in
    a web worker to keep `hash-wasm` out of page bundles. If
-   storing fails, the metadata remains recoverable and choosing the MP3 again
-   completes the device attachment.
+   storing fails, the metadata remains recoverable and choosing the source again
+   completes the device attachment. A rejected request, timeout, 408, 429, or
+   5xx keeps the device-minted projection and completed audio; the durable
+   outbox retries metadata registration instead of forcing narration again.
 5. Playback always serves from the device store through the service worker,
    which answers HTTP Range requests (the service worker's 206/416 parser is
    unit-tested directly). There is no server media route or server-side range
