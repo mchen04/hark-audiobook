@@ -16,6 +16,7 @@ import path from "node:path";
 import { isRendererCommand } from "../../shared/render-process";
 import { awaitSignInBudget } from "../../shared/sign-in-budget";
 import { testAccountPassword } from "../../shared/test-account-password";
+import { TEST_CLIENT_HEADERS } from "../../shared/test-client-ip";
 // Reused, not re-implemented: the sync suite owns the local-database connection
 // and the account reset; the parity suite owns the network that can actually be
 // unplugged (see the long note in `tests/parity/harness/network.ts` for why
@@ -1032,6 +1033,7 @@ async function openDevice(): Promise<Device> {
   const context = await browser.newContext({
     ...devices["iPhone 15"],
     serviceWorkers: "allow",
+    extraHTTPHeaders: TEST_CLIENT_HEADERS.resume,
   });
   await context.addInitScript({ content: PROBE_SCRIPT });
   const poison = poisonScript();
@@ -4507,6 +4509,7 @@ export async function measureTwoDeviceResume(spec: {
       ...devices["iPhone 15"],
       serviceWorkers: "allow",
       storageState: { cookies, origins: [] },
+      extraHTTPHeaders: TEST_CLIENT_HEADERS.resume,
     });
     await contextB.addInitScript({ content: PROBE_SCRIPT });
     const pageB = trackCrash(await contextB.newPage());

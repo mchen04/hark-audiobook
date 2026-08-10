@@ -3,11 +3,12 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 
 /**
- * One sign-in budget, shared by every suite that drives this app server.
+ * One persisted sign-in budget per browser project/client IP.
  *
  * `src/server/auth.ts` rate-limits `/sign-in/email` to 8 per 60s, and the
- * limiter lives in the SERVER — in memory, so `db:test:reset` does not clear it
- * and it does not care which Playwright project spent the attempts.
+ * limiter lives in Postgres, so rebuilding the app server does not clear it.
+ * Each project uses its own reserved test IP; every worker in that project must
+ * still share the same accounting.
  *
  * THE WINDOW IS NOT ROLLING, and assuming it was is what made the first version
  * of this file fail. better-auth keeps a count and a `lastRequest` per key and
@@ -30,8 +31,9 @@ import { tmpdir } from "node:os";
  * since the LAST attempt, which is the only thing that makes the server forget.
  *
  * The state is kept ON DISK because Playwright starts a fresh worker after a
- * failing test and consecutive runs share one app process, while an in-memory
- * counter would forget both and the server would not.
+ * failing test while the database counter survives that worker and the app
+ * server. An in-memory counter would forget the attempts and the server would
+ * not.
  */
 
 const WINDOW_MS = 60_000;
@@ -46,23 +48,37 @@ const SAFE_MAX = 6;
 const STATE = path.join(tmpdir(), "hark-signins.json");
 
 type Budget = { count: number; lastAt: number };
+type BudgetState = Record<string, Budget>;
 
-function read(): Budget {
+function readState(): BudgetState {
   try {
     const parsed: unknown = JSON.parse(readFileSync(STATE, "utf8"));
-    if (parsed && typeof parsed === "object") {
-      const { count, lastAt } = parsed as Partial<Budget>;
-      if (typeof count === "number" && typeof lastAt === "number") return { count, lastAt };
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return Object.fromEntries(
+        Object.entries(parsed).filter((entry): entry is [string, Budget] => {
+          const value = entry[1];
+          return (
+            !!value &&
+            typeof value === "object" &&
+            typeof (value as Partial<Budget>).count === "number" &&
+            typeof (value as Partial<Budget>).lastAt === "number"
+          );
+        }),
+      );
     }
   } catch {
     // No state yet, or an older shape: start clean.
   }
-  return { count: 0, lastAt: 0 };
+  return {};
 }
 
-function write(budget: Budget): void {
+function read(label: string): Budget {
+  return readState()[label] ?? { count: 0, lastAt: 0 };
+}
+
+function write(label: string, budget: Budget): void {
   try {
-    writeFileSync(STATE, JSON.stringify(budget), "utf8");
+    writeFileSync(STATE, JSON.stringify({ ...readState(), [label]: budget }), "utf8");
   } catch {
     // Losing the state only costs a throttled attempt, which callers surface.
   }
@@ -71,8 +87,8 @@ function write(budget: Budget): void {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Marks the window as spent, so the next attempt waits a full one out. */
-export function burnSignInWindow(): void {
-  write({ count: SAFE_MAX, lastAt: Date.now() });
+export function burnSignInWindow(label: string): void {
+  write(label, { count: SAFE_MAX, lastAt: Date.now() });
 }
 
 /**
@@ -80,7 +96,7 @@ export function burnSignInWindow(): void {
  * names the waiting suite in the log line.
  */
 export async function awaitSignInBudget(label: string): Promise<void> {
-  let budget = read();
+  let budget = read(label);
   const idleFor = Date.now() - budget.lastAt;
 
   // The server has already forgotten: a full window passed with no attempt.
@@ -99,6 +115,6 @@ export async function awaitSignInBudget(label: string): Promise<void> {
   }
 
   const next = { count: budget.count + 1, lastAt: Date.now() };
-  write(next);
+  write(label, next);
   console.log(`[${label}] sign-in ${next.count}/${SAFE_MAX} in this window`);
 }

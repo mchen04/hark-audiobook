@@ -18,6 +18,7 @@ import postgres from "postgres";
 import { assertLocalDatabase } from "../../scripts/lib/assert-local-database.mjs";
 import { DEFAULT_TEST_ENV_FILE, loadEnvFile } from "../../scripts/lib/env-file.mjs";
 import { awaitSignInBudget } from "../shared/sign-in-budget";
+import { TEST_CLIENT_HEADERS } from "../shared/test-client-ip";
 
 import {
   PROBE_PATH,
@@ -230,6 +231,7 @@ async function selectEngine(): Promise<Engine> {
       const context = await browserType.launchPersistentContext(dir, {
         ...devices["iPhone 15"],
         serviceWorkers: "allow",
+        extraHTTPHeaders: TEST_CLIENT_HEADERS.launch,
       });
       try {
         const page = await context.newPage();
@@ -370,6 +372,7 @@ async function openLaunchContext(
   const context = await engine.browserType.launchPersistentContext(userDataDir, {
     ...devices["iPhone 15"],
     serviceWorkers: "allow",
+    extraHTTPHeaders: TEST_CLIENT_HEADERS.launch,
   });
   // iOS sets this only when Safari launches the site from the Home Screen icon,
   // which is the launch this benchmark is about. Re-applied on every relaunch,
@@ -911,7 +914,7 @@ test("library paints real content in under 500ms on every network profile", asyn
 
     proxy.setDelay(0);
     const setup: Page = await context.newPage();
-    // Shares the sign-in window with every other suite driving this server.
+    // Accounts for the launch verifier's own database-backed client-IP window.
     await awaitSignInBudget("launch-benchmark");
     await setup.goto(`${proxy.origin}/login`, { waitUntil: "domcontentloaded", timeout: 60_000 });
     await setup.getByLabel("Email").fill(account.email);
