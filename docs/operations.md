@@ -26,6 +26,13 @@ Last reviewed: 2026-08-09
   or migrate the production database. On other hosts, run migrations before
   starting a new build. Migrations are ordered, idempotent, and verified to apply
   from an empty database. The app never mutates schema at runtime.
+- Rendition identity migration `0028` is the expand half of a rolling-safe
+  change: it adds the four-column index while retaining the three-column
+  fingerprint index required by older application instances. Do not drop
+  `media_assets_owner_sha256_unique` in this release. A later release may add
+  the contract migration only after every production instance runs targetless
+  conflict handling; until then, one source fingerprint intentionally owns one
+  rendition per account.
 - Email: set both `RESEND_API_KEY` and `MAIL_FROM` to enable password resets in
   production; reset requests fail closed when delivery is not configured.
   Development captures expire after one hour in `.data/mail/`. Reset tokens

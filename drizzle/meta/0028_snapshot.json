@@ -1154,6 +1154,34 @@
           "method": "btree",
           "with": {}
         },
+        "media_assets_owner_sha256_unique": {
+          "name": "media_assets_owner_sha256_unique",
+          "columns": [
+            {
+              "expression": "owner_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "fingerprint_kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "fingerprint",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"media_assets\".\"fingerprint_kind\" = 'sha256-v1'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "media_assets_owner_sha256_rendition_unique": {
           "name": "media_assets_owner_sha256_rendition_unique",
           "columns": [

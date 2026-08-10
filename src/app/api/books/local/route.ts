@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import {
   isValidChapterSequence,
@@ -120,15 +120,10 @@ export const POST = withMutation(
           renditionKey: data.renditionKey,
           durationMs: data.durationMs,
         })
-        .onConflictDoNothing({
-          target: [
-            mediaAssets.ownerId,
-            mediaAssets.fingerprintKind,
-            mediaAssets.fingerprint,
-            mediaAssets.renditionKey,
-          ],
-          where: sql`${mediaAssets.fingerprintKind} = 'sha256-v1'`,
-        })
+        // Targetless conflict handling works during both halves of the rollout:
+        // while the live server still needs the legacy fingerprint arbiter and
+        // after a later release removes it in favor of rendition identity.
+        .onConflictDoNothing()
         .returning({ bookId: mediaAssets.bookId });
       if (!registeredMedia) {
         await transaction.delete(books).where(eq(books.id, created.id));
@@ -144,7 +139,23 @@ export const POST = withMutation(
             ),
           )
           .limit(1);
-        if (!duplicate) throw new Error("Duplicate media registration could not be resolved.");
+        if (!duplicate) {
+          const [legacyFingerprintOwner] = await transaction
+            .select({ bookId: mediaAssets.bookId })
+            .from(mediaAssets)
+            .where(
+              and(
+                eq(mediaAssets.ownerId, session.user.id),
+                eq(mediaAssets.fingerprintKind, data.fingerprintKind),
+                eq(mediaAssets.fingerprint, data.fingerprint),
+              ),
+            )
+            .limit(1);
+          if (legacyFingerprintOwner) {
+            return { renditionBlockedByExpandIndex: true as const };
+          }
+          throw new Error("Duplicate media registration could not be resolved.");
+        }
 
         await transaction
           .select({ id: books.id })
@@ -215,6 +226,16 @@ export const POST = withMutation(
         );
       }
       return Response.json({ bookId: registration.settled, alreadyRegistered: true });
+    }
+
+    if ("renditionBlockedByExpandIndex" in registration) {
+      return Response.json(
+        {
+          error:
+            "This source already has a different local-audio rendition. Keep the existing book during this rollout.",
+        },
+        { status: 409 },
+      );
     }
 
     if (!registration.created) {

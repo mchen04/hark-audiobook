@@ -192,6 +192,12 @@ export const mediaAssets = pgTable(
   },
   (table) => [
     uniqueIndex("media_assets_book_unique").on(table.bookId),
+    // Expand/contract rollout guard: the production build migrates before the
+    // new server replaces every old instance. Keep the old arbiter until a
+    // later release can safely contract it away.
+    uniqueIndex("media_assets_owner_sha256_unique")
+      .on(table.ownerId, table.fingerprintKind, table.fingerprint)
+      .where(sql`${table.fingerprintKind} = 'sha256-v1'`),
     uniqueIndex("media_assets_owner_sha256_rendition_unique")
       .on(table.ownerId, table.fingerprintKind, table.fingerprint, table.renditionKey)
       .where(sql`${table.fingerprintKind} = 'sha256-v1'`),
