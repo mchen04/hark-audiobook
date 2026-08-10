@@ -90,6 +90,8 @@ export type MirrorPlayerBook = {
   mediaFingerprint: string;
   mediaFingerprintKind: MediaFingerprintKind | null;
   byteSize: number;
+  sourceFilename: string;
+  sourceMimeType: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -755,6 +757,8 @@ export async function getMirrorPlayerBook(
     mediaFingerprintKind:
       fingerprintKind === "sample-v1" || fingerprintKind === "sha256-v1" ? fingerprintKind : null,
     byteSize: book.media.byteSize,
+    sourceFilename: book.media.originalFilename,
+    sourceMimeType: book.media.mimeType,
   };
 }
 

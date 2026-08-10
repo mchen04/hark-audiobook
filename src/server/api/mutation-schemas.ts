@@ -220,6 +220,9 @@ export const bookRegistrationSchema = z.strictObject({
    */
   bookId: z.uuid().optional(),
   fileName: z.string().min(1).max(8192),
+  // Defaults for registrations queued by builds that predate document
+  // narration. The bytes described here remain on the user's device.
+  mimeType: z.string().trim().min(1).max(100).default("audio/mpeg"),
   byteSize: z.number().int().positive().max(MAX_BYTE_SIZE),
   durationMs: z.number().int().positive().max(MAX_DURATION_MS),
   fingerprint: z.string().regex(/^[0-9a-f]{64}$/),

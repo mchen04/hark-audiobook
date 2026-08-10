@@ -28,7 +28,7 @@ export const POST = withMutation(
   async ({ session, data }) => {
     let filename: string;
     try {
-      filename = validateUploadMetadata(data.fileName, "audio/mpeg");
+      filename = validateUploadMetadata(data.fileName, data.mimeType);
     } catch (error) {
       return Response.json({ error: (error as Error).message }, { status: 415 });
     }
@@ -79,7 +79,7 @@ export const POST = withMutation(
           ownerId: session.user.id,
           bookId: created.id,
           originalFilename: filename,
-          mimeType: "audio/mpeg",
+          mimeType: data.mimeType,
           byteSize: data.byteSize,
           fingerprint: data.fingerprint,
           fingerprintKind: data.fingerprintKind,

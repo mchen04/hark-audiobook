@@ -15,6 +15,26 @@ export type ParsedLocalMp3 = ParsedMp3 & {
   transcriptDiagnostic: string | null;
 };
 
+export type LocalBookRegistration = {
+  bookId: string;
+  fileName: string;
+  mimeType: string;
+  byteSize: number;
+  durationMs: number;
+  fingerprint: string;
+  fingerprintKind: "sha256-v1";
+  title: string;
+  author: string;
+  narrator: string | null;
+  chapterDiagnostic: string | null;
+  chapters: ParsedMp3["chapters"];
+};
+
+export type RegisteredLocalBook = {
+  bookId: string;
+  canonicalBook: Omit<PlayerBook, "mediaUrl" | "coverUrl"> | null;
+};
+
 /** Parses an MP3 entirely in the browser; the bytes never leave the device. */
 export async function parseLocalMp3(file: File): Promise<ParsedLocalMp3> {
   const { parseBlob } = await import("music-metadata");
@@ -122,6 +142,7 @@ export async function importLocalMp3(
   const registration = {
     bookId: crypto.randomUUID(),
     fileName: encodeURIComponent(file.name),
+    mimeType: "audio/mpeg",
     byteSize: file.size,
     durationMs: parsed.durationMs,
     fingerprint,
@@ -133,34 +154,7 @@ export async function importLocalMp3(
     chapters: parsed.chapters,
   };
   await withLocalMediaSlot(userId, registration.bookId, async (slot) => {
-    await commitImport({ userId, deviceId: getDeviceId() }, fingerprint, registration);
-
-    const response = await fetch("/api/books/local", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(registration),
-    }).catch(() => null);
-    let bookId = registration.bookId;
-    let canonicalBook: Omit<PlayerBook, "mediaUrl" | "coverUrl"> | null = null;
-    if (response?.ok) {
-      ({ bookId } = (await response.json()) as { bookId: string });
-    } else if (response) {
-      const payload = (await response.json().catch(() => null)) as {
-        error?: string;
-        existingBookId?: string;
-        playerBook?: Omit<PlayerBook, "mediaUrl" | "coverUrl">;
-      } | null;
-      // A fingerprint match means this exact file already has a book — most
-      // often one whose audio is missing on this device. Reattach the bytes to
-      // that book instead of dead-ending on "already in your library". The queued
-      // row replays into the same 409 and settles without creating anything.
-      if (response.status === 409 && payload?.existingBookId) {
-        bookId = payload.existingBookId;
-        canonicalBook = payload.playerBook || null;
-      } else {
-        throw new Error(payload?.error || "The MP3 could not be imported.");
-      }
-    }
+    const { bookId, canonicalBook } = await registerLocalBook(userId, registration);
     // `response` is null only when the network could not be reached at all. The
     // registration is already durable, so the import continues under the id this
     // device minted and the server is told on the next drain.
@@ -214,4 +208,45 @@ export async function importLocalMp3(
     }
   });
   onProgress(100, "Finishing");
+}
+
+/**
+ * Journals and registers metadata shared by direct MP3 imports and locally
+ * narrated documents. The source bytes themselves are never in this request.
+ */
+export async function registerLocalBook(
+  userId: string,
+  registration: LocalBookRegistration,
+): Promise<RegisteredLocalBook> {
+  await commitImport({ userId, deviceId: getDeviceId() }, registration.fingerprint, registration);
+
+  const response = await fetch("/api/books/local", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(registration),
+  }).catch(() => null);
+  if (!response) {
+    // The outbox is the durable write. Airplane-mode imports keep the id the
+    // device already minted and register when the connection returns.
+    return { bookId: registration.bookId, canonicalBook: null };
+  }
+  if (response.ok) {
+    const { bookId } = (await response.json()) as { bookId: string };
+    return { bookId, canonicalBook: null };
+  }
+
+  const payload = (await response.json().catch(() => null)) as {
+    error?: string;
+    existingBookId?: string;
+    playerBook?: Omit<PlayerBook, "mediaUrl" | "coverUrl">;
+  } | null;
+  // A fingerprint match means this exact source already owns a book. Attach
+  // this device's audio to that identity rather than creating a second card.
+  if (response.status === 409 && payload?.existingBookId) {
+    return {
+      bookId: payload.existingBookId,
+      canonicalBook: payload.playerBook || null,
+    };
+  }
+  throw new Error(payload?.error || "The audiobook could not be imported.");
 }

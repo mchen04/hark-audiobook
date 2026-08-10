@@ -5,6 +5,8 @@ import { ChangeEvent, useCallback, useRef, useState } from "react";
 
 import { importLocalMp3 } from "@/lib/local-import";
 
+const BOOK_FILE_ACCEPT = ".mp3,audio/mpeg,audio/mp3,.pdf,.epub,.docx,.txt,.md,.markdown,.html,.htm";
+
 export type UploadState = {
   filename: string;
   percent: number;
@@ -12,11 +14,12 @@ export type UploadState = {
 };
 
 /**
- * The MP3 import flow: the hidden file input's plumbing and the progress
+ * The local book import flow: MP3s stay unchanged; documents are narrated by
+ * Kestrel on the device before entering the same offline media store.
  * state. Failures are reported through the caller's `reportError`, so the
  * page's one alert region stays owned by the page, not by this hook.
  */
-export function useMp3Import(
+export function useBookImport(
   userId: string | null,
   onImported: () => Promise<void>,
   reportError: (message: string | null) => void,
@@ -34,21 +37,24 @@ export function useMp3Import(
       const file = event.target.files?.[0];
       event.target.value = "";
       if (!file) return;
-      if (!file.name.toLowerCase().endsWith(".mp3")) {
-        reportError("Choose an MP3 file. Other audiobook formats are not supported.");
-        return;
-      }
       if (!userId) return;
 
       reportError(null);
       setUpload({ filename: file.name, percent: 0, stage: "Starting" });
       try {
-        await importLocalMp3(userId, file, (percent, stage) =>
-          setUpload({ filename: file.name, percent, stage }),
-        );
+        const reportProgress = (percent: number, stage: string) =>
+          setUpload({ filename: file.name, percent, stage });
+        if (file.name.toLowerCase().endsWith(".mp3")) {
+          await importLocalMp3(userId, file, reportProgress);
+        } else {
+          const { importLocalDocument } = await import("@/lib/document-import/import");
+          await importLocalDocument(userId, file, reportProgress);
+        }
         await onImported();
       } catch (caught) {
-        reportError(caught instanceof Error ? caught.message : "The MP3 could not be imported.");
+        reportError(
+          caught instanceof Error ? caught.message : "The audiobook could not be imported.",
+        );
       } finally {
         setUpload(null);
       }
@@ -63,10 +69,10 @@ export function useMp3Import(
       ref={inputRef}
       className="visually-hidden"
       type="file"
-      accept=".mp3,audio/mpeg,audio/mp3"
+      accept={BOOK_FILE_ACCEPT}
       onChange={handleFile}
       tabIndex={-1}
-      aria-label="Choose an MP3 file to import"
+      aria-label="Choose an audiobook or document to import"
     />
   );
 

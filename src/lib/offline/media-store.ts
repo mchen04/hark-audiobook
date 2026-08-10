@@ -33,6 +33,17 @@ const MEDIA_WRITE_CONCURRENCY = 3;
  */
 export type MediaSlot = { readonly key: string };
 
+export type StreamedLocalMedia = {
+  /** Append-only MP3 bytes; backpressure includes the Cache Storage write. */
+  writable: WritableStream<Uint8Array>;
+  byteSize: () => number;
+  commit: (
+    book: Omit<PlayerBook, "mediaUrl" | "coverUrl">,
+    targetSlot?: MediaSlot,
+  ) => Promise<OfflineBook>;
+  abort: (reason?: unknown) => Promise<void>;
+};
+
 export function withLocalMediaSlot<T>(
   userId: string,
   bookId: string,
@@ -66,6 +77,182 @@ export async function storeLocalBookMedia(
     return storeLocalBookMediaUnlocked(userId, book, file, artwork, onProgress);
   };
   return slot?.key === key ? write() : withMediaWriteLock(key, write);
+}
+
+/**
+ * Opens a crash-recoverable, bounded-memory media stream for generated MP3s.
+ *
+ * Every completed chunk is journaled before it enters Cache Storage. The
+ * caller must hold `slot` until `commit` or `abort` completes; this prevents
+ * another tab's orphan sweep from mistaking an in-progress narration for
+ * garbage. A duplicate registration may commit under a different canonical
+ * book id, in which case the journal ownership moves atomically first.
+ */
+export async function createStreamedLocalBookMedia(
+  userId: string,
+  bookId: string,
+  estimatedBytes: number,
+  slot: MediaSlot,
+): Promise<StreamedLocalMedia> {
+  assertAccountWritable(userId);
+  const sourceKey = offlineBookKey(userId, bookId);
+  if (slot.key !== sourceKey) throw new Error("The generated media slot is not held.");
+  await ensureStorageCapacity(estimatedBytes);
+  if (navigator.storage?.persist) await navigator.storage.persist().catch(() => false);
+
+  const startedAt = Date.now();
+  const token = crypto.randomUUID();
+  const offlineMediaUrl = `/offline-media/${token}`;
+  const db = await database();
+  const cache = await caches.open(MEDIA_CACHE);
+  const journaledUrls: string[] = [];
+  let chunk = new Uint8Array(MEDIA_CHUNK_BYTES);
+  let chunkLength = 0;
+  let chunkCount = 0;
+  let totalBytes = 0;
+  let closed = false;
+  let committed = false;
+  let cleanupPromise: Promise<void> | null = null;
+
+  const cleanup = () => {
+    cleanupPromise ??= deleteJournaledCacheEntries(db, cache, [...journaledUrls]).catch(
+      () => undefined,
+    );
+    return cleanupPromise;
+  };
+
+  const flushChunk = async () => {
+    if (!chunkLength) return;
+    const url = `${offlineMediaUrl}/chunk/${chunkCount}`;
+    await db.put("cacheEntries", { url, userId, bookId });
+    journaledUrls.push(url);
+    await cache.put(
+      url,
+      new Response(chunk.slice(0, chunkLength), {
+        headers: { "Content-Type": "application/octet-stream" },
+      }),
+    );
+    chunkCount += 1;
+    chunk = new Uint8Array(MEDIA_CHUNK_BYTES);
+    chunkLength = 0;
+  };
+
+  const append = async (bytes: Uint8Array) => {
+    if (closed) throw new Error("The generated media stream is already closed.");
+    let offset = 0;
+    totalBytes += bytes.byteLength;
+    while (offset < bytes.byteLength) {
+      const length = Math.min(MEDIA_CHUNK_BYTES - chunkLength, bytes.byteLength - offset);
+      chunk.set(bytes.subarray(offset, offset + length), chunkLength);
+      chunkLength += length;
+      offset += length;
+      if (chunkLength === MEDIA_CHUNK_BYTES) await flushChunk();
+    }
+  };
+
+  const close = async () => {
+    if (closed) return;
+    if (!totalBytes) throw new Error("Kestrel did not produce any audio.");
+    await flushChunk();
+    await db.put("cacheEntries", { url: offlineMediaUrl, userId, bookId });
+    journaledUrls.push(offlineMediaUrl);
+    await cache.put(
+      offlineMediaUrl,
+      new Response(
+        JSON.stringify({
+          format: "chapterline-chunked-media-v1",
+          byteSize: totalBytes,
+          chunkSize: MEDIA_CHUNK_BYTES,
+          chunkCount,
+        }),
+        {
+          headers: {
+            "Content-Type": "application/vnd.chapterline.media+json",
+            "X-Chapterline-Media-Format": "chunked-v1",
+          },
+        },
+      ),
+    );
+    closed = true;
+  };
+
+  const abort = async () => {
+    if (committed) return;
+    closed = true;
+    await cleanup();
+  };
+
+  const writable = new WritableStream<Uint8Array>({
+    write: append,
+    close,
+    abort,
+  });
+
+  const commit = async (
+    book: Omit<PlayerBook, "mediaUrl" | "coverUrl">,
+    targetSlot?: MediaSlot,
+  ): Promise<OfflineBook> => {
+    if (!closed) throw new Error("The generated media stream has not been finalized.");
+    if (committed) throw new Error("The generated media stream was already committed.");
+    const targetKey = offlineBookKey(userId, book.id);
+    const write = async () => {
+      const pending = await db.get("deletions", targetKey);
+      if (pending?.completedAt && pending.completedAt >= startedAt) {
+        throw new Error("This download was removed while it was being generated.");
+      }
+      assertAccountWritable(userId);
+
+      if (book.id !== bookId) {
+        const ownership = db.transaction("cacheEntries", "readwrite");
+        for (const url of journaledUrls) {
+          await ownership.store.put({ url, userId, bookId: book.id });
+        }
+        await ownership.done;
+      }
+
+      const record: OfflineBook = {
+        key: targetKey,
+        userId,
+        book,
+        offlineMediaUrl,
+        offlineCoverUrl: null,
+        offlineCoverThumbUrl: null,
+        byteSize: totalBytes,
+        downloadedAt: new Date().toISOString(),
+        mediaMissingSince: null,
+      };
+      const existing = await getStoredOfflineBook(userId, book.id);
+      try {
+        await db.put("downloads", record);
+        const [storedRecord, storedMedia] = await Promise.all([
+          db.get("downloads", targetKey),
+          cache.match(offlineMediaUrl),
+        ]);
+        if (storedRecord?.offlineMediaUrl !== offlineMediaUrl || !storedMedia) {
+          throw new Error("Generated media verification failed.");
+        }
+        if (existing) {
+          await deleteJournaledMedia(db, cache, existing.offlineMediaUrl).catch(() => false);
+          for (const url of [existing.offlineCoverUrl, existing.offlineCoverThumbUrl]) {
+            if (url) await deleteJournaledCacheEntry(db, cache, url).catch(() => false);
+          }
+        }
+        committed = true;
+        return record;
+      } catch (error) {
+        const current = await db.get("downloads", targetKey).catch(() => undefined);
+        if (current?.offlineMediaUrl === offlineMediaUrl) {
+          if (existing) await db.put("downloads", existing).catch(() => undefined);
+          else await db.delete("downloads", targetKey).catch(() => undefined);
+        }
+        await cleanup();
+        throw offlineStorageError(error);
+      }
+    };
+    return targetSlot?.key === targetKey ? write() : withMediaWriteLock(targetKey, write);
+  };
+
+  return { writable, byteSize: () => totalBytes, commit, abort };
 }
 
 async function storeLocalBookMediaUnlocked(

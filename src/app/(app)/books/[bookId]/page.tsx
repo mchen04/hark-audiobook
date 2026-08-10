@@ -99,6 +99,8 @@ export default async function BookPage({
       mediaFingerprint={book.mediaFingerprint}
       mediaFingerprintKind={book.mediaFingerprintKind}
       byteSize={book.byteSize}
+      sourceFilename={book.originalFilename}
+      sourceMimeType={book.mimeType}
       historySnapshot={historySnapshot}
       autoplay={autoplay === "1"}
       details={details}

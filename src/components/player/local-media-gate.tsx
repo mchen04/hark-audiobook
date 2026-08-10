@@ -20,7 +20,7 @@ type GateState =
   | { phase: "ready"; mediaUrl: string; coverUrl: string | null; coverThumbUrl: string | null }
   | { phase: "missing" }
   | { phase: "unavailable" }
-  | { phase: "attaching"; percent: number | null };
+  | { phase: "attaching"; percent: number | null; stage: string };
 
 /**
  * Audio bytes live only on the user's devices. Before the player mounts, this
@@ -34,6 +34,8 @@ export function LocalMediaGate({
   mediaFingerprint,
   mediaFingerprintKind,
   byteSize,
+  sourceFilename,
+  sourceMimeType,
   historySnapshot,
   autoplay,
   details,
@@ -44,6 +46,8 @@ export function LocalMediaGate({
   mediaFingerprint: string | null;
   mediaFingerprintKind: MediaFingerprintKind | null;
   byteSize: number | null;
+  sourceFilename?: string | null;
+  sourceMimeType?: string | null;
   historySnapshot?: PlaybackHistorySnapshot;
   autoplay: boolean;
   details: BookDetails | null;
@@ -61,6 +65,9 @@ export function LocalMediaGate({
     mediaFingerprint,
   );
   const inputRef = useRef<HTMLInputElement>(null);
+  const documentSource = Boolean(
+    sourceMimeType && sourceMimeType !== "audio/mpeg" && sourceMimeType !== "audio/mp3",
+  );
   const readyMediaUrl = state.phase === "ready" ? state.mediaUrl : null;
   const readyCoverUrl = state.phase === "ready" ? state.coverUrl : null;
   const readyCoverThumbUrl = state.phase === "ready" ? state.coverThumbUrl : null;
@@ -105,39 +112,47 @@ export function LocalMediaGate({
     if (!file) return;
 
     setError(null);
-    setState({ phase: "attaching", percent: null });
+    setState({ phase: "attaching", percent: null, stage: "Checking the source" });
     try {
       if (byteSize && file.size !== byteSize) {
         throw new Error(
           `This file is not the one this book was imported from (expected ${formatBytes(byteSize)}).`,
         );
       }
-      if (
-        mediaFingerprint &&
-        mediaFingerprintKind &&
-        (await fingerprintMedia(file, mediaFingerprintKind)) !== mediaFingerprint
-      ) {
+      const fingerprint = mediaFingerprintKind
+        ? await fingerprintMedia(file, mediaFingerprintKind, (fraction) =>
+            setState({
+              phase: "attaching",
+              percent: Math.round(fraction * 100),
+              stage: "Checking the source",
+            }),
+          )
+        : undefined;
+      if (mediaFingerprint && fingerprint !== mediaFingerprint) {
         throw new Error("This file's content does not match this book.");
       }
-      const record = await storeLocalBookMedia(
-        userId,
-        {
-          id: playerBook.id,
-          title: playerBook.title,
-          author: playerBook.author,
-          durationMs: playerBook.durationMs,
-          chapters: playerBook.chapters,
-          initialPositionMs: playerBook.initialPositionMs,
-          initialProgressOccurredAt: playerBook.initialProgressOccurredAt,
-          initialPlaybackRate: playerBook.initialPlaybackRate,
-          initialPlaybackRateOccurredAt: playerBook.initialPlaybackRateOccurredAt,
-          completed: playerBook.completed,
-          initialCompletedOccurredAt: playerBook.initialCompletedOccurredAt,
-        },
-        file,
-        (await parseLocalMp3(file)).artwork,
-        (fraction) => setState({ phase: "attaching", percent: Math.round(fraction * 100) }),
-      );
+      const targetBook = withoutMediaUrls(playerBook);
+      const record = documentSource
+        ? await import("@/lib/document-import/import").then(({ importLocalDocument }) =>
+            importLocalDocument(
+              userId,
+              file,
+              (percent, stage) => setState({ phase: "attaching", percent, stage }),
+              { book: targetBook, ...(fingerprint ? { fingerprint } : {}) },
+            ),
+          )
+        : await storeLocalBookMedia(
+            userId,
+            targetBook,
+            file,
+            (await parseLocalMp3(file)).artwork,
+            (fraction) =>
+              setState({
+                phase: "attaching",
+                percent: Math.round(fraction * 100),
+                stage: "Saving to this device",
+              }),
+          );
       setState({
         phase: "ready",
         mediaUrl: record.offlineMediaUrl,
@@ -171,15 +186,14 @@ export function LocalMediaGate({
         {state.phase === "checking" && <p>Checking this device for the audio…</p>}
         {state.phase === "attaching" && (
           <p>
-            Verifying and storing the MP3 on this device…
-            {state.percent !== null ? ` ${state.percent}%` : ""}
+            {state.stage}…{state.percent !== null ? ` ${state.percent}%` : ""}
           </p>
         )}
         {state.phase === "unavailable" && (
           <>
             <p>
               Hark could not access this device&apos;s saved audio. This can be temporary; retry
-              before attaching the MP3 again.
+              before attaching the source again.
             </p>
             <button
               type="button"
@@ -202,7 +216,7 @@ export function LocalMediaGate({
           <>
             <p>
               The audio for this book is stored on your devices, not in the cloud — and this device
-              does not currently have it. Attach the original MP3
+              does not currently have it. Attach the original {documentSource ? "document" : "MP3"}
               {byteSize ? ` (${formatBytes(byteSize)})` : ""} to listen here. Your reading position
               and playback history are already synced.
             </p>
@@ -210,10 +224,14 @@ export function LocalMediaGate({
               ref={inputRef}
               className="visually-hidden"
               type="file"
-              accept=".mp3,audio/mpeg,audio/mp3"
+              accept={
+                documentSource
+                  ? ".pdf,.epub,.docx,.txt,.md,.markdown,.html,.htm"
+                  : ".mp3,audio/mpeg,audio/mp3"
+              }
               onChange={attachFile}
               tabIndex={-1}
-              aria-label="Attach the book's MP3 file"
+              aria-label={`Attach ${sourceFilename || (documentSource ? "the book's document" : "the book's MP3")}`}
             />
             <button
               type="button"
@@ -221,7 +239,7 @@ export function LocalMediaGate({
               onClick={() => inputRef.current?.click()}
             >
               <UploadSimple size={17} aria-hidden="true" />
-              Attach MP3
+              Attach {documentSource ? "document" : "MP3"}
             </button>
             {error && <p className="form-error">{error}</p>}
             <p>
@@ -246,4 +264,21 @@ export function LocalMediaGate({
       </section>
     </main>
   );
+}
+
+function withoutMediaUrls(book: PlayerBook): Omit<PlayerBook, "mediaUrl" | "coverUrl"> {
+  return {
+    id: book.id,
+    title: book.title,
+    author: book.author,
+    durationMs: book.durationMs,
+    coverThumbUrl: book.coverThumbUrl,
+    chapters: book.chapters,
+    initialPositionMs: book.initialPositionMs,
+    initialProgressOccurredAt: book.initialProgressOccurredAt,
+    initialPlaybackRate: book.initialPlaybackRate,
+    initialPlaybackRateOccurredAt: book.initialPlaybackRateOccurredAt,
+    completed: book.completed,
+    initialCompletedOccurredAt: book.initialCompletedOccurredAt,
+  };
 }

@@ -255,6 +255,7 @@ export async function getBookForUser(userId: string, bookId: string) {
       seriesPosition: books.seriesPosition,
       archivedAt: books.archivedAt,
       chapterDiagnostic: books.chapterDiagnostic,
+      originalFilename: mediaAssets.originalFilename,
       byteSize: mediaAssets.byteSize,
       durationMs: mediaAssets.durationMs,
       mimeType: mediaAssets.mimeType,

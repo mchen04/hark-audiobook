@@ -1,0 +1,117 @@
+// @vitest-environment jsdom
+
+import { File as NodeFile } from "node:buffer";
+
+import { strToU8, zipSync } from "fflate";
+import { describe, expect, it } from "vitest";
+
+import { detectDocument, documentMimeType, extractDocument } from "./extract";
+
+describe("document detection", () => {
+  it.each([
+    ["book.pdf", "application/pdf"],
+    ["book.epub", "application/epub+zip"],
+    ["book.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+    ["book.txt", "text/plain"],
+    ["book.md", "text/markdown"],
+    ["book.html", "text/html"],
+  ])("recognizes %s", (name, mimeType) => {
+    const file = sourceFile(["text"], name);
+    expect(detectDocument(file)).toBeDefined();
+    expect(documentMimeType(file)).toBe(mimeType);
+  });
+
+  it("rejects empty, oversized, and unsupported sources before parsing", () => {
+    expect(() => detectDocument(sourceFile([], "empty.txt"))).toThrow(/empty/i);
+    expect(() => detectDocument({ name: "huge.txt", size: 512 * 1024 * 1024 + 1 })).toThrow(
+      /too large/i,
+    );
+    expect(() => detectDocument(sourceFile(["text"], "book.rtf"))).toThrow(/Choose an MP3/i);
+  });
+});
+
+describe("local document extraction", () => {
+  it("turns Markdown headings into ordered chapters", async () => {
+    const document = await extractDocument(
+      sourceFile(["# Opening\n\nFirst paragraph.\n\n## Next\n\nSecond paragraph."], "notes.md"),
+    );
+
+    expect(document).toMatchObject({
+      kind: "markdown",
+      title: "notes",
+      author: "Unknown author",
+      chapters: [
+        { title: "Opening", text: "First paragraph." },
+        { title: "Next", text: "Second paragraph." },
+      ],
+    });
+  });
+
+  it("removes executable and navigation markup from HTML", async () => {
+    const document = await extractDocument(
+      sourceFile(
+        [
+          '<html><head><title>Safe title</title><meta name="author" content="A. Writer">',
+          "<script>stolen()</script></head><body><nav>Menu</nav><h1>Start</h1>",
+          "<p>Readable prose.</p><style>.secret{}</style></body></html>",
+        ],
+        "book.html",
+      ),
+    );
+
+    expect(document.title).toBe("Safe title");
+    expect(document.author).toBe("A. Writer");
+    expect(document.chapters).toEqual([{ title: "Start", text: "Readable prose." }]);
+  });
+
+  it("reads EPUB spine order and package metadata", async () => {
+    const epub = zipFile("novel.epub", {
+      "META-INF/container.xml": `<?xml version="1.0"?><container><rootfiles><rootfile full-path="OPS/book.opf" /></rootfiles></container>`,
+      "OPS/book.opf": `<?xml version="1.0"?><package xmlns:dc="urn:dc"><metadata><dc:title>Vault Story</dc:title><dc:creator>Local Author</dc:creator></metadata><manifest><item id="two" href="two.xhtml"/><item id="one" href="one.xhtml"/></manifest><spine><itemref idref="one"/><itemref idref="two"/></spine></package>`,
+      "OPS/one.xhtml": "<html><body><h1>One</h1><p>First.</p></body></html>",
+      "OPS/two.xhtml": "<html><body><h1>Two</h1><p>Second.</p></body></html>",
+    });
+
+    const document = await extractDocument(epub);
+
+    expect(document).toMatchObject({
+      kind: "epub",
+      title: "Vault Story",
+      author: "Local Author",
+      chapters: [
+        { title: "One", text: "One\n\nFirst." },
+        { title: "Two", text: "Two\n\nSecond." },
+      ],
+    });
+  });
+
+  it("uses Word heading styles as chapter boundaries", async () => {
+    const docx = zipFile("draft.docx", {
+      "word/document.xml": `<?xml version="1.0"?><w:document xmlns:w="urn:w"><w:body><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Chapter One</w:t></w:r></w:p><w:p><w:r><w:t>Hello world.</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr><w:r><w:t>Chapter Two</w:t></w:r></w:p><w:p><w:r><w:t>Goodbye.</w:t></w:r></w:p></w:body></w:document>`,
+      "docProps/core.xml": `<?xml version="1.0"?><cp:coreProperties xmlns:cp="urn:cp" xmlns:dc="urn:dc"><dc:title>Draft</dc:title><dc:creator>Writer</dc:creator></cp:coreProperties>`,
+    });
+
+    const document = await extractDocument(docx);
+
+    expect(document).toMatchObject({
+      kind: "docx",
+      title: "Draft",
+      author: "Writer",
+      chapters: [
+        { title: "Chapter One", text: "Hello world." },
+        { title: "Chapter Two", text: "Goodbye." },
+      ],
+    });
+  });
+});
+
+function zipFile(name: string, entries: Record<string, string>): File {
+  const bytes = zipSync(
+    Object.fromEntries(Object.entries(entries).map(([path, source]) => [path, strToU8(source)])),
+  );
+  return sourceFile([bytes.slice()], name);
+}
+
+function sourceFile(parts: Array<string | Uint8Array>, name: string): File {
+  return new NodeFile(parts, name) as unknown as File;
+}
