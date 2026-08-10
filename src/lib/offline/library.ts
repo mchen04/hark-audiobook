@@ -1,4 +1,5 @@
 import type { PlayerBook } from "@/domain/player";
+import { withAccountWriteLock } from "@/lib/account-deletion-fence";
 import {
   applyPendingProgressNormalizations,
   clearQueuedMutationsForUser,
@@ -375,18 +376,28 @@ function toCanonicalBook(value: unknown): OfflineBook["book"] | null {
   };
 }
 
-export async function projectOfflineProgress(
+type OfflineProgressProjection = {
+  positionMs: number;
+  completed: boolean;
+  playbackRate: number;
+  eventOccurredAt: string | null;
+  playbackRateOccurredAt: string | null;
+  completedOccurredAt: string | null;
+  stateOccurredAt: string | null;
+};
+
+export function projectOfflineProgress(
   userId: string,
   bookId: string,
-  state: {
-    positionMs: number;
-    completed: boolean;
-    playbackRate: number;
-    eventOccurredAt: string | null;
-    playbackRateOccurredAt: string | null;
-    completedOccurredAt: string | null;
-    stateOccurredAt: string | null;
-  },
+  state: OfflineProgressProjection,
+): Promise<void> {
+  return withAccountWriteLock(userId, () => writeOfflineProgressProjection(userId, bookId, state));
+}
+
+async function writeOfflineProgressProjection(
+  userId: string,
+  bookId: string,
+  state: OfflineProgressProjection,
 ): Promise<void> {
   const db = await database();
   const transaction = db.transaction(["downloads", "playbackStates"], "readwrite");

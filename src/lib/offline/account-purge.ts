@@ -1,3 +1,5 @@
+import type { StoreNames } from "idb";
+
 import { ACTIVE_USER_KEY } from "@/lib/app-keys";
 import {
   installAccountSignOutFence,
@@ -8,6 +10,7 @@ import { forgetActiveUserId } from "@/lib/active-user";
 import {
   listQueuedMutationUserIds,
   listQueuedMutations,
+  listProgressNormalizationUserIds,
   purgeDeviceSequencesForUser,
   replayQueuedMutations,
   type MutationKind,
@@ -19,7 +22,7 @@ import {
 } from "@/lib/playback-history";
 import { flushPendingPreferences, listPendingPreferenceWrites } from "@/lib/preferences";
 
-import { database } from "./db";
+import { database, type OfflineDatabase } from "./db";
 import { clearLocalDataForUser } from "./library";
 import { purgeUser } from "./mirror";
 
@@ -222,11 +225,10 @@ export async function purgeCachedPages(): Promise<void> {
 /**
  * Every account with data on this device.
  *
- * All THREE databases are read, not just the mirror. An account whose only
- * remaining trace is an unsent mutation in `chapterline-sync-v1` or a recorded
- * seek in `hark-playback-history-v1` is still an account whose data the next
- * user of this device can read, and a sweep that enumerated one database would
- * never look at it.
+ * Every durable account store is read, not just the mirror. An account whose
+ * only remaining trace is an unsent mutation, a recorded seek, a deferred
+ * progress normalization, or one playback key in localStorage is still an
+ * account whose data the next user of this device can read.
  *
  * An enumeration source that cannot be read is reported rather than silently
  * treated as empty — but only after the accounts the other sources did find
@@ -243,6 +245,8 @@ async function enumerateLocalUsers(): Promise<{ users: string[]; failures: unkno
     listMirrorUserIds(),
     listQueuedMutationUserIds(),
     listPlaybackHistoryUserIds(),
+    listProgressNormalizationUserIds(),
+    Promise.resolve(listAccountLocalStorageUserIds()),
   ]);
   const found = new Set<string>();
   const failures: unknown[] = [];
@@ -261,26 +265,47 @@ async function enumerateLocalUsers(): Promise<{ users: string[]; failures: unkno
 async function listMirrorUserIds(): Promise<string[]> {
   const db = await database();
   const found = new Set<string>();
-  const transaction = db.transaction(
-    ["downloads", "transcripts", "cacheEntries", "deletions", "books", "preferences", "syncMeta"],
-    "readonly",
+  const stores = [...db.objectStoreNames] as Array<StoreNames<OfflineDatabase>>;
+  const transaction = db.transaction(stores, "readonly");
+  await Promise.all(
+    stores.map(async (store) => {
+      let cursor = await transaction.objectStore(store).openCursor();
+      while (cursor) {
+        if (typeof cursor.value.userId === "string" && cursor.value.userId) {
+          found.add(cursor.value.userId);
+        }
+        cursor = await cursor.continue();
+      }
+    }),
   );
-  const [downloads, transcripts, entries, deletions, books, preferences, syncMeta] =
-    await Promise.all([
-      transaction.objectStore("downloads").getAll(),
-      transaction.objectStore("transcripts").getAll(),
-      transaction.objectStore("cacheEntries").getAll(),
-      transaction.objectStore("deletions").getAll(),
-      transaction.objectStore("books").getAll(),
-      // Both stores are keyed by `userId` itself, so their key list is the answer.
-      transaction.objectStore("preferences").getAllKeys(),
-      transaction.objectStore("syncMeta").getAllKeys(),
-      transaction.done,
-    ]);
-  for (const row of [...downloads, ...transcripts, ...entries, ...deletions, ...books]) {
-    found.add(row.userId);
+  await transaction.done;
+  return [...found];
+}
+
+const ACCOUNT_LOCAL_STORAGE_PREFIXES = [
+  "chapterline:position:",
+  "chapterline:playback-position:",
+  "chapterline:playback-rate:",
+  "chapterline:playback-completed:",
+  "chapterline:last-paused-at:",
+  "chapterline:suspension-dismissed:",
+  "chapterline:preferences:",
+] as const;
+
+function listAccountLocalStorageUserIds(): string[] {
+  if (typeof localStorage === "undefined") return [];
+  const found = new Set<string>();
+  const active = localStorage.getItem(ACTIVE_USER_KEY);
+  if (active) found.add(active);
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index);
+    const prefix = key && ACCOUNT_LOCAL_STORAGE_PREFIXES.find((item) => key.startsWith(item));
+    if (!key || !prefix) continue;
+    const remainder = key.slice(prefix.length);
+    const separator = remainder.indexOf(":");
+    const userId = separator === -1 ? remainder : remainder.slice(0, separator);
+    if (userId) found.add(userId);
   }
-  for (const key of [...preferences, ...syncMeta]) found.add(String(key));
   return [...found];
 }
 

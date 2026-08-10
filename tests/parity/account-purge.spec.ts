@@ -20,6 +20,7 @@ import {
   type Device,
 } from "./harness/app";
 import { bookBuffer, SEED_BOOKS } from "./harness/library-seed";
+import type { HeldNetworkResponse } from "./harness/network";
 import {
   accountBearingPageEntries,
   mediaEntries,
@@ -470,6 +471,81 @@ test("a sign-in finishes a purge a crash interrupted", async ({ browser }) => {
     await expectNothingOfAccountARemains(device.page, accountA, accountB);
     await expectLibraryShowsNothingOfA(device.page, device.origin);
   } finally {
+    await device.context.close();
+  }
+});
+
+test("a late accepted progress response cannot recreate data after sign-out purges it", async ({
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  await resetAccount(accountA.userId);
+  const device: Device = await openDevice(browser, {
+    withDriver: true,
+    deviceId: "purge-late-progress-0001",
+  });
+  let heldResponse: HeldNetworkResponse | null = null;
+  try {
+    await signInThroughUi(device.page, accountA);
+    await warmUp(device.page);
+    await importThroughUi(device.page, "purge-late-progress.mp3", bookBuffer(KEPT_BOOK, 0));
+    await expect(device.page.getByRole("link", { name: KEPT_BOOK.title, exact: true })).toBeVisible(
+      {
+        timeout: 60_000,
+      },
+    );
+    const listed = await apiCall(device.page, "GET", "/api/books?status=all");
+    const bookId = (listed.body as { books: Array<{ id: string; title: string }> }).books.find(
+      (book) => book.title === KEPT_BOOK.title,
+    )?.id;
+    expect(bookId, "the progress-race book was never registered").toBeTruthy();
+
+    await device.page.evaluate(
+      async ([userId, targetBookId]) => {
+        window.__harkSync.configure(userId as string, "purge-late-progress-0001");
+        await window.__harkSync.commit({
+          kind: "progress",
+          bookId: targetBookId as string,
+          positionMs: 12_345,
+          playbackRate: 1.25,
+          completed: false,
+          eventOccurredAt: new Date().toISOString(),
+        });
+      },
+      [accountA.userId, bookId!] as const,
+    );
+    const queued = await readDeviceStorage(device.page, accountA.userId);
+    expect(
+      queued.stores["chapterline-sync-v1/mutations"]?.ownedByTarget,
+      "the progress request was not durable before sign-out began",
+    ).toBeGreaterThan(0);
+
+    const net = await network();
+    heldResponse = net.holdNextResponse("PATCH", `/api/books/${bookId}/progress`);
+
+    const signingOut = signOutThroughUi(device.page);
+    expect(
+      await heldResponse.upstreamStatus,
+      "the server did not accept the held progress write while the session was still live",
+    ).toBeLessThan(300);
+    await signingOut;
+
+    // The server has accepted the write, but its response is still withheld
+    // from the old session. Purge must finish without waiting forever.
+    await expectNothingOfAccountARemains(device.page, accountA, null);
+
+    heldResponse.release();
+    // Join the shipping replay's single-flight promise. This is the exact
+    // completion boundary after reconciliation, not a sleep that could inspect
+    // the device before the late continuation has run.
+    await device.page.evaluate(async (userId) => {
+      window.__harkSync.configure(userId, "purge-late-progress-0001");
+      await window.__harkSync.replay();
+    }, accountA.userId);
+
+    await expectNothingOfAccountARemains(device.page, accountA, null);
+  } finally {
+    heldResponse?.release();
     await device.context.close();
   }
 });

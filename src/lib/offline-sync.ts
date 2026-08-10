@@ -65,6 +65,8 @@ export {
 export {
   applyPendingProgressNormalizations,
   applyPendingProgressNormalizationsForUser,
+  listProgressNormalizationUserIds,
   listProgressNormalizations,
+  persistProgressNormalization,
   purgeProgressNormalizationsForUser,
 } from "./offline-sync/normalizations";

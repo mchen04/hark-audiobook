@@ -180,7 +180,7 @@ export type DeviceStorage = {
 };
 
 /**
- * Every object store of both IndexedDB databases, every Cache Storage entry,
+ * Every object store of every user-data IndexedDB database, every Cache Storage entry,
  * and every localStorage key — read with plain platform APIs rather than
  * through the app's own accessors.
  *
@@ -225,7 +225,12 @@ export function readDeviceStorage(
       // Every database this app writes user data into. `hark-playback-history-v1`
       // is easy to forget — it is opened by a lazily-imported module and named
       // nothing like the others — and it holds one row per play, pause and seek.
-      const known = ["chapterline-offline-v1", "chapterline-sync-v1", "hark-playback-history-v1"];
+      const known = [
+        "chapterline-offline-v1",
+        "chapterline-sync-v1",
+        "chapterline-progress-normalizations-v1",
+        "hark-playback-history-v1",
+      ];
       const names = ((await indexedDB.databases?.()) ?? []).map((entry) => entry.name ?? "");
       const databases = [...new Set([...names.filter(Boolean), ...known])].filter((name) =>
         known.includes(name),

@@ -1,5 +1,5 @@
 import type { PlayerBook, PlayerChapter } from "@/domain/player";
-import { isAccountDeletionFenced } from "@/lib/account-deletion-fence";
+import { isAccountWriteFenced } from "@/lib/account-deletion-fence";
 
 /** How close to a boundary counts as "at" it, in milliseconds. */
 export const CHAPTER_END_EPSILON_MS = 350;
@@ -243,7 +243,7 @@ export function saveLocalPlaybackState(
     hydrate?: boolean;
   },
 ): LocalPosition | null {
-  if (isAccountDeletionFenced(userId)) return null;
+  if (isAccountWriteFenced(userId)) return null;
   const positionMs = Math.round(state.positionMs);
   const previous = readLocalProgress(userId, bookId);
   const writtenAt = Date.now();
@@ -341,6 +341,10 @@ export function saveLocalPlaybackState(
   // Kept as a joined legacy snapshot for old builds, diagnostics and book-key
   // enumeration. New reads arbitrate it against the independent registers.
   writeLocalValue(localPositionKey(userId, bookId), JSON.stringify(record));
+  if (isAccountWriteFenced(userId)) {
+    clearLocalPlaybackState(userId, bookId);
+    return null;
+  }
   return record;
 }
 
@@ -390,7 +394,7 @@ export function applyAuthoritativePlaybackStateWithStatus(
     completed: boolean;
   } = { position: true, playbackRate: true, completed: true },
 ): AuthoritativePlaybackStateResult {
-  if (isAccountDeletionFenced(userId)) {
+  if (isAccountWriteFenced(userId)) {
     return { state: null, persisted: false, normalization: null };
   }
   const clocks = [
@@ -577,6 +581,10 @@ export function applyAuthoritativePlaybackStateWithStatus(
   };
   const record = joinLocalPlaybackRegisters(userId, bookId, seed) ?? seed;
   writeLocalValue(localPositionKey(userId, bookId), JSON.stringify(record));
+  if (isAccountWriteFenced(userId)) {
+    clearLocalPlaybackState(userId, bookId);
+    return { state: null, persisted: false, normalization: null };
+  }
   const normalization: PlaybackNormalization = {
     ...(!positionPersisted && replacePosition
       ? {
@@ -1130,9 +1138,11 @@ export function readDismissedSuspensionGap(userId: string, bookId: string): numb
 }
 
 export function dismissSuspensionGap(userId: string, bookId: string, writtenAt: number): void {
-  if (isAccountDeletionFenced(userId)) return;
+  if (isAccountWriteFenced(userId)) return;
   try {
-    localStorage.setItem(suspensionDismissedKey(userId, bookId), String(writtenAt));
+    const key = suspensionDismissedKey(userId, bookId);
+    localStorage.setItem(key, String(writtenAt));
+    if (isAccountWriteFenced(userId)) localStorage.removeItem(key);
   } catch {
     // Storage is blocked. The offer reappears next launch, which is a nuisance
     // and not a lost position; nothing else in the player may fail for it.
@@ -1298,9 +1308,11 @@ export function readMsSinceLastPause(userId: string, bookId: string): number | n
 }
 
 export function markPausedNow(userId: string, bookId: string): void {
-  if (isAccountDeletionFenced(userId)) return;
+  if (isAccountWriteFenced(userId)) return;
   try {
-    localStorage.setItem(lastPausedKey(userId, bookId), String(Date.now()));
+    const key = lastPausedKey(userId, bookId);
+    localStorage.setItem(key, String(Date.now()));
+    if (isAccountWriteFenced(userId)) localStorage.removeItem(key);
   } catch {
     // A device with storage blocked still has to be able to play.
   }
