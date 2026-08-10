@@ -10,8 +10,9 @@ designing a sync engine in code first is how local-first projects lose data.
 
 ## 1. Why this is a completion, not a reversal
 
-The audio already never leaves the device (`src/lib/local-import.ts` parses the
-MP3 in the browser; `src/app/api/books/local/route.ts` receives metadata only;
+The book content already never leaves the device (`src/lib/local-import.ts` parses
+MP3s and `src/lib/document-import/` extracts and narrates documents in the browser;
+`src/app/api/books/local/route.ts` receives metadata only;
 `media_assets` has no storage key or URL column). The device therefore already
 holds the only copy of the only irreplaceable data. Postgres holds metadata that
 could be rebuilt from it. Making the device authoritative for reads finishes an
@@ -41,7 +42,7 @@ Never mirrored — these stay server-authoritative:
 - `playback_action_receipts`. That is the server's idempotency ledger and only
   the server may write it.
 
-Never moved to the server, ever: **audio bytes and transcript payloads**. They
+Never moved to the server, ever: **audio bytes, source-document bytes, and transcript payloads**. They
 live in Cache Storage / IndexedDB on the device that imported them, and there is
 no route capable of accepting or serving them. This is a hard boundary, not a
 default.

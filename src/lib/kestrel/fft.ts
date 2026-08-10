@@ -1,4 +1,3 @@
-const KISS_FFT_URL = "/models/kestrel/kissfft.wasm";
 const WASM_PAGE_BYTES = 64 * 1024;
 
 type KissFftExports = WebAssembly.Exports & {
@@ -30,6 +29,12 @@ export type KestrelFftWorkspace = {
 
 let runtimePromise: Promise<KissFftRuntime> | null = null;
 let workspacePromise: Promise<KestrelFftWorkspace> | null = null;
+let runtimeBytes: Uint8Array | null = null;
+
+export function configureKestrelFftRuntime(bytes: Uint8Array): void {
+  if (runtimePromise || workspacePromise) return;
+  runtimeBytes = bytes;
+}
 
 /** A single fixed-size KISS FFT workspace reused by the worker's serial render queue. */
 export function getKestrelFftWorkspace(size: number): Promise<KestrelFftWorkspace> {
@@ -119,14 +124,8 @@ async function instantiateRuntime(): Promise<KissFftRuntime> {
     },
   };
 
-  const response = await fetch(KISS_FFT_URL, { cache: "force-cache" });
-  if (!response.ok) throw new Error("Kestrel's FFT runtime is unavailable.");
-  let result: WebAssembly.WebAssemblyInstantiatedSource;
-  try {
-    result = await WebAssembly.instantiateStreaming(response.clone(), imports);
-  } catch {
-    result = await WebAssembly.instantiate(await response.arrayBuffer(), imports);
-  }
+  if (!runtimeBytes) throw new Error("Kestrel's FFT runtime is unavailable.");
+  const result = await WebAssembly.instantiate(runtimeBytes.slice().buffer, imports);
   const exports = result.instance.exports as KissFftExports;
   memory = exports.memory;
   if (!memory || typeof exports.kiss_fftr !== "function") {

@@ -12,6 +12,7 @@ import { getBookForUser } from "@/server/books/queries";
 import { db } from "@/server/db/client";
 import { books, chapters, mediaAssets } from "@/server/db/schema";
 import { validateUploadMetadata } from "@/server/media/filename";
+import { isSameLocalRegistration } from "@/server/media/local-registration-identity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,9 +20,9 @@ export const dynamic = "force-dynamic";
 const CHAPTER_INSERT_BATCH = 2_000;
 
 /**
- * Registers a book whose MP3 stays on the user's device: the browser parsed
- * the file locally and sends only metadata. The server owns identity, sync,
- * and organization — never the audio bytes.
+ * Registers a book whose source and audio stay on the user's device: the
+ * browser parses or narrates it locally and sends only metadata. The server
+ * owns identity, sync, and organization — never the content bytes.
  */
 export const POST = withMutation(
   { body: bookRegistrationSchema, invalidBody: "The book registration is invalid." },
@@ -66,11 +67,44 @@ export const POST = withMutation(
         .returning({ id: books.id });
       if (!claimed) {
         const [existing] = await transaction
-          .select({ id: books.id })
+          .select({
+            id: books.id,
+            fingerprint: mediaAssets.fingerprint,
+            fingerprintKind: mediaAssets.fingerprintKind,
+            renditionKey: mediaAssets.renditionKey,
+            durationMs: mediaAssets.durationMs,
+          })
           .from(books)
+          .leftJoin(mediaAssets, eq(mediaAssets.bookId, books.id))
           .where(and(eq(books.id, data.bookId!), eq(books.ownerId, session.user.id)))
           .limit(1);
-        return { settled: existing?.id ?? null };
+        if (!existing) return { settled: null, registrationMismatch: false };
+        const existingChapters = await transaction
+          .select({
+            position: chapters.position,
+            title: chapters.title,
+            startMs: chapters.startMs,
+            endMs: chapters.endMs,
+          })
+          .from(chapters)
+          .where(eq(chapters.bookId, existing.id))
+          .orderBy(chapters.position);
+        const registrationMismatch = !isSameLocalRegistration(
+          data,
+          existing.fingerprint &&
+            existing.fingerprintKind &&
+            existing.renditionKey &&
+            existing.durationMs
+            ? {
+                fingerprint: existing.fingerprint,
+                fingerprintKind: existing.fingerprintKind,
+                renditionKey: existing.renditionKey,
+                durationMs: existing.durationMs,
+                chapters: existingChapters,
+              }
+            : null,
+        );
+        return { settled: existing.id, registrationMismatch };
       }
       const created = claimed;
       const [registeredMedia] = await transaction
@@ -83,10 +117,16 @@ export const POST = withMutation(
           byteSize: data.byteSize,
           fingerprint: data.fingerprint,
           fingerprintKind: data.fingerprintKind,
+          renditionKey: data.renditionKey,
           durationMs: data.durationMs,
         })
         .onConflictDoNothing({
-          target: [mediaAssets.ownerId, mediaAssets.fingerprintKind, mediaAssets.fingerprint],
+          target: [
+            mediaAssets.ownerId,
+            mediaAssets.fingerprintKind,
+            mediaAssets.fingerprint,
+            mediaAssets.renditionKey,
+          ],
           where: sql`${mediaAssets.fingerprintKind} = 'sha256-v1'`,
         })
         .returning({ bookId: mediaAssets.bookId });
@@ -100,6 +140,7 @@ export const POST = withMutation(
               eq(mediaAssets.ownerId, session.user.id),
               eq(mediaAssets.fingerprintKind, data.fingerprintKind),
               eq(mediaAssets.fingerprint, data.fingerprint),
+              eq(mediaAssets.renditionKey, data.renditionKey),
             ),
           )
           .limit(1);
@@ -162,6 +203,15 @@ export const POST = withMutation(
         return Response.json(
           { error: "That book id belongs to another account." },
           { status: 409 },
+        );
+      }
+      if (registration.registrationMismatch) {
+        return Response.json(
+          {
+            error:
+              "That book id already belongs to a different local-audio rendition. Import it as a new book.",
+          },
+          { status: 422 },
         );
       }
       return Response.json({ bookId: registration.settled, alreadyRegistered: true });

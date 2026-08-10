@@ -17,7 +17,6 @@ type RequestWithoutId = { type: "initialize" } | { type: "synthesize"; text: str
 export type KestrelSynthesis = {
   audio: Float32Array;
   sampleRate: number;
-  backend: "webgpu" | "wasm";
 };
 
 /** One book-scoped worker, so model weights are loaded once and then reused. */

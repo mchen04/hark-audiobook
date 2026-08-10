@@ -10,8 +10,10 @@ Last reviewed: 2026-08-09
   auth attempt budgets are shared through Postgres.
 - Set `BETTER_AUTH_URL` to the public origin; mutation requests from any other
   origin are rejected.
-- The server stores metadata only; audio bytes live in each device's browser
-  storage. There is no object storage to provision.
+- The server stores metadata only; source documents and audio bytes live in
+  each device's browser storage. Public Kestrel weights are fetched directly by
+  the browser and verified against the pinned manifest. There is no object
+  storage or hosted inference service to provision.
 - Auth rate limiting uses an app-owned atomic database adapter over the
   `rate_limit` table, so cold starts and multiple instances share one
   per-IP/path attempt budget. Its cleanup retention is derived from every
@@ -34,9 +36,10 @@ Last reviewed: 2026-08-09
 
 - **Database**: Neon branch snapshots or `pg_dump`. All server-side state
   lives in Postgres; a database restore is a full server restore.
-- **Audio**: the MP3 files are the user's own — the app never holds the only
-  copy. After any restore (or on a new device), opening a book prompts for the
-  original file and verifies it by size and fingerprint before attaching.
+- **Book files**: original MP3s and documents are the user's own — the app never
+  holds the only source copy. After any restore (or on a new device), opening a
+  book prompts for that source, verifies it by size and fingerprint, and either
+  attaches the MP3 or regenerates the pinned Kestrel rendition.
 - Browser storage can be evicted by the OS under pressure; the original files
   remain the durable copy. The app requests persistent storage at import.
 - The v2 media store splits audiobooks into 4 MiB cache entries so iPhone
@@ -93,12 +96,14 @@ restore live data from Neon snapshots or `pg_dump`, never from Drizzle metadata.
   failure keeps the previous working shell. If a development client sees a
   chunk 404 after `.next` was replaced under a running server, restart that
   server and reload once.
-- **Import fails with "not a valid MP3"**: the file must be a real MPEG
-  Layer 3 file; renamed non-MP3s are rejected by the in-browser parser.
+- **Import fails with "not a valid MP3"**: the file must be a real MPEG Layer 3
+  file. Document imports support PDF, EPUB, DOCX, TXT, Markdown, and HTML;
+  scanned PDFs require OCR before Hark can narrate them.
 - **"This device does not have enough free storage"**: the import is bounded
   by browser storage quota — free space or use a device with more room.
-- **A book shows "Attach MP3" on another device**: expected — audio bytes
-  never sync; attach the original file once per device.
+- **A book asks for its source on another device**: expected — audio bytes never
+  sync; attach the original MP3 or document once per device. Documents are
+  regenerated only with the exact saved rendition recipe and timeline.
 - **Progress seems stuck on one device**: check the response of a manual
   progress PATCH — a 409 `stale-event` means another device has fresher state,
   which is the deterministic conflict rule working as intended.

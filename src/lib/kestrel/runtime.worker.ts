@@ -2,6 +2,7 @@ import * as ort from "onnxruntime-web/webgpu";
 
 import { KESTREL_ASSETS, loadKestrelAssets } from "./assets";
 import { KESTREL_SAMPLE_RATE, renderKestrelAudio } from "./dsp";
+import { configureKestrelFftRuntime } from "./fft";
 import type { KestrelWorkerRequest, KestrelWorkerResponse } from "./protocol";
 import { prepareKestrelText, type KestrelTextChunk } from "./text";
 
@@ -60,7 +61,6 @@ async function handleRequest(request: KestrelWorkerRequest): Promise<void> {
         id: request.id,
         audio,
         sampleRate: KESTREL_SAMPLE_RATE,
-        backend: sessions.backend,
       },
       [audio.buffer],
     );
@@ -98,11 +98,7 @@ async function initializeSessions(requestId: number): Promise<Sessions> {
       totalBytes,
     }),
   );
-  const [encodeGraph, framesGraph, decoderGraph] = await Promise.all([
-    fetchGraph("prosody-encode.onnx"),
-    fetchGraph("prosody-frames.onnx"),
-    fetchGraph("decoder-head.onnx"),
-  ]);
+  configureKestrelFftRuntime(assets.fft);
 
   const voice = readVoice(assets.voice);
   const canUseWebGpu = typeof navigator !== "undefined" && "gpu" in navigator;
@@ -111,9 +107,9 @@ async function initializeSessions(requestId: number): Promise<Sessions> {
       return await createSessions(
         "webgpu",
         ["webgpu", "wasm"],
-        encodeGraph,
-        framesGraph,
-        decoderGraph,
+        assets.prosodyEncode,
+        assets.prosodyFrames,
+        assets.decoderHead,
         assets,
         voice,
       );
@@ -122,7 +118,15 @@ async function initializeSessions(requestId: number): Promise<Sessions> {
       // executes the same graph and remains the universal local fallback.
     }
   }
-  return createSessions("wasm", ["wasm"], encodeGraph, framesGraph, decoderGraph, assets, voice);
+  return createSessions(
+    "wasm",
+    ["wasm"],
+    assets.prosodyEncode,
+    assets.prosodyFrames,
+    assets.decoderHead,
+    assets,
+    voice,
+  );
 }
 
 async function createSessions(
@@ -141,7 +145,7 @@ async function createSessions(
   };
   const prosodyExternalData = [
     {
-      path: KESTREL_ASSETS[0]!.externalPath,
+      path: externalPathFor("prosody"),
       data: assets.prosody,
     },
   ];
@@ -158,8 +162,8 @@ async function createSessions(
       const decoder = await ort.InferenceSession.create(decoderGraph, {
         ...common,
         externalData: [
-          { path: KESTREL_ASSETS[1]!.externalPath, data: assets.decoder },
-          { path: KESTREL_ASSETS[2]!.externalPath, data: assets.head },
+          { path: externalPathFor("decoder"), data: assets.decoder },
+          { path: externalPathFor("head"), data: assets.head },
         ],
       });
       return { encode, frames, decoder, voice, backend };
@@ -304,10 +308,10 @@ function readVoice(bytes: Uint8Array): Float32Array {
   return new Float32Array(data.buffer);
 }
 
-async function fetchGraph(filename: string): Promise<Uint8Array> {
-  const response = await fetch(`/models/kestrel/${filename}`, { cache: "force-cache" });
-  if (!response.ok) throw new Error(`Kestrel's ${filename} graph is unavailable.`);
-  return new Uint8Array(await response.arrayBuffer());
+function externalPathFor(id: "prosody" | "decoder" | "head"): string {
+  const path = KESTREL_ASSETS.find((asset) => asset.id === id)?.externalPath;
+  if (!path) throw new Error(`Kestrel's ${id} external-data path is missing.`);
+  return path;
 }
 
 function concatenate(parts: Float32Array[], totalLength: number): Float32Array {

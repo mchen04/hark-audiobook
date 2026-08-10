@@ -70,7 +70,7 @@ The following remain ignored and should never be committed:
 - `.next/`, `out/`, `tsconfig.tsbuildinfo`, and `next-env.d.ts`;
 - `node_modules/`;
 - `test-results/`, `playwright-report/`, and `coverage/`;
-- `.data/`, uploads, local mail captures, and imported MP3s;
+- `.data/`, uploads, local mail captures, and imported book files;
 - `.env*` except the checked-in examples;
 - `.vercel/`, editor state, and agent scratch directories.
 

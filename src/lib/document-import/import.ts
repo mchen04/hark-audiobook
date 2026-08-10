@@ -10,6 +10,7 @@ import {
 } from "mediabunny";
 
 import type { PlayerBook, PlayerChapter } from "@/domain/player";
+import { throwIfAborted } from "@/lib/abort";
 import { KESTREL_DOWNLOAD_BYTES } from "@/lib/kestrel/assets";
 import { KestrelClient } from "@/lib/kestrel/client";
 import { KESTREL_SAMPLE_RATE } from "@/lib/kestrel/dsp";
@@ -20,17 +21,28 @@ import type { OfflineBook } from "@/lib/offline/db";
 
 import { chunkNarrationText } from "./chunks";
 import { documentMimeType, extractDocument } from "./extract";
+import {
+  assertSameRenditionTimeline,
+  GENERATED_MP3_BITRATE,
+  KESTREL_RENDITION_KEY,
+  KESTREL_VOICE_LABEL,
+} from "./rendition";
 
-const MP3_BITRATE = 64_000;
 const CHAPTER_SILENCE_SAMPLES = Math.round(0.4 * KESTREL_SAMPLE_RATE);
-const MP3_QUALITY = new Quality({ bitrate: MP3_BITRATE, bitrateMode: "constant" });
+const MP3_QUALITY = new Quality({ bitrate: GENERATED_MP3_BITRATE, bitrateMode: "constant" });
 let mp3EncoderReady: Promise<void> | null = null;
 
 export type DocumentImportProgress = (percent: number, stage: string) => void;
 
 export type DocumentImportTarget = {
   book: Omit<PlayerBook, "mediaUrl" | "coverUrl">;
+  renditionKey: string;
   fingerprint?: string;
+};
+
+export type DocumentImportOptions = {
+  target?: DocumentImportTarget;
+  signal?: AbortSignal;
 };
 
 /** Turns a document into a normal, chaptered, offline Hark audiobook. */
@@ -38,15 +50,25 @@ export async function importLocalDocument(
   userId: string,
   file: File,
   onProgress: DocumentImportProgress,
-  target?: DocumentImportTarget,
+  options: DocumentImportOptions = {},
 ): Promise<OfflineBook> {
+  const { target, signal } = options;
+  throwIfAborted(signal);
+  if (target && target.renditionKey !== KESTREL_RENDITION_KEY) {
+    throw new Error(
+      "This book was narrated with a different Kestrel version. Import the document as a new book to preserve its timing.",
+    );
+  }
   onProgress(2, "Reading the document on this device");
-  const document = await extractDocument(file);
+  const document = await extractDocument(file, signal);
   onProgress(8, "Checking the complete document");
   const fingerprint =
     target?.fingerprint ||
-    (await fingerprintMedia(file, "sha256-v1", (fraction) =>
-      onProgress(8 + Math.round(fraction * 4), "Checking the complete document"),
+    (await fingerprintMedia(
+      file,
+      "sha256-v1",
+      (fraction) => onProgress(8 + Math.round(fraction * 4), "Checking the complete document"),
+      signal,
     ));
   const bookId = target?.book.id || crypto.randomUUID();
   const narrationUnits = document.chapters.map((chapter) => ({
@@ -60,6 +82,7 @@ export async function importLocalDocument(
   const estimatedAudioBytes = estimateMp3Bytes(totalCharacters);
 
   return withLocalMediaSlot(userId, bookId, async (slot) => {
+    throwIfAborted(signal);
     const streamedMedia = await createStreamedLocalBookMedia(
       userId,
       bookId,
@@ -67,8 +90,11 @@ export async function importLocalDocument(
       slot,
     );
     const kestrel = new KestrelClient();
+    const cancelKestrel = () => kestrel.close();
+    signal?.addEventListener("abort", cancelKestrel, { once: true });
     let output: Output<Mp3OutputFormat, AppendOnlyStreamTarget> | null = null;
     try {
+      throwIfAborted(signal);
       await ensureMp3Encoder();
       onProgress(12, `Loading Kestrel on this device (${formatModelSize()})`);
       await kestrel.initialize((progress) => {
@@ -78,6 +104,7 @@ export async function importLocalDocument(
           progress.fraction < 1 ? "Downloading Kestrel once to this device" : "Loading Kestrel",
         );
       });
+      throwIfAborted(signal);
 
       const targetStream = new AppendOnlyStreamTarget(streamedMedia.writable);
       output = new Output({
@@ -104,9 +131,11 @@ export async function importLocalDocument(
       const chapters: PlayerChapter[] = [];
       let synthesisIndex = 0;
       for (let chapterIndex = 0; chapterIndex < narrationUnits.length; chapterIndex += 1) {
+        throwIfAborted(signal);
         const unit = narrationUnits[chapterIndex]!;
         const chapterStart = totalSamples;
         for (const text of unit.chunks) {
+          throwIfAborted(signal);
           const baseCharacters = completedCharacters;
           const synthesis = await kestrel.synthesize(
             text,
@@ -120,6 +149,7 @@ export async function importLocalDocument(
               );
             },
           );
+          throwIfAborted(signal);
           if (synthesis.sampleRate !== KESTREL_SAMPLE_RATE || !synthesis.audio.length) {
             throw new Error("Kestrel returned invalid audio.");
           }
@@ -144,51 +174,53 @@ export async function importLocalDocument(
       onProgress(93, "Encoding the final audio");
       audioSource.close();
       await output.finalize();
+      throwIfAborted(signal);
       const durationMs = samplesToMilliseconds(totalSamples);
       // Rounding adjacent sample positions independently is monotonic, and the
       // final boundary is made identical to the registered book duration.
       chapters[chapters.length - 1]!.endMs = durationMs;
-      const registration: LocalBookRegistration = {
-        bookId,
-        fileName: encodeURIComponent(file.name),
-        mimeType: documentMimeType(file),
-        byteSize: file.size,
-        durationMs,
-        fingerprint,
-        fingerprintKind: "sha256-v1",
-        title: document.title,
-        author: document.author,
-        narrator: "Kestrel Fast · af_heart",
-        chapterDiagnostic: null,
-        chapters: chapters.map((chapter) => ({
-          position: chapter.position,
-          title: chapter.title,
-          startMs: chapter.startMs,
-          endMs: chapter.endMs,
-        })),
-      };
-
-      onProgress(96, "Adding to your library");
-      const registered = await registerLocalBook(userId, registration);
-      const canonicalId = registered.bookId;
-      const generatedBook: Omit<PlayerBook, "mediaUrl" | "coverUrl"> = {
-        id: canonicalId,
-        title: document.title,
-        author: document.author,
-        durationMs,
-        chapters: chapters.map((chapter) => ({
-          ...chapter,
-          id: `${canonicalId}:${chapter.position}`,
-        })),
-        initialPositionMs: 0,
-        initialProgressOccurredAt: null,
-        initialPlaybackRate: 1,
-        initialPlaybackRateOccurredAt: null,
-        completed: false,
-        initialCompletedOccurredAt: null,
-      };
-      const book = registered.canonicalBook || target?.book || generatedBook;
+      const generatedBook = generatedPlayerBook(bookId, document.title, document.author, chapters);
+      let book: Omit<PlayerBook, "mediaUrl" | "coverUrl">;
+      if (target) {
+        assertSameRenditionTimeline(generatedBook, target.book);
+        book = target.book;
+      } else {
+        onProgress(96, "Adding to your library");
+        const registration: LocalBookRegistration = {
+          bookId,
+          fileName: encodeURIComponent(file.name),
+          mimeType: documentMimeType(file),
+          byteSize: file.size,
+          durationMs,
+          fingerprint,
+          fingerprintKind: "sha256-v1",
+          renditionKey: KESTREL_RENDITION_KEY,
+          title: document.title,
+          author: document.author,
+          narrator: KESTREL_VOICE_LABEL,
+          chapterDiagnostic: null,
+          chapters: chapters.map((chapter) => ({
+            position: chapter.position,
+            title: chapter.title,
+            startMs: chapter.startMs,
+            endMs: chapter.endMs,
+          })),
+        };
+        const registered = await registerLocalBook(userId, registration, signal);
+        throwIfAborted(signal);
+        const canonicalGeneratedBook = generatedPlayerBook(
+          registered.bookId,
+          document.title,
+          document.author,
+          chapters,
+        );
+        if (registered.canonicalBook) {
+          assertSameRenditionTimeline(canonicalGeneratedBook, registered.canonicalBook);
+        }
+        book = registered.canonicalBook || canonicalGeneratedBook;
+      }
       onProgress(99, "Saving to this device");
+      throwIfAborted(signal);
       const record = await streamedMedia.commit(book, slot);
       onProgress(100, "Finishing");
       return record;
@@ -197,11 +229,38 @@ export async function importLocalDocument(
         await output.cancel().catch(() => undefined);
       }
       await streamedMedia.abort(error);
+      throwIfAborted(signal);
       throw error;
     } finally {
+      signal?.removeEventListener("abort", cancelKestrel);
       kestrel.close();
     }
   });
+}
+
+function generatedPlayerBook(
+  bookId: string,
+  title: string,
+  author: string,
+  chapters: PlayerChapter[],
+): Omit<PlayerBook, "mediaUrl" | "coverUrl"> {
+  const durationMs = chapters.at(-1)!.endMs;
+  return {
+    id: bookId,
+    title,
+    author,
+    durationMs,
+    chapters: chapters.map((chapter) => ({
+      ...chapter,
+      id: `${bookId}:${chapter.position}`,
+    })),
+    initialPositionMs: 0,
+    initialProgressOccurredAt: null,
+    initialPlaybackRate: 1,
+    initialPlaybackRateOccurredAt: null,
+    completed: false,
+    initialCompletedOccurredAt: null,
+  };
 }
 
 async function ensureMp3Encoder(): Promise<void> {
@@ -248,7 +307,7 @@ function estimateMp3Bytes(characterCount: number): number {
   // Rough English narration is 12–16 characters/second. The 1.25 margin
   // covers unusually slow prose, tags, and MP3 encoder padding.
   const seconds = characterCount / 12;
-  return Math.ceil((seconds * MP3_BITRATE * 1.25) / 8 + 1024 * 1024);
+  return Math.ceil((seconds * GENERATED_MP3_BITRATE * 1.25) / 8 + 1024 * 1024);
 }
 
 function samplesToMilliseconds(samples: number): number {

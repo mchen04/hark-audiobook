@@ -1426,6 +1426,7 @@ describe("a delete supersedes an unsent registration of the same file", () => {
         byteSize: 1,
         fingerprint: FINGERPRINT,
         fingerprintKind: "sha256-v1",
+        renditionKey: "source-v1",
         durationMs: 1,
       },
       searchText: "book author",

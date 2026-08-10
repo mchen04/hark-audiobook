@@ -227,6 +227,10 @@ export const bookRegistrationSchema = z.strictObject({
   durationMs: z.number().int().positive().max(MAX_DURATION_MS),
   fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
   fingerprintKind: z.literal("sha256-v1"),
+  renditionKey: z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9._:-]{0,159}$/)
+    .default("source-v1"),
   title: z.string().trim().min(1).max(300),
   author: z.string().trim().min(1).max(240),
   narrator: z.string().trim().min(1).max(240).nullable(),

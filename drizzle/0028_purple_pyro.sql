@@ -1,0 +1,3 @@
+DROP INDEX "media_assets_owner_sha256_unique";--> statement-breakpoint
+ALTER TABLE "media_assets" ADD COLUMN "rendition_key" varchar(160) DEFAULT 'source-v1' NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "media_assets_owner_sha256_rendition_unique" ON "media_assets" USING btree ("owner_id","fingerprint_kind","fingerprint","rendition_key") WHERE "media_assets"."fingerprint_kind" = 'sha256-v1';

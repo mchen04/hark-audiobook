@@ -1,60 +1,19 @@
-const KESTREL_REVISION = "cac6cb6387d00fa626f41300b4c0739c624bba91";
-const KOKORO_REVISION = "e02c9eada7ce7416798af36b190a8a2dd2ecd566";
+import { KESTREL_ASSET_MANIFEST, KESTREL_BUNDLE_REVISION, type KestrelAsset } from "./manifest";
 
-const MODEL_CACHE = "hark-kestrel-model-v1";
-const VERIFIED_MARKER = "/__hark/kestrel-model-v1/verified";
+const MODEL_CACHE = `hark-kestrel-bundle-${KESTREL_BUNDLE_REVISION.slice(0, 16)}`;
+const VERIFIED_MARKER = `/__hark/kestrel-bundle/${KESTREL_BUNDLE_REVISION}/verified`;
 
-type Asset = {
-  id: "prosody" | "decoder" | "head" | "voice";
-  externalPath: string;
-  url: string;
-  byteSize: number;
-  sha256: string;
-};
+export const KESTREL_ASSETS = KESTREL_ASSET_MANIFEST;
 
-const KESTREL_BASE = `https://huggingface.co/mchen04/kestrel-tts/resolve/${KESTREL_REVISION}`;
-const KOKORO_BASE = `https://huggingface.co/prince-canuma/Kokoro-82M/resolve/${KOKORO_REVISION}`;
-
-export const KESTREL_ASSETS: readonly Asset[] = [
-  {
-    id: "prosody",
-    externalPath: "prosody.safetensors",
-    url: `${KESTREL_BASE}/kestrel_prosody.safetensors?download=true`,
-    byteSize: 18_764_172,
-    sha256: "19ccef888d583ae49ff3029ceff2327e513656b4903afebfd52b0fd99a68dff5",
-  },
-  {
-    id: "decoder",
-    externalPath: "decoder.safetensors",
-    url: `${KESTREL_BASE}/kestrel_decode.safetensors?download=true`,
-    byteSize: 12_419_656,
-    sha256: "67e1efb4f7e14d91a193f38d3e2b3045fcb0c538002414b9592798154bf1d5cb",
-  },
-  {
-    id: "head",
-    externalPath: "head.safetensors",
-    url: `${KESTREL_BASE}/kestrel_sf_lw58k.safetensors?download=true`,
-    byteSize: 9_472_941,
-    sha256: "0866c5a65e228026acba2cce37332c35460fcc00b2ab4448d048cc00e702d9d6",
-  },
-  {
-    id: "voice",
-    externalPath: "af_heart.safetensors",
-    url: `${KOKORO_BASE}/voices/af_heart.safetensors?download=true`,
-    byteSize: 522_339,
-    sha256: "4e40b08984cd84a86b4d07960939bd85bb6b3747dd747b7de48dca3aaeab37ca",
-  },
-] as const;
-
-export const KESTREL_DOWNLOAD_BYTES = KESTREL_ASSETS.reduce(
+export const KESTREL_DOWNLOAD_BYTES = KESTREL_ASSETS.filter((asset) => asset.remote).reduce(
   (total, asset) => total + asset.byteSize,
   0,
 );
+const KESTREL_BUNDLE_BYTES = KESTREL_ASSETS.reduce((total, asset) => total + asset.byteSize, 0);
 
 export type KestrelAssetProgress = {
   loadedBytes: number;
   totalBytes: number;
-  fromCache: boolean;
 };
 
 export type KestrelAssetBundle = Record<(typeof KESTREL_ASSETS)[number]["id"], Uint8Array>;
@@ -70,7 +29,7 @@ export async function loadKestrelAssets(
   const cache = typeof caches === "undefined" ? null : await caches.open(MODEL_CACHE);
   const marker = cache ? await readVerifiedMarker(cache) : false;
   let completedBytes = 0;
-  const entries: Array<[Asset["id"], Uint8Array]> = [];
+  const entries: Array<[KestrelAsset["id"], Uint8Array]> = [];
 
   for (const asset of KESTREL_ASSETS) {
     let bytes: Uint8Array | null = null;
@@ -91,8 +50,7 @@ export async function loadKestrelAssets(
       bytes = await download(asset, (loadedBytes) =>
         onProgress?.({
           loadedBytes: completedBytes + loadedBytes,
-          totalBytes: KESTREL_DOWNLOAD_BYTES,
-          fromCache: false,
+          totalBytes: KESTREL_BUNDLE_BYTES,
         }),
       );
       if (cache) {
@@ -111,8 +69,7 @@ export async function loadKestrelAssets(
     completedBytes += asset.byteSize;
     onProgress?.({
       loadedBytes: completedBytes,
-      totalBytes: KESTREL_DOWNLOAD_BYTES,
-      fromCache: Boolean(cached && bytes),
+      totalBytes: KESTREL_BUNDLE_BYTES,
     });
     entries.push([asset.id, bytes]);
   }
@@ -123,8 +80,13 @@ export async function loadKestrelAssets(
   return Object.fromEntries(entries) as KestrelAssetBundle;
 }
 
-async function download(asset: Asset, onProgress: (loadedBytes: number) => void) {
-  const response = await fetch(asset.url, { mode: "cors", credentials: "omit" });
+async function download(asset: KestrelAsset, onProgress: (loadedBytes: number) => void) {
+  const response = await fetch(
+    asset.url,
+    asset.remote
+      ? { mode: "cors", credentials: "omit" }
+      : { cache: "no-store", credentials: "same-origin" },
+  );
   if (!response.ok || !response.body) {
     throw new Error(`Kestrel could not download ${asset.id} (${response.status || "offline"}).`);
   }

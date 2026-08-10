@@ -2,27 +2,25 @@ import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
-const assets = [
-  {
-    source: "node_modules/pdfjs-dist/build/pdf.worker.min.mjs",
-    target: "public/pdf.worker.min.mjs",
-    sha256: "51a2fd1ea47f1a9b0814e65e0c336c739c54957795ee774e8f93cb81e8028dd1",
-  },
-  {
-    source: "node_modules/kissfft-wasm/lib/kissfft.wasm",
-    target: "public/models/kestrel/kissfft.wasm",
-    sha256: "c1a03390ade32bcfc4c4143796f7510c0fec06b59d42840591ad4721fe93caf4",
-  },
-];
+const manifest = JSON.parse(await readFile(resolve("src/lib/kestrel/asset-manifest.json"), "utf8"));
+const signature = `${manifest.assets.map(({ id, sha256 }) => `${id}:${sha256}`).join("\n")}\n`;
+const revision = createHash("sha256").update(signature).digest("hex");
+if (revision !== manifest.bundleRevision) {
+  throw new Error("Kestrel's bundle revision does not match its asset manifest.");
+}
+
+const assets = [...manifest.assets.filter((asset) => asset.source), manifest.pdfWorker];
 
 for (const asset of assets) {
   const source = resolve(asset.source);
   const target = resolve(asset.target);
   const bytes = await readFile(source);
   const digest = createHash("sha256").update(bytes).digest("hex");
-  if (digest !== asset.sha256) {
+  if (digest !== asset.sha256 || bytes.byteLength !== asset.byteSize) {
     throw new Error(`Refusing to copy unexpected browser asset: ${asset.source}`);
   }
-  await mkdir(dirname(target), { recursive: true });
-  await copyFile(source, target);
+  if (source !== target) {
+    await mkdir(dirname(target), { recursive: true });
+    await copyFile(source, target);
+  }
 }

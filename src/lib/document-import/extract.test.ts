@@ -7,6 +7,7 @@ import path from "node:path";
 import { strToU8, zipSync } from "fflate";
 import { describe, expect, it } from "vitest";
 
+import { createArchiveEntrySelector } from "./archive";
 import { detectDocument, documentMimeType, extractDocument } from "./extract";
 
 describe("document detection", () => {
@@ -33,6 +34,23 @@ describe("document detection", () => {
 });
 
 describe("local document extraction", () => {
+  it("rejects cumulative selected archive expansion before inflating it", () => {
+    const selector = createArchiveEntrySelector(() => true);
+
+    expect(selector.include({ name: "one.xhtml", originalSize: 70 * 1024 * 1024 })).toBe(true);
+    expect(selector.include({ name: "two.xhtml", originalSize: 70 * 1024 * 1024 })).toBe(false);
+    expect(selector.exceeded()).toBe(true);
+  });
+
+  it("honors a canceled extraction job", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      extractDocument(sourceFile(["Never read"], "canceled.txt"), controller.signal),
+    ).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   it("preserves the chapter boundaries used by the browser import holdout", async () => {
     const source = readFileSync(
       path.resolve(__dirname, "../../../tests/fixtures/documents/tiny-book.txt"),

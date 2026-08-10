@@ -1,6 +1,7 @@
 import { interpretMp3Metadata, InvalidMp3Error, type ParsedMp3 } from "@/domain/mp3";
 import type { PlayerBook, PlayerChapter } from "@/domain/player";
 import type { BookTranscript } from "@/domain/transcript";
+import { throwIfAborted } from "@/lib/abort";
 import { fingerprintMedia } from "@/lib/media-fingerprint";
 import { storeLocalBookMedia, withLocalMediaSlot } from "@/lib/offline/media-store";
 import { commitImport } from "@/lib/offline/outbox";
@@ -23,11 +24,12 @@ export type LocalBookRegistration = {
   durationMs: number;
   fingerprint: string;
   fingerprintKind: "sha256-v1";
+  renditionKey: string;
   title: string;
   author: string;
   narrator: string | null;
   chapterDiagnostic: string | null;
-  chapters: ParsedMp3["chapters"];
+  chapters: Array<Pick<PlayerChapter, "position" | "title" | "startMs" | "endMs">>;
 };
 
 export type RegisteredLocalBook = {
@@ -36,7 +38,8 @@ export type RegisteredLocalBook = {
 };
 
 /** Parses an MP3 entirely in the browser; the bytes never leave the device. */
-export async function parseLocalMp3(file: File): Promise<ParsedLocalMp3> {
+export async function parseLocalMp3(file: File, signal?: AbortSignal): Promise<ParsedLocalMp3> {
+  throwIfAborted(signal);
   const { parseBlob } = await import("music-metadata");
   let metadata;
   try {
@@ -48,12 +51,13 @@ export async function parseLocalMp3(file: File): Promise<ParsedLocalMp3> {
   } catch {
     throw new InvalidMp3Error();
   }
+  throwIfAborted(signal);
   const fallbackTitle = file.name.replace(/\.[^.]*$/, "");
   const parsedDuration = metadata.format.duration;
   const fallbackDurationMs =
     parsedDuration && Number.isFinite(parsedDuration) && parsedDuration > 0
       ? undefined
-      : await probeAudioDurationMs(file);
+      : await probeAudioDurationMs(file, signal);
   const parsed = interpretMp3Metadata(metadata, fallbackTitle, fallbackDurationMs);
   let transcript: BookTranscript | null = null;
   let transcriptDiagnostic: string | null = null;
@@ -71,7 +75,8 @@ export async function parseLocalMp3(file: File): Promise<ParsedLocalMp3> {
  * MP3's length from its bitrate and byte size without reading the whole file,
  * which is the only workable option for huge VBR files without Xing headers.
  */
-function probeAudioDurationMs(file: File): Promise<number> {
+function probeAudioDurationMs(file: File, signal?: AbortSignal): Promise<number> {
+  throwIfAborted(signal);
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const audio = new Audio();
@@ -80,12 +85,21 @@ function probeAudioDurationMs(file: File): Promise<number> {
       audio.load();
       URL.revokeObjectURL(url);
       clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
     };
     const fail = () => {
       cleanup();
       reject(new InvalidMp3Error());
     };
     const timer = setTimeout(fail, 30_000);
+    const abort = () => {
+      cleanup();
+      try {
+        throwIfAborted(signal);
+      } catch (error) {
+        reject(error);
+      }
+    };
     audio.addEventListener("loadedmetadata", () => {
       const seconds = audio.duration;
       cleanup();
@@ -95,6 +109,8 @@ function probeAudioDurationMs(file: File): Promise<number> {
     audio.addEventListener("error", fail);
     audio.preload = "metadata";
     audio.src = url;
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
   });
 }
 
@@ -129,13 +145,19 @@ export async function importLocalMp3(
   userId: string,
   file: File,
   onProgress: (percent: number, stage: string) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
+  throwIfAborted(signal);
   onProgress(5, "Reading metadata");
-  const parsed = await parseLocalMp3(file);
+  const parsed = await parseLocalMp3(file, signal);
+  throwIfAborted(signal);
   onProgress(45, "Checking the complete file");
   const fingerprintKind = "sha256-v1" as const;
-  const fingerprint = await fingerprintMedia(file, fingerprintKind, (fraction) =>
-    onProgress(45 + Math.round(fraction * 10), "Checking the complete file"),
+  const fingerprint = await fingerprintMedia(
+    file,
+    fingerprintKind,
+    (fraction) => onProgress(45 + Math.round(fraction * 10), "Checking the complete file"),
+    signal,
   );
   onProgress(55, "Adding to your library");
 
@@ -147,6 +169,7 @@ export async function importLocalMp3(
     durationMs: parsed.durationMs,
     fingerprint,
     fingerprintKind,
+    renditionKey: "source-v1",
     title: parsed.title,
     author: parsed.author,
     narrator: parsed.narrator,
@@ -154,7 +177,8 @@ export async function importLocalMp3(
     chapters: parsed.chapters,
   };
   await withLocalMediaSlot(userId, registration.bookId, async (slot) => {
-    const { bookId, canonicalBook } = await registerLocalBook(userId, registration);
+    throwIfAborted(signal);
+    const { bookId, canonicalBook } = await registerLocalBook(userId, registration, signal);
     // `response` is null only when the network could not be reached at all. The
     // registration is already durable, so the import continues under the id this
     // device minted and the server is told on the next drain.
@@ -167,6 +191,7 @@ export async function importLocalMp3(
       ...chapter,
     }));
     try {
+      throwIfAborted(signal);
       await storeLocalBookMedia(
         userId,
         canonicalBook || {
@@ -189,7 +214,9 @@ export async function importLocalMp3(
         // The slot names the minted id; a reattach that sent these bytes to the
         // canonical id instead takes its own lock for that one.
         slot,
+        signal,
       );
+      throwIfAborted(signal);
     } catch (error) {
       // Registration is already visible to other tabs and devices. Keep the
       // recoverable metadata row rather than deleting a book another tab may
@@ -217,14 +244,19 @@ export async function importLocalMp3(
 export async function registerLocalBook(
   userId: string,
   registration: LocalBookRegistration,
+  signal?: AbortSignal,
 ): Promise<RegisteredLocalBook> {
+  throwIfAborted(signal);
   await commitImport({ userId, deviceId: getDeviceId() }, registration.fingerprint, registration);
+  throwIfAborted(signal);
 
   const response = await fetch("/api/books/local", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(registration),
+    signal,
   }).catch(() => null);
+  throwIfAborted(signal);
   if (!response) {
     // The outbox is the durable write. Airplane-mode imports keep the id the
     // device already minted and register when the connection returns.

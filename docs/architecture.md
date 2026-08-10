@@ -17,7 +17,7 @@ worker and resume oracle are authored behavior.
 
 ## Product boundary
 
-The app accepts one MP3 as one audiobook. Every account is a solo private workspace; accounts provide authentication, ownership, isolation, and cross-device progress, not social identity. The app has no friends, follows, shared libraries, messages, invitations, feeds, or collaborative features. It does not accept EPUB/PDF, run TTS, expose a public catalog, or process DRM. Epub Listener is a read-only upstream producer whose FFmpeg/ID3 output is a compatibility contract.
+The app accepts an MP3 directly or narrates PDF, EPUB, DOCX, TXT, Markdown, and HTML sources with Kestrel Fast on the user's device. Every account is a solo private workspace; accounts provide authentication, ownership, isolation, and cross-device progress, not social identity. The app has no friends, follows, shared libraries, messages, invitations, feeds, or collaborative features. It does not expose a public catalog, process DRM, run OCR, or send source content to a hosted TTS service. Epub Listener remains a read-only upstream producer whose FFmpeg/ID3 output is a compatibility contract.
 
 ## Stack
 
@@ -28,6 +28,10 @@ The app accepts one MP3 as one audiobook. Every account is a solo private worksp
 - Drizzle ORM and ordered SQL migrations
 - Better Auth with database-backed sessions and rate limits
 - `music-metadata` parsing MP3s and ID3 chapters in the browser at import
+- PDF.js and bounded format adapters for local document extraction
+- Kestrel Fast in a module worker through ONNX Runtime WebGPU/WASM, with a
+  pinned, content-addressed and SHA-256-verified model/runtime bundle
+- Mediabunny plus LAME for progressive generated-MP3 encoding
 - Cache Storage for the device-local audio, covers, and the launch shell
 - IndexedDB for the device-authoritative library mirror and the mutation outbox
 - A native, versioned service worker for the launch shell, range serving, and
@@ -112,22 +116,30 @@ critical path.
 
 ## Media flow
 
-1. Import happens in the browser: `music-metadata` parses the chosen file
+1. MP3 import happens in the browser: `music-metadata` parses the chosen file
    (shared pure interpreter in `src/domain/mp3.ts` — format validation,
    chapter normalization, artwork sniffing — when the format-level chapter
    list is truncated, the complete native ID3 chapter sequence is recovered
    instead, and sequences that don't cover the audiobook's duration are
    rejected as malformed), and a streaming whole-file
    SHA-256 identifies the exact bytes without buffering the book in memory.
-2. `POST /api/books/local` registers metadata only — validated title/author,
+2. Document import routes the source to a lazy PDF/EPUB/DOCX/text adapter, then
+   a book-scoped Kestrel worker synthesizes it through WebGPU or WASM. Public
+   weights, ONNX graphs, voice data, FFT runtime, and PDF worker are pinned by
+   one manifest; the build verifies their hashes and the browser caches the
+   content-addressed runtime. Generated PCM is encoded progressively into the
+   same chunked MP3 store, so neither a source-sized nor audiobook-sized buffer
+   is required. Navigation/account changes abort extraction, hashing, worker,
+   encoder, and partial storage as one import job.
+3. `POST /api/books/local` registers metadata only — validated title/author,
    duration, byte size, fingerprint, and the full chapter list (revalidated
    server-side, batch-inserted, capped at 10,000 chapters). A database-unique
-   owner/fingerprint pair makes concurrent duplicate imports atomic; a match
+   owner/fingerprint/rendition tuple makes concurrent duplicate imports atomic; a match
    answers 409 with the existing book id for device reattachment. On that
    duplicate path, if the newly parsed chapter list is a complete sequence and
    the stored one was truncated by an earlier import, the server repairs the
    existing book's chapters in the same transaction.
-3. The audio bytes go into this device's Cache Storage under an
+4. The audio bytes go into this device's Cache Storage under an
    `/offline-media/<uuid>` URL backed by independently cached 4 MiB chunks, with
    a per-user IndexedDB record; embedded cover art is stored beside it along
    with a downscaled thumbnail so small surfaces (library cards, downloads
@@ -135,13 +147,16 @@ critical path.
    a web worker to keep `hash-wasm` out of page bundles. If
    storing fails, the metadata remains recoverable and choosing the MP3 again
    completes the device attachment.
-4. Playback always serves from the device store through the service worker,
+5. Playback always serves from the device store through the service worker,
    which answers HTTP Range requests (the service worker's 206/416 parser is
    unit-tested directly). There is no server media route or server-side range
    parser.
-5. On a device that lacks the bytes, the player's media gate asks for the
-   original MP3 and verifies byte size and fingerprint before attaching it —
-   positions and playback history were already synced through Postgres.
+6. On a device that lacks the bytes, the player's media gate asks for the
+   original MP3 or document and verifies byte size and fingerprint before
+   attaching it. A versioned rendition key prevents a changed parser, model,
+   voice, chunker, or encoder from being paired with an older duration/seek map;
+   regeneration commits only after exact timeline validation. Positions and
+   playback history were already synced through Postgres.
 
 ## Local read model
 

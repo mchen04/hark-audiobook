@@ -3,7 +3,13 @@ import "fake-indexeddb/auto";
 import { IDBFactory as FakeIDBFactory } from "fake-indexeddb";
 
 import { database, MEDIA_CACHE, offlineBookKey } from "./db";
-import { createStreamedLocalBookMedia, hasEnoughCapacity, withLocalMediaSlot } from "./media-store";
+import {
+  createStreamedLocalBookMedia,
+  hasEnoughCapacity,
+  type MediaSlot,
+  storeLocalBookMedia,
+  withLocalMediaSlot,
+} from "./media-store";
 
 type FakeCache = { store: Map<string, Response> };
 
@@ -54,6 +60,14 @@ describe("offline storage capacity", () => {
 });
 
 describe("generated media streaming", () => {
+  it("rejects a forged media-slot-shaped object", async () => {
+    const forged = { key: offlineBookKey("user", "minted") } as MediaSlot;
+
+    await expect(createStreamedLocalBookMedia("user", "minted", 1, forged)).rejects.toThrow(
+      /slot is not held/i,
+    );
+  });
+
   it("stores bounded chunks and commits a service-worker-readable manifest", async () => {
     const bytes = new Uint8Array(4 * 1024 * 1024 + 3).fill(7);
     const record = await withLocalMediaSlot("user", "minted", async (slot) => {
@@ -62,7 +76,6 @@ describe("generated media streaming", () => {
       await writer.write(bytes.subarray(0, 123));
       await writer.write(bytes.subarray(123));
       await writer.close();
-      expect(stream.byteSize()).toBe(bytes.length);
       return stream.commit(book("minted"), slot);
     });
 
@@ -119,8 +132,32 @@ describe("generated media streaming", () => {
 
   it("rejects use without the matching held media slot", async () => {
     await expect(
-      createStreamedLocalBookMedia("user", "minted", 3, { key: "user:someone-else" }),
+      createStreamedLocalBookMedia("user", "minted", 3, { key: "user:someone-else" } as MediaSlot),
     ).rejects.toThrow(/slot is not held/i);
+  });
+});
+
+describe("imported media streaming", () => {
+  it("rolls back journaled chunks when an import is canceled", async () => {
+    const controller = new AbortController();
+    const file = new File([new Uint8Array(5 * 1024 * 1024)], "large.mp3");
+
+    await expect(
+      withLocalMediaSlot("user", "minted", (slot) =>
+        storeLocalBookMedia(
+          "user",
+          book("minted"),
+          file,
+          null,
+          () => controller.abort(),
+          slot,
+          controller.signal,
+        ),
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+
+    expect(fakeCacheStorage.stores.get(MEDIA_CACHE)!.store.size).toBe(0);
+    expect(await (await database()).getAllFromIndex("cacheEntries", "by-user", "user")).toEqual([]);
   });
 });
 

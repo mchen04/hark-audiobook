@@ -186,13 +186,14 @@ export const mediaAssets = pgTable(
     })
       .default("sample-v1")
       .notNull(),
+    renditionKey: varchar("rendition_key", { length: 160 }).default("source-v1").notNull(),
     durationMs: bigint("duration_ms", { mode: "number" }).notNull(),
     ...timestamps,
   },
   (table) => [
     uniqueIndex("media_assets_book_unique").on(table.bookId),
-    uniqueIndex("media_assets_owner_sha256_unique")
-      .on(table.ownerId, table.fingerprintKind, table.fingerprint)
+    uniqueIndex("media_assets_owner_sha256_rendition_unique")
+      .on(table.ownerId, table.fingerprintKind, table.fingerprint, table.renditionKey)
       .where(sql`${table.fingerprintKind} = 'sha256-v1'`),
     check("media_assets_byte_size_positive", sql`${table.byteSize} > 0`),
     check("media_assets_duration_positive", sql`${table.durationMs} > 0`),

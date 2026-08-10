@@ -1,5 +1,6 @@
 import type { PlayerBook } from "@/domain/player";
 import { assertAccountWritable } from "@/lib/account-deletion-fence";
+import { throwIfAborted } from "@/lib/abort";
 import { createCoverThumbnail } from "@/lib/cover-thumbnail";
 import { runBounded } from "@/lib/run-bounded";
 
@@ -31,12 +32,13 @@ const MEDIA_WRITE_CONCURRENCY = 3;
  * nested call cannot deadlock on a lock its own caller holds and an unrelated
  * caller cannot skip it by accident.
  */
-export type MediaSlot = { readonly key: string };
+declare const mediaSlotBrand: unique symbol;
+export type MediaSlot = { readonly key: string; readonly [mediaSlotBrand]: true };
+const heldMediaSlots = new WeakSet<MediaSlot>();
 
 export type StreamedLocalMedia = {
   /** Append-only MP3 bytes; backpressure includes the Cache Storage write. */
   writable: WritableStream<Uint8Array>;
-  byteSize: () => number;
   commit: (
     book: Omit<PlayerBook, "mediaUrl" | "coverUrl">,
     targetSlot?: MediaSlot,
@@ -50,7 +52,15 @@ export function withLocalMediaSlot<T>(
   operation: (slot: MediaSlot) => Promise<T>,
 ): Promise<T> {
   const key = offlineBookKey(userId, bookId);
-  return withMediaWriteLock(key, () => operation({ key }));
+  return withMediaWriteLock(key, async () => {
+    const slot = { key } as MediaSlot;
+    heldMediaSlots.add(slot);
+    try {
+      return await operation(slot);
+    } finally {
+      heldMediaSlots.delete(slot);
+    }
+  });
 }
 
 /**
@@ -65,7 +75,9 @@ export async function storeLocalBookMedia(
   artwork: { data: Uint8Array; mimeType: string } | null,
   onProgress?: (fraction: number) => void,
   slot?: MediaSlot,
+  signal?: AbortSignal,
 ): Promise<OfflineBook> {
+  throwIfAborted(signal);
   assertAccountWritable(userId);
   const key = offlineBookKey(userId, book.id);
   const startedAt = Date.now();
@@ -74,9 +86,9 @@ export async function storeLocalBookMedia(
     if (pending?.completedAt && pending.completedAt >= startedAt) {
       throw new Error("This download was removed while it was being saved.");
     }
-    return storeLocalBookMediaUnlocked(userId, book, file, artwork, onProgress);
+    return storeLocalBookMediaUnlocked(userId, book, file, artwork, onProgress, startedAt, signal);
   };
-  return slot?.key === key ? write() : withMediaWriteLock(key, write);
+  return holdsMediaSlot(slot, key) ? write() : withMediaWriteLock(key, write);
 }
 
 /**
@@ -96,42 +108,22 @@ export async function createStreamedLocalBookMedia(
 ): Promise<StreamedLocalMedia> {
   assertAccountWritable(userId);
   const sourceKey = offlineBookKey(userId, bookId);
-  if (slot.key !== sourceKey) throw new Error("The generated media slot is not held.");
+  if (!holdsMediaSlot(slot, sourceKey)) throw new Error("The generated media slot is not held.");
   await ensureStorageCapacity(estimatedBytes);
   if (navigator.storage?.persist) await navigator.storage.persist().catch(() => false);
 
   const startedAt = Date.now();
-  const token = crypto.randomUUID();
-  const offlineMediaUrl = `/offline-media/${token}`;
-  const db = await database();
-  const cache = await caches.open(MEDIA_CACHE);
-  const journaledUrls: string[] = [];
+  const writer = await openChunkedMediaWriter(userId, bookId);
   let chunk = new Uint8Array(MEDIA_CHUNK_BYTES);
   let chunkLength = 0;
   let chunkCount = 0;
   let totalBytes = 0;
   let closed = false;
   let committed = false;
-  let cleanupPromise: Promise<void> | null = null;
-
-  const cleanup = () => {
-    cleanupPromise ??= deleteJournaledCacheEntries(db, cache, [...journaledUrls]).catch(
-      () => undefined,
-    );
-    return cleanupPromise;
-  };
 
   const flushChunk = async () => {
     if (!chunkLength) return;
-    const url = `${offlineMediaUrl}/chunk/${chunkCount}`;
-    await db.put("cacheEntries", { url, userId, bookId });
-    journaledUrls.push(url);
-    await cache.put(
-      url,
-      new Response(chunk.slice(0, chunkLength), {
-        headers: { "Content-Type": "application/octet-stream" },
-      }),
-    );
+    await writer.writeChunk(chunkCount, chunk.slice(0, chunkLength));
     chunkCount += 1;
     chunk = new Uint8Array(MEDIA_CHUNK_BYTES);
     chunkLength = 0;
@@ -154,32 +146,14 @@ export async function createStreamedLocalBookMedia(
     if (closed) return;
     if (!totalBytes) throw new Error("Kestrel did not produce any audio.");
     await flushChunk();
-    await db.put("cacheEntries", { url: offlineMediaUrl, userId, bookId });
-    journaledUrls.push(offlineMediaUrl);
-    await cache.put(
-      offlineMediaUrl,
-      new Response(
-        JSON.stringify({
-          format: "chapterline-chunked-media-v1",
-          byteSize: totalBytes,
-          chunkSize: MEDIA_CHUNK_BYTES,
-          chunkCount,
-        }),
-        {
-          headers: {
-            "Content-Type": "application/vnd.chapterline.media+json",
-            "X-Chapterline-Media-Format": "chunked-v1",
-          },
-        },
-      ),
-    );
+    await writer.finish(totalBytes, chunkCount);
     closed = true;
   };
 
   const abort = async () => {
     if (committed) return;
     closed = true;
-    await cleanup();
+    await writer.cleanup();
   };
 
   const writable = new WritableStream<Uint8Array>({
@@ -196,185 +170,117 @@ export async function createStreamedLocalBookMedia(
     if (committed) throw new Error("The generated media stream was already committed.");
     const targetKey = offlineBookKey(userId, book.id);
     const write = async () => {
-      const pending = await db.get("deletions", targetKey);
-      if (pending?.completedAt && pending.completedAt >= startedAt) {
-        throw new Error("This download was removed while it was being generated.");
-      }
-      assertAccountWritable(userId);
-
-      if (book.id !== bookId) {
-        const ownership = db.transaction("cacheEntries", "readwrite");
-        for (const url of journaledUrls) {
-          await ownership.store.put({ url, userId, bookId: book.id });
-        }
-        await ownership.done;
-      }
-
-      const record: OfflineBook = {
-        key: targetKey,
-        userId,
+      const record = await commitChunkedMedia(
+        writer,
         book,
-        offlineMediaUrl,
-        offlineCoverUrl: null,
-        offlineCoverThumbUrl: null,
-        byteSize: totalBytes,
-        downloadedAt: new Date().toISOString(),
-        mediaMissingSince: null,
-      };
-      const existing = await getStoredOfflineBook(userId, book.id);
-      try {
-        await db.put("downloads", record);
-        const [storedRecord, storedMedia] = await Promise.all([
-          db.get("downloads", targetKey),
-          cache.match(offlineMediaUrl),
-        ]);
-        if (storedRecord?.offlineMediaUrl !== offlineMediaUrl || !storedMedia) {
-          throw new Error("Generated media verification failed.");
-        }
-        if (existing) {
-          await deleteJournaledMedia(db, cache, existing.offlineMediaUrl).catch(() => false);
-          for (const url of [existing.offlineCoverUrl, existing.offlineCoverThumbUrl]) {
-            if (url) await deleteJournaledCacheEntry(db, cache, url).catch(() => false);
-          }
-        }
-        committed = true;
-        return record;
-      } catch (error) {
-        const current = await db.get("downloads", targetKey).catch(() => undefined);
-        if (current?.offlineMediaUrl === offlineMediaUrl) {
-          if (existing) await db.put("downloads", existing).catch(() => undefined);
-          else await db.delete("downloads", targetKey).catch(() => undefined);
-        }
-        await cleanup();
-        throw offlineStorageError(error);
-      }
+        totalBytes,
+        { url: null, thumbUrl: null },
+        startedAt,
+      );
+      committed = true;
+      return record;
     };
-    return targetSlot?.key === targetKey ? write() : withMediaWriteLock(targetKey, write);
+    return holdsMediaSlot(targetSlot, targetKey) ? write() : withMediaWriteLock(targetKey, write);
   };
 
-  return { writable, byteSize: () => totalBytes, commit, abort };
+  return { writable, commit, abort };
 }
 
-async function storeLocalBookMediaUnlocked(
-  userId: string,
-  book: Omit<PlayerBook, "mediaUrl" | "coverUrl">,
-  file: File,
-  artwork: { data: Uint8Array; mimeType: string } | null,
-  onProgress?: (fraction: number) => void,
-): Promise<OfflineBook> {
-  await ensureStorageCapacity(file.size);
-  if (navigator.storage?.persist) await navigator.storage.persist().catch(() => false);
+function holdsMediaSlot(slot: MediaSlot | undefined, key: string): slot is MediaSlot {
+  return Boolean(slot && slot.key === key && heldMediaSlots.has(slot));
+}
 
-  const token = crypto.randomUUID();
-  const offlineMediaUrl = `/offline-media/${token}`;
-  const key = offlineBookKey(userId, book.id);
+type ChunkedMediaWriter = Awaited<ReturnType<typeof openChunkedMediaWriter>>;
+
+async function openChunkedMediaWriter(userId: string, bookId: string) {
+  const offlineMediaUrl = `/offline-media/${crypto.randomUUID()}`;
   const db = await database();
-  const chunkCount = Math.ceil(file.size / MEDIA_CHUNK_BYTES);
-  const chunkUrls = Array.from(
-    { length: chunkCount },
-    (_, index) => `${offlineMediaUrl}/chunk/${index}`,
-  );
-  const cleanupUrls: string[] = [...chunkUrls, offlineMediaUrl];
-  let cache: Cache | undefined;
-  try {
-    // Journal rows for every chunk land in one transaction before any bytes
-    // move: the journal-before-bytes invariant is unchanged, but a
-    // thousand-chunk audiobook costs one IndexedDB commit instead of one per
-    // chunk.
-    const journal = db.transaction("cacheEntries", "readwrite");
-    await Promise.all([
-      ...cleanupUrls.map((url) => journal.store.put({ url, userId, bookId: book.id })),
-      journal.done,
-    ]);
-    cache = await caches.open(MEDIA_CACHE);
-    let storedChunks = 0;
-    let writeFailed = false;
-    let writeFailure: unknown;
-    // Workers swallow their own failure and drain, so no chunk write is still
-    // in flight when cleanup below starts deleting what they wrote.
-    await runBounded(
-      Array.from({ length: chunkCount }, (_, index) => index),
-      MEDIA_WRITE_CONCURRENCY,
-      async (index) => {
-        if (writeFailed) return;
-        try {
-          await cache!.put(
-            chunkUrls[index]!,
-            new Response(
-              file.slice(
-                index * MEDIA_CHUNK_BYTES,
-                Math.min(file.size, (index + 1) * MEDIA_CHUNK_BYTES),
-              ),
-              { headers: { "Content-Type": "application/octet-stream" } },
-            ),
-          );
-        } catch (error) {
-          if (!writeFailed) {
-            writeFailed = true;
-            writeFailure = error;
-          }
-          return;
-        }
-        storedChunks += 1;
-        onProgress?.(storedChunks / (chunkCount + 1));
-      },
-    );
-    if (writeFailed) throw writeFailure;
-    await cache.put(
-      offlineMediaUrl,
-      new Response(
-        JSON.stringify({
-          format: "chapterline-chunked-media-v1",
-          byteSize: file.size,
-          chunkSize: MEDIA_CHUNK_BYTES,
-          chunkCount,
-        }),
-        {
-          headers: {
-            "Content-Type": "application/vnd.chapterline.media+json",
-            "X-Chapterline-Media-Format": "chunked-v1",
-          },
-        },
-      ),
-    );
-    onProgress?.(1);
-  } catch (error) {
-    if (cache) {
-      await deleteJournaledCacheEntries(db, cache, cleanupUrls).catch(() => undefined);
-    } else {
-      await Promise.allSettled(cleanupUrls.map((url) => db.delete("cacheEntries", url)));
-    }
-    throw offlineStorageError(error);
-  }
+  const cache = await caches.open(MEDIA_CACHE);
+  const journaledUrls: string[] = [];
+  let cleanupPromise: Promise<void> | null = null;
 
-  let offlineCoverUrl: string | null = null;
-  let offlineCoverThumbUrl: string | null = null;
-  if (artwork) {
-    try {
-      offlineCoverUrl = `/offline-media/${token}-cover`;
-      await db.put("cacheEntries", { url: offlineCoverUrl, userId, bookId: book.id });
+  const journal = async (urls: string[]) => {
+    const transaction = db.transaction("cacheEntries", "readwrite");
+    await Promise.all([
+      ...urls.map((url) => transaction.store.put({ url, userId, bookId })),
+      transaction.done,
+    ]);
+    journaledUrls.push(...urls);
+  };
+
+  const chunkUrl = (index: number) => `${offlineMediaUrl}/chunk/${index}`;
+
+  return {
+    userId,
+    bookId,
+    offlineMediaUrl,
+    db,
+    cache,
+    journaledUrls,
+    chunkUrl,
+    journal,
+    async writeChunk(index: number, body: BodyInit, alreadyJournaled = false) {
+      const url = chunkUrl(index);
+      if (!alreadyJournaled) await journal([url]);
       await cache.put(
-        offlineCoverUrl,
-        new Response(new Blob([Uint8Array.from(artwork.data)], { type: artwork.mimeType }), {
-          headers: { "Content-Type": artwork.mimeType },
-        }),
+        url,
+        new Response(body, { headers: { "Content-Type": "application/octet-stream" } }),
       );
-      const thumbnail = await createCoverThumbnail(artwork.data, artwork.mimeType);
-      if (thumbnail) {
-        offlineCoverThumbUrl = `${offlineCoverUrl}-thumb`;
-        await db.put("cacheEntries", { url: offlineCoverThumbUrl, userId, bookId: book.id });
-        await cache.put(
-          offlineCoverThumbUrl,
-          new Response(thumbnail.data, { headers: { "Content-Type": thumbnail.mimeType } }),
-        );
+    },
+    async finish(byteSize: number, chunkCount: number, alreadyJournaled = false) {
+      if (!alreadyJournaled) await journal([offlineMediaUrl]);
+      await cache.put(offlineMediaUrl, chunkManifest(byteSize, chunkCount));
+    },
+    async reassignOwner(targetBookId: string) {
+      if (targetBookId === bookId) return;
+      const transaction = db.transaction("cacheEntries", "readwrite");
+      for (const url of journaledUrls) {
+        await transaction.store.put({ url, userId, bookId: targetBookId });
       }
-    } catch {
-      for (const url of [offlineCoverThumbUrl, offlineCoverUrl]) {
-        if (url) await deleteJournaledCacheEntry(db, cache, url).catch(() => false);
-      }
-      offlineCoverUrl = null;
-      offlineCoverThumbUrl = null;
+      await transaction.done;
+    },
+    cleanup() {
+      cleanupPromise ??= deleteJournaledCacheEntries(db, cache, [...journaledUrls]).catch(
+        () => undefined,
+      );
+      return cleanupPromise;
+    },
+  };
+}
+
+function chunkManifest(byteSize: number, chunkCount: number): Response {
+  return new Response(
+    JSON.stringify({
+      format: "chapterline-chunked-media-v1",
+      byteSize,
+      chunkSize: MEDIA_CHUNK_BYTES,
+      chunkCount,
+    }),
+    {
+      headers: {
+        "Content-Type": "application/vnd.chapterline.media+json",
+        "X-Chapterline-Media-Format": "chunked-v1",
+      },
+    },
+  );
+}
+
+async function commitChunkedMedia(
+  writer: ChunkedMediaWriter,
+  book: Omit<PlayerBook, "mediaUrl" | "coverUrl">,
+  byteSize: number,
+  cover: { url: string | null; thumbUrl: string | null },
+  startedAt: number,
+): Promise<OfflineBook> {
+  const { userId, db, cache, offlineMediaUrl } = writer;
+  const key = offlineBookKey(userId, book.id);
+  const pending = await db.get("deletions", key);
+  if (pending?.completedAt && pending.completedAt >= startedAt) {
+    await writer.cleanup();
+    for (const url of [cover.url, cover.thumbUrl]) {
+      if (url) await deleteJournaledCacheEntry(db, cache, url).catch(() => false);
     }
+    throw new Error("This download was removed while it was being saved.");
   }
 
   const record: OfflineBook = {
@@ -382,25 +288,17 @@ async function storeLocalBookMediaUnlocked(
     userId,
     book,
     offlineMediaUrl,
-    offlineCoverUrl,
-    offlineCoverThumbUrl,
-    byteSize: file.size,
+    offlineCoverUrl: cover.url,
+    offlineCoverThumbUrl: cover.thumbUrl,
+    byteSize,
     downloadedAt: new Date().toISOString(),
-    // The bytes were just written and are verified below, so this record is by
-    // construction on this device. Written explicitly rather than left absent
-    // so re-attaching a book whose audio went missing clears the mark.
     mediaMissingSince: null,
   };
-
-  // The STORED record, not a reconciled read. `getOfflineBook` answers "can
-  // this device play it", so a book whose audio went missing came back
-  // `undefined` — and the old token's bytes and cover, which a transient cache
-  // wipe may hand back at any moment, were left for the orphan sweep instead of
-  // being reclaimed here. It is also what the failure path must restore.
   let existing: OfflineBook | undefined;
   try {
-    existing = await getStoredOfflineBook(userId, book.id);
     assertAccountWritable(userId);
+    await writer.reassignOwner(book.id);
+    existing = await getStoredOfflineBook(userId, book.id);
     await db.put("downloads", record);
     const [storedRecord, storedMedia] = await Promise.all([
       db.get("downloads", key),
@@ -422,12 +320,119 @@ async function storeLocalBookMediaUnlocked(
       if (existing) await db.put("downloads", existing).catch(() => undefined);
       else await db.delete("downloads", key).catch(() => undefined);
     }
-    await deleteJournaledMedia(db, cache, offlineMediaUrl).catch(() => false);
-    for (const url of [offlineCoverUrl, offlineCoverThumbUrl]) {
+    await writer.cleanup();
+    for (const url of [cover.url, cover.thumbUrl]) {
       if (url) await deleteJournaledCacheEntry(db, cache, url).catch(() => false);
     }
     throw offlineStorageError(error);
   }
+}
+
+async function storeLocalBookMediaUnlocked(
+  userId: string,
+  book: Omit<PlayerBook, "mediaUrl" | "coverUrl">,
+  file: File,
+  artwork: { data: Uint8Array; mimeType: string } | null,
+  onProgress?: (fraction: number) => void,
+  startedAt = Date.now(),
+  signal?: AbortSignal,
+): Promise<OfflineBook> {
+  throwIfAborted(signal);
+  await ensureStorageCapacity(file.size);
+  if (navigator.storage?.persist) await navigator.storage.persist().catch(() => false);
+
+  const writer = await openChunkedMediaWriter(userId, book.id);
+  const { offlineMediaUrl, db, cache } = writer;
+  const chunkCount = Math.ceil(file.size / MEDIA_CHUNK_BYTES);
+  const chunkUrls = Array.from({ length: chunkCount }, (_, index) => writer.chunkUrl(index));
+  const cleanupUrls: string[] = [...chunkUrls, offlineMediaUrl];
+  try {
+    // Journal rows for every chunk land in one transaction before any bytes
+    // move: the journal-before-bytes invariant is unchanged, but a
+    // thousand-chunk audiobook costs one IndexedDB commit instead of one per
+    // chunk.
+    await writer.journal(cleanupUrls);
+    let storedChunks = 0;
+    let writeFailed = false;
+    let writeFailure: unknown;
+    // Workers swallow their own failure and drain, so no chunk write is still
+    // in flight when cleanup below starts deleting what they wrote.
+    await runBounded(
+      Array.from({ length: chunkCount }, (_, index) => index),
+      MEDIA_WRITE_CONCURRENCY,
+      async (index) => {
+        if (writeFailed || signal?.aborted) return;
+        try {
+          await writer.writeChunk(
+            index,
+            file.slice(
+              index * MEDIA_CHUNK_BYTES,
+              Math.min(file.size, (index + 1) * MEDIA_CHUNK_BYTES),
+            ),
+            true,
+          );
+        } catch (error) {
+          if (!writeFailed) {
+            writeFailed = true;
+            writeFailure = error;
+          }
+          return;
+        }
+        storedChunks += 1;
+        onProgress?.(storedChunks / (chunkCount + 1));
+      },
+    );
+    throwIfAborted(signal);
+    if (writeFailed) throw writeFailure;
+    await writer.finish(file.size, chunkCount, true);
+    onProgress?.(1);
+  } catch (error) {
+    await writer.cleanup();
+    throwIfAborted(signal);
+    throw offlineStorageError(error);
+  }
+
+  let offlineCoverUrl: string | null = null;
+  let offlineCoverThumbUrl: string | null = null;
+  if (artwork) {
+    try {
+      throwIfAborted(signal);
+      offlineCoverUrl = `${offlineMediaUrl}-cover`;
+      await db.put("cacheEntries", { url: offlineCoverUrl, userId, bookId: book.id });
+      await cache.put(
+        offlineCoverUrl,
+        new Response(new Blob([Uint8Array.from(artwork.data)], { type: artwork.mimeType }), {
+          headers: { "Content-Type": artwork.mimeType },
+        }),
+      );
+      const thumbnail = await createCoverThumbnail(artwork.data, artwork.mimeType);
+      throwIfAborted(signal);
+      if (thumbnail) {
+        offlineCoverThumbUrl = `${offlineCoverUrl}-thumb`;
+        await db.put("cacheEntries", { url: offlineCoverThumbUrl, userId, bookId: book.id });
+        await cache.put(
+          offlineCoverThumbUrl,
+          new Response(thumbnail.data, { headers: { "Content-Type": thumbnail.mimeType } }),
+        );
+      }
+    } catch {
+      for (const url of [offlineCoverThumbUrl, offlineCoverUrl]) {
+        if (url) await deleteJournaledCacheEntry(db, cache, url).catch(() => false);
+      }
+      throwIfAborted(signal);
+      offlineCoverUrl = null;
+      offlineCoverThumbUrl = null;
+    }
+  }
+
+  throwIfAborted(signal);
+  return commitChunkedMedia(
+    writer,
+    book,
+    file.size,
+    { url: offlineCoverUrl, thumbUrl: offlineCoverThumbUrl },
+    startedAt,
+  );
 }
 
 export function hasEnoughCapacity(

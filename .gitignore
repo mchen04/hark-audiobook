@@ -24,8 +24,8 @@
 
 # generated service worker artifacts
 /public/sw.js.map
-/public/pdf.worker.min.mjs
-/public/models/kestrel/kissfft.wasm
+/public/pdf.worker.*.min.mjs
+/public/models/kestrel/kissfft.*.wasm
 
 # test and coverage output
 /coverage/

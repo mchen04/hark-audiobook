@@ -9,7 +9,7 @@ export default defineConfig([
     ".next/**",
     "coverage/**",
     "public/sw.js",
-    "public/pdf.worker.min.mjs",
+    "public/pdf.worker.*.min.mjs",
     "test-results/**",
   ]),
 ]);

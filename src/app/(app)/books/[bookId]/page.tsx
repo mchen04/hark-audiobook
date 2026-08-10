@@ -98,6 +98,7 @@ export default async function BookPage({
       playerBook={playerBook}
       mediaFingerprint={book.mediaFingerprint}
       mediaFingerprintKind={book.mediaFingerprintKind}
+      mediaRenditionKey={book.mediaRenditionKey || "source-v1"}
       byteSize={book.byteSize}
       sourceFilename={book.originalFilename}
       sourceMimeType={book.mimeType}

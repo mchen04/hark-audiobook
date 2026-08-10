@@ -229,6 +229,7 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
           playerBook={route.book.playerBook}
           mediaFingerprint={route.book.mediaFingerprint}
           mediaFingerprintKind={route.book.mediaFingerprintKind}
+          mediaRenditionKey={route.book.mediaRenditionKey}
           byteSize={route.book.byteSize}
           sourceFilename={route.book.sourceFilename}
           sourceMimeType={route.book.sourceMimeType}

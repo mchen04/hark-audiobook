@@ -1,22 +1,13 @@
 import { readFile } from "node:fs/promises";
 
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { renderKestrelAudio } from "./dsp";
-import { getKestrelFftWorkspace } from "./fft";
+import { configureKestrelFftRuntime, getKestrelFftWorkspace } from "./fft";
 
 beforeAll(async () => {
   const wasm = await readFile("node_modules/kissfft-wasm/lib/kissfft.wasm");
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(
-      async () =>
-        new Response(wasm, {
-          status: 200,
-          headers: { "Content-Type": "application/wasm" },
-        }),
-    ),
-  );
+  configureKestrelFftRuntime(wasm);
 });
 
 describe("Kestrel browser DSP", () => {

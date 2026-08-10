@@ -1,26 +1,15 @@
-const acceptedSources: Readonly<Record<string, ReadonlySet<string>>> = {
-  mp3: new Set(["audio/mpeg", "audio/mp3"]),
-  pdf: new Set(["application/pdf"]),
-  epub: new Set(["application/epub+zip"]),
-  docx: new Set(["application/vnd.openxmlformats-officedocument.wordprocessingml.document"]),
-  txt: new Set(["text/plain"]),
-  md: new Set(["text/markdown", "text/plain"]),
-  markdown: new Set(["text/markdown", "text/plain"]),
-  html: new Set(["text/html"]),
-  htm: new Set(["text/html"]),
-};
+import { DOCUMENT_FORMAT_LABEL, sourceFormatForFilename } from "@/lib/source-formats";
 
 export function validateUploadMetadata(filename: string, mimeType: string): string {
   const decoded = decodeFilename(filename);
-  const extension = decoded.toLowerCase().match(/\.([^.]+)$/)?.[1] || "";
-  const acceptedMimeTypes = acceptedSources[extension];
-  if (!acceptedMimeTypes) {
-    throw new Error("Choose an MP3, PDF, EPUB, DOCX, TXT, Markdown, or HTML file.");
+  const format = sourceFormatForFilename(decoded);
+  if (!format) {
+    throw new Error(`Choose an MP3 or a ${DOCUMENT_FORMAT_LABEL} file.`);
   }
   const normalizedMimeType = mimeType.toLowerCase();
   if (
     normalizedMimeType !== "application/octet-stream" &&
-    !acceptedMimeTypes.has(normalizedMimeType)
+    !format.acceptedMimeTypes.has(normalizedMimeType)
   ) {
     throw new Error("The selected file's content type does not match its filename.");
   }

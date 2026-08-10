@@ -261,6 +261,7 @@ export async function getBookForUser(userId: string, bookId: string) {
       mimeType: mediaAssets.mimeType,
       mediaFingerprint: mediaAssets.fingerprint,
       mediaFingerprintKind: mediaAssets.fingerprintKind,
+      mediaRenditionKey: mediaAssets.renditionKey,
       positionMs: playbackStates.positionMs,
       playbackRate: playbackStates.playbackRate,
       completed: playbackStates.completed,

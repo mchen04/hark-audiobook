@@ -9,11 +9,13 @@ import { useDeleteBook } from "@/components/book/use-delete-book";
 import { FullPlayer } from "@/components/player/full-player";
 import type { PlaybackHistorySnapshot } from "@/domain/playback-history";
 import type { NextInCollection, PlayerBook } from "@/domain/player";
+import { isAbortError } from "@/lib/abort";
 import { formatBytes } from "@/lib/format-bytes";
 import { type MediaFingerprintKind, fingerprintMedia } from "@/lib/media-fingerprint";
 import { parseLocalMp3 } from "@/lib/local-import";
 import { getOfflineBook } from "@/lib/offline/library";
 import { storeLocalBookMedia } from "@/lib/offline/media-store";
+import { DOCUMENT_FILE_ACCEPT, isDocumentSource, MP3_FILE_ACCEPT } from "@/lib/source-formats";
 
 type GateState =
   | { phase: "checking" }
@@ -33,6 +35,7 @@ export function LocalMediaGate({
   playerBook,
   mediaFingerprint,
   mediaFingerprintKind,
+  mediaRenditionKey,
   byteSize,
   sourceFilename,
   sourceMimeType,
@@ -45,6 +48,7 @@ export function LocalMediaGate({
   playerBook: PlayerBook;
   mediaFingerprint: string | null;
   mediaFingerprintKind: MediaFingerprintKind | null;
+  mediaRenditionKey: string;
   byteSize: number | null;
   sourceFilename?: string | null;
   sourceMimeType?: string | null;
@@ -65,9 +69,8 @@ export function LocalMediaGate({
     mediaFingerprint,
   );
   const inputRef = useRef<HTMLInputElement>(null);
-  const documentSource = Boolean(
-    sourceMimeType && sourceMimeType !== "audio/mpeg" && sourceMimeType !== "audio/mp3",
-  );
+  const attachmentRef = useRef<AbortController | null>(null);
+  const documentSource = isDocumentSource(sourceFilename || "", sourceMimeType);
   const readyMediaUrl = state.phase === "ready" ? state.mediaUrl : null;
   const readyCoverUrl = state.phase === "ready" ? state.coverUrl : null;
   const readyCoverThumbUrl = state.phase === "ready" ? state.coverThumbUrl : null;
@@ -82,6 +85,14 @@ export function LocalMediaGate({
           }
         : null,
     [playerBook, readyCoverThumbUrl, readyCoverUrl, readyMediaUrl],
+  );
+
+  useEffect(
+    () => () => {
+      attachmentRef.current?.abort();
+      attachmentRef.current = null;
+    },
+    [userId, playerBook.id],
   );
 
   useEffect(() => {
@@ -111,8 +122,16 @@ export function LocalMediaGate({
     event.target.value = "";
     if (!file) return;
 
+    attachmentRef.current?.abort();
+    const controller = new AbortController();
+    attachmentRef.current = controller;
+    const reportAttachment = (percent: number | null, stage: string) => {
+      if (attachmentRef.current === controller && !controller.signal.aborted) {
+        setState({ phase: "attaching", percent, stage });
+      }
+    };
     setError(null);
-    setState({ phase: "attaching", percent: null, stage: "Checking the source" });
+    reportAttachment(null, "Checking the source");
     try {
       if (byteSize && file.size !== byteSize) {
         throw new Error(
@@ -120,12 +139,11 @@ export function LocalMediaGate({
         );
       }
       const fingerprint = mediaFingerprintKind
-        ? await fingerprintMedia(file, mediaFingerprintKind, (fraction) =>
-            setState({
-              phase: "attaching",
-              percent: Math.round(fraction * 100),
-              stage: "Checking the source",
-            }),
+        ? await fingerprintMedia(
+            file,
+            mediaFingerprintKind,
+            (fraction) => reportAttachment(Math.round(fraction * 100), "Checking the source"),
+            controller.signal,
           )
         : undefined;
       if (mediaFingerprint && fingerprint !== mediaFingerprint) {
@@ -137,22 +155,27 @@ export function LocalMediaGate({
             importLocalDocument(
               userId,
               file,
-              (percent, stage) => setState({ phase: "attaching", percent, stage }),
-              { book: targetBook, ...(fingerprint ? { fingerprint } : {}) },
+              (percent, stage) => reportAttachment(percent, stage),
+              {
+                target: {
+                  book: targetBook,
+                  renditionKey: mediaRenditionKey,
+                  ...(fingerprint ? { fingerprint } : {}),
+                },
+                signal: controller.signal,
+              },
             ),
           )
         : await storeLocalBookMedia(
             userId,
             targetBook,
             file,
-            (await parseLocalMp3(file)).artwork,
-            (fraction) =>
-              setState({
-                phase: "attaching",
-                percent: Math.round(fraction * 100),
-                stage: "Saving to this device",
-              }),
+            (await parseLocalMp3(file, controller.signal)).artwork,
+            (fraction) => reportAttachment(Math.round(fraction * 100), "Saving to this device"),
+            undefined,
+            controller.signal,
           );
+      if (controller.signal.aborted || attachmentRef.current !== controller) return;
       setState({
         phase: "ready",
         mediaUrl: record.offlineMediaUrl,
@@ -160,8 +183,12 @@ export function LocalMediaGate({
         coverThumbUrl: record.offlineCoverThumbUrl || record.offlineCoverUrl,
       });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The file could not be attached.");
-      setState({ phase: "missing" });
+      if (attachmentRef.current === controller && !isAbortError(caught)) {
+        setError(caught instanceof Error ? caught.message : "The file could not be attached.");
+        setState({ phase: "missing" });
+      }
+    } finally {
+      if (attachmentRef.current === controller) attachmentRef.current = null;
     }
   }
 
@@ -224,11 +251,7 @@ export function LocalMediaGate({
               ref={inputRef}
               className="visually-hidden"
               type="file"
-              accept={
-                documentSource
-                  ? ".pdf,.epub,.docx,.txt,.md,.markdown,.html,.htm"
-                  : ".mp3,audio/mpeg,audio/mp3"
-              }
+              accept={documentSource ? DOCUMENT_FILE_ACCEPT : MP3_FILE_ACCEPT}
               onChange={attachFile}
               tabIndex={-1}
               aria-label={`Attach ${sourceFilename || (documentSource ? "the book's document" : "the book's MP3")}`}
@@ -267,18 +290,8 @@ export function LocalMediaGate({
 }
 
 function withoutMediaUrls(book: PlayerBook): Omit<PlayerBook, "mediaUrl" | "coverUrl"> {
-  return {
-    id: book.id,
-    title: book.title,
-    author: book.author,
-    durationMs: book.durationMs,
-    coverThumbUrl: book.coverThumbUrl,
-    chapters: book.chapters,
-    initialPositionMs: book.initialPositionMs,
-    initialProgressOccurredAt: book.initialProgressOccurredAt,
-    initialPlaybackRate: book.initialPlaybackRate,
-    initialPlaybackRateOccurredAt: book.initialPlaybackRateOccurredAt,
-    completed: book.completed,
-    initialCompletedOccurredAt: book.initialCompletedOccurredAt,
-  };
+  const { mediaUrl, coverUrl, ...withoutMedia } = book;
+  void mediaUrl;
+  void coverUrl;
+  return withoutMedia;
 }

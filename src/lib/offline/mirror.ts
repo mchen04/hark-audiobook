@@ -89,6 +89,7 @@ export type MirrorPlayerBook = {
   playerBook: PlayerBook;
   mediaFingerprint: string;
   mediaFingerprintKind: MediaFingerprintKind | null;
+  mediaRenditionKey: string;
   byteSize: number;
   sourceFilename: string;
   sourceMimeType: string;
@@ -203,7 +204,9 @@ async function writeBookAggregates(
         archivedAt: book.archivedAt,
         createdAt: book.createdAt,
         updatedAt: book.updatedAt,
-        media: book.media,
+        media: book.media
+          ? { ...book.media, renditionKey: book.media.renditionKey || "source-v1" }
+          : null,
         searchText: searchTextFor(book),
       };
       const chapterRows: MirrorChapter[] = book.chapters.map((chapter) => ({
@@ -756,6 +759,7 @@ export async function getMirrorPlayerBook(
     mediaFingerprint: book.media.fingerprint,
     mediaFingerprintKind:
       fingerprintKind === "sample-v1" || fingerprintKind === "sha256-v1" ? fingerprintKind : null,
+    mediaRenditionKey: book.media.renditionKey || "source-v1",
     byteSize: book.media.byteSize,
     sourceFilename: book.media.originalFilename,
     sourceMimeType: book.media.mimeType,

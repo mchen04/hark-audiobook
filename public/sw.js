@@ -51,7 +51,17 @@ const OFFLINE_URL = "/offline";
  * that they do not.
  */
 const LAUNCH_URL = "/library?source=pwa";
-const PRECACHE = [OFFLINE_URL, "/icons/icon-192.png"];
+// Generated from `asset-manifest.json` and pinned by a contract test. These
+// small, immutable runtime files make the already-downloaded on-device model
+// and PDF parser usable without another network visit.
+const RUNTIME_ASSETS = [
+  "/models/kestrel/prosody-encode.627c1c1a7203c6fcc73013957aec8ef56aacfe20df1df6eda571a9c816387a0e.onnx",
+  "/models/kestrel/prosody-frames.905339961e27ac99f948824d393ffd03cebf7c5477f32156c739e872016455eb.onnx",
+  "/models/kestrel/decoder-head.e3b02863689de98635f42d5f568908b6bc6d43059856434f30b66e25633a379d.onnx",
+  "/models/kestrel/kissfft.c1a03390ade32bcfc4c4143796f7510c0fec06b59d42840591ad4721fe93caf4.wasm",
+  "/pdf.worker.51a2fd1ea47f1a9b0814e65e0c336c739c54957795ee774e8f93cb81e8028dd1.min.mjs",
+];
+const PRECACHE = [OFFLINE_URL, "/icons/icon-192.png", ...RUNTIME_ASSETS];
 /**
  * How long a navigation the shell cannot answer may wait on the network.
  *
@@ -315,7 +325,12 @@ async function preserveLegacyShellAssets(cacheNames) {
     const legacy = await caches.open(cacheName);
     for (const request of await legacy.keys()) {
       const { pathname } = new URL(request.url);
-      if (!pathname.startsWith("/_next/static/") && !pathname.startsWith("/icons/")) continue;
+      if (
+        !pathname.startsWith("/_next/static/") &&
+        !pathname.startsWith("/icons/") &&
+        !RUNTIME_ASSETS.includes(pathname)
+      )
+        continue;
       const response = await legacy.match(request);
       if (response) await stage.put(request, response);
     }
@@ -462,7 +477,11 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/")) {
+  if (
+    url.pathname.startsWith("/_next/static/") ||
+    url.pathname.startsWith("/icons/") ||
+    RUNTIME_ASSETS.includes(url.pathname)
+  ) {
     event.respondWith(serveShellAsset(request, url.pathname));
   }
 });

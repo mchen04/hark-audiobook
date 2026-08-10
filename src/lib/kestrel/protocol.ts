@@ -19,6 +19,5 @@ export type KestrelWorkerResponse =
       id: number;
       audio: Float32Array;
       sampleRate: number;
-      backend: "webgpu" | "wasm";
     }
   | { type: "error"; id: number; message: string };

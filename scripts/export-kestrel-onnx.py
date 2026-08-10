@@ -14,14 +14,16 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import shutil
 import struct
+import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Literal, Sequence, overload
 
 import numpy as np
 import onnx
@@ -74,6 +76,28 @@ class GraphBuilder:
         self._counter += 1
         return f"{stem}_{self._counter}"
 
+    @overload
+    def node(
+        self,
+        op_type: str,
+        inputs: Sequence[str],
+        stem: str,
+        *,
+        outputs: Literal[1] = 1,
+        **attributes: object,
+    ) -> str: ...
+
+    @overload
+    def node(
+        self,
+        op_type: str,
+        inputs: Sequence[str],
+        stem: str,
+        *,
+        outputs: int,
+        **attributes: object,
+    ) -> tuple[str, ...]: ...
+
     def node(
         self,
         op_type: str,
@@ -117,10 +141,10 @@ class GraphBuilder:
         self.nodes.append(helper.make_node("Identity", [value], [output]))
 
     def unsqueeze(self, value: str, axes: Sequence[int], stem: str) -> str:
-        return self.node("Unsqueeze", [value, self.constant(axes, f"{stem}_axes")], stem)  # type: ignore[return-value]
+        return self.node("Unsqueeze", [value, self.constant(axes, f"{stem}_axes")], stem)
 
     def squeeze(self, value: str, axes: Sequence[int], stem: str) -> str:
-        return self.node("Squeeze", [value, self.constant(axes, f"{stem}_axes")], stem)  # type: ignore[return-value]
+        return self.node("Squeeze", [value, self.constant(axes, f"{stem}_axes")], stem)
 
     def linear(self, value: str, source: str, prefix: str, stem: str) -> str:
         weight = self.tensor(source, f"{prefix}.weight")
@@ -129,7 +153,7 @@ class GraphBuilder:
         bias_key = f"{prefix}.bias"
         if bias_key in self.sources[source].tensors:
             result = self.node("Add", [result, self.tensor(source, bias_key)], f"{stem}_bias")
-        return result  # type: ignore[return-value]
+        return result
 
     def layer_norm(self, value: str, stem: str) -> str:
         mean = self.node("ReduceMean", [value], f"{stem}_mean", axes=[-1], keepdims=1)
@@ -141,7 +165,7 @@ class GraphBuilder:
             [self.node("Add", [variance, self.constant(1e-5, f"{stem}_epsilon")], f"{stem}_stable")],
             f"{stem}_sqrt",
         )
-        return self.node("Div", [centered, denominator], f"{stem}_normalized")  # type: ignore[return-value]
+        return self.node("Div", [centered, denominator], f"{stem}_normalized")
 
     def gelu(self, value: str, stem: str) -> str:
         scaled = self.node(
@@ -150,7 +174,7 @@ class GraphBuilder:
         erf = self.node("Erf", [scaled], f"{stem}_erf")
         shifted = self.node("Add", [erf, self.constant(1.0, f"{stem}_one")], f"{stem}_shift")
         gated = self.node("Mul", [value, shifted], f"{stem}_gate")
-        return self.node("Mul", [gated, self.constant(0.5, f"{stem}_half")], stem)  # type: ignore[return-value]
+        return self.node("Mul", [gated, self.constant(0.5, f"{stem}_half")], stem)
 
     def adaln(
         self,
@@ -172,7 +196,7 @@ class GraphBuilder:
         scale = self.node("Add", [scale, self.constant(1.0, f"{stem}_one")], f"{stem}_gain")
         return self.node(
             "Add", [self.node("Mul", [normalized, scale], f"{stem}_scaled"), shift], stem
-        )  # type: ignore[return-value]
+        )
 
     def depthwise_conv(
         self, value: str, source: str, prefix: str, dim: int, kernel: int, stem: str
@@ -189,7 +213,7 @@ class GraphBuilder:
             pads=[kernel // 2, kernel // 2],
             strides=[1],
         )
-        return self.node("Transpose", [convolved], stem, perm=[0, 2, 1])  # type: ignore[return-value]
+        return self.node("Transpose", [convolved], stem, perm=[0, 2, 1])
 
     def convnext_block(
         self,
@@ -208,7 +232,7 @@ class GraphBuilder:
         value = self.linear(value, source, f"{prefix}.pw1", f"{prefix}_pw1")
         value = self.gelu(value, f"{prefix}_gelu")
         value = self.linear(value, source, f"{prefix}.pw2", f"{prefix}_pw2")
-        return self.node("Add", [residual, value], f"{prefix}_residual")  # type: ignore[return-value]
+        return self.node("Add", [residual, value], f"{prefix}_residual")
 
     def gather_sequence(self, value: str, indices: str, stem: str) -> str:
         gathered = self.node("Gather", [value, indices], f"{stem}_gather", axis=1)
@@ -223,7 +247,7 @@ class GraphBuilder:
                 self.constant(maximum, f"{stem}_maximum"),
             ],
             stem,
-        )  # type: ignore[return-value]
+        )
 
 
 def value_info(name: str, dtype: int, shape: Sequence[int | str]) -> onnx.ValueInfoProto:
@@ -439,17 +463,67 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def assert_kestrel_source(root: Path, revision: str) -> None:
+    try:
+        actual = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise RuntimeError("Kestrel's source checkout must be a Git repository.") from error
+    if actual != revision:
+        raise RuntimeError(f"Expected Kestrel source {revision}, received {actual}.")
+
+
 def main() -> None:
     args = parse_args()
+    project_root = Path(__file__).resolve().parent.parent
+    manifest = json.loads(
+        (project_root / "src/lib/kestrel/asset-manifest.json").read_text(encoding="utf-8")
+    )
+    assets = {asset["id"]: asset for asset in manifest["assets"]}
+    assert_kestrel_source(args.kestrel_root, manifest["kestrelSourceRevision"])
     weights = args.kestrel_root / "weights"
+    weight_paths = {
+        "prosody": weights / "kestrel_prosody.safetensors",
+        "decoder": weights / "kestrel_decode.safetensors",
+        "head": weights / "kestrel_sf_lw58k" / "gen.safetensors",
+    }
+    for asset_id, path in weight_paths.items():
+        if sha256_file(path) != assets[asset_id]["sha256"]:
+            raise RuntimeError(f"{path} does not match the pinned Kestrel asset manifest.")
+
     prosody = SafetensorsIndex(weights / "kestrel_prosody.safetensors", "prosody.safetensors")
     decoder = SafetensorsIndex(weights / "kestrel_decode.safetensors", "decoder.safetensors")
     head = SafetensorsIndex(
         weights / "kestrel_sf_lw58k" / "gen.safetensors", "head.safetensors"
     )
-    build_prosody_encode(prosody, args.output_dir / "prosody-encode.onnx")
-    build_prosody_frames(prosody, args.output_dir / "prosody-frames.onnx")
-    build_decoder_head(decoder, head, args.output_dir / "decoder-head.onnx")
+    with tempfile.TemporaryDirectory() as directory:
+        generated = Path(directory)
+        outputs = {
+            "prosodyEncode": generated / "prosody-encode.onnx",
+            "prosodyFrames": generated / "prosody-frames.onnx",
+            "decoderHead": generated / "decoder-head.onnx",
+        }
+        build_prosody_encode(prosody, outputs["prosodyEncode"])
+        build_prosody_frames(prosody, outputs["prosodyFrames"])
+        build_decoder_head(decoder, head, outputs["decoderHead"])
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        for asset_id, path in outputs.items():
+            asset = assets[asset_id]
+            if sha256_file(path) != asset["sha256"] or path.stat().st_size != asset["byteSize"]:
+                raise RuntimeError(f"Generated {asset_id} graph does not match the pinned manifest.")
+            shutil.copyfile(path, args.output_dir / Path(asset["target"]).name)
 
 
 if __name__ == "__main__":
