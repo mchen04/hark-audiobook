@@ -269,6 +269,30 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
               ? `Smart rewind ${Math.round(appliedRewindMs / 1000)} seconds`
               : null,
           );
+        } else if (activeBookRef.current.mediaUrl !== nextBook.mediaUrl) {
+          // Cache eviction leaves the book identity intact. Reattaching its
+          // source writes a fresh content URL, so identity alone cannot decide
+          // whether the audio element is current: keeping the old URL makes a
+          // successful regeneration look playable while every range returns
+          // 404. Refresh the transport in place without recording a book
+          // switch or throwing away the position/rate already on this book.
+          const wasPlaying = !audio.paused;
+          const positionMs = Math.min(audio.currentTime * 1000, nextBook.durationMs);
+          const rate = audio.playbackRate;
+          if (wasPlaying) {
+            suppressNextPauseRef.current = true;
+            audio.pause();
+          }
+          const refreshedBook = bootstrapPlaybackState(userId, nextBook).book;
+          audio.src = refreshedBook.mediaUrl;
+          audio.currentTime = positionMs / 1000;
+          audio.playbackRate = rate;
+          activeBookRef.current = refreshedBook;
+          setBook(refreshedBook);
+          timeStore.write(positionMs);
+          setRateState(rate);
+          setMediaSessionMetadata(refreshedBook);
+          if (wasPlaying) safePlay(audio);
         }
         hydrateHistory(nextBook.id, historySnapshot);
         if (autoplay) safePlay(audio);

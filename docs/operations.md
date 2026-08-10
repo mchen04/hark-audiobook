@@ -16,9 +16,12 @@ Last reviewed: 2026-08-10
   storage or hosted inference service to provision.
 - `pnpm build` verifies and copies the pinned exporter/runtime assets without
   network access, then writes `public/chapterline-runtime-assets.json` from the
-  built lazy document/worker dependency closure. A missing extractor, encoder,
-  worker bootstrap, or ONNX marker fails the build instead of shipping a shell
-  that only narrates while online. Before changing Kestrel graphs or model pins,
+  built Kestrel graph plus the offline page's client and React-loadable
+  manifests. It follows their lazy and worker dependencies, so both a fresh
+  import and a missing-media player reattach keep working after the backend is
+  unreachable. A missing extractor, encoder, worker bootstrap, or ONNX marker
+  fails the build instead of shipping a shell that only narrates while online.
+  Before changing Kestrel graphs or model pins,
   run `pnpm verify:kestrel-export`; it downloads only the exact public weight
   commit into an isolated temporary directory and requires byte-for-byte ONNX
   output.

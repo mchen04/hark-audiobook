@@ -2,40 +2,30 @@ import { createHash } from "node:crypto";
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
+import { collectRuntimeChunkNames } from "./build-runtime-precache-core.mjs";
+
 const chunksDirectory = resolve(".next/static/chunks");
 const output = resolve("public/chapterline-runtime-assets.json");
+const offlineRouteManifestPaths = [
+  resolve(".next/server/app/offline/page_client-reference-manifest.js"),
+  resolve(".next/server/app/offline/page/react-loadable-manifest.json"),
+];
 const filenames = (await readdir(chunksDirectory))
   .filter((filename) => /\.(?:js|css)$/.test(filename))
   .sort();
-const available = new Set(filenames);
 const sources = new Map();
-for (const filename of filenames.filter((candidate) => candidate.endsWith(".js"))) {
+for (const filename of filenames) {
   sources.set(filename, await readFile(join(chunksDirectory, filename), "utf8"));
 }
+const selected = collectRuntimeChunkNames(
+  sources,
+  await Promise.all(offlineRouteManifestPaths.map((path) => readFile(path, "utf8"))),
+);
 
-const queue = filenames.filter((filename) => sources.get(filename)?.includes("hark-kestrel"));
-if (queue.length === 0) throw new Error("The built Kestrel runtime entry could not be found.");
-const selected = new Set(queue);
-const dependencyPattern = /(?:\/?_next\/)?static\/chunks\/([A-Za-z0-9_.-]+\.(?:js|css))/g;
-while (queue.length > 0) {
-  const filename = queue.shift();
-  const source = sources.get(filename);
-  if (!source) continue;
-  for (const match of source.matchAll(dependencyPattern)) {
-    const dependency = match[1];
-    if (!available.has(dependency)) {
-      throw new Error(`The Kestrel runtime references a missing build chunk: ${dependency}`);
-    }
-    if (selected.has(dependency)) continue;
-    selected.add(dependency);
-    queue.push(dependency);
-  }
-}
-
-if (![...selected].some((filename) => /^turbopack-worker-.+\.js$/.test(filename))) {
+if (!selected.some((filename) => /^turbopack-worker-.+\.js$/.test(filename))) {
   throw new Error("The Kestrel module-worker bootstrap is absent from the runtime closure.");
 }
-const selectedSource = [...selected].map((filename) => sources.get(filename) || "").join("\n");
+const selectedSource = selected.map((filename) => sources.get(filename) || "").join("\n");
 for (const [feature, marker] of [
   ["document entry", "This document does not contain readable text."],
   ["EPUB adapter", "EPUB container"],
@@ -51,7 +41,7 @@ for (const [feature, marker] of [
 }
 
 const records = [];
-for (const filename of [...selected].sort()) {
+for (const filename of selected) {
   const path = join(chunksDirectory, filename);
   const bytes = await readFile(path);
   records.push({
