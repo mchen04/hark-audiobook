@@ -6,8 +6,9 @@ raw tensor offsets are valid ONNX external-data offsets, so Hark can fetch and
 cache the original Kestrel weights instead of checking in a second 40 MB copy.
 
 Usage:
-  uv run --with onnx scripts/export-kestrel-onnx.py \
-    --kestrel-root /path/to/kestrel-tts \
+  uv run --python 3.12.11 --with onnx==1.19.0 --with numpy==2.3.2 \
+    python scripts/export-kestrel-onnx.py \
+    --weights-dir /path/to/pinned-weights \
     --output-dir public/models/kestrel
 """
 
@@ -19,7 +20,6 @@ import json
 import math
 import shutil
 import struct
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -458,7 +458,7 @@ def build_decoder_head(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--kestrel-root", type=Path, required=True)
+    parser.add_argument("--weights-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     return parser.parse_args()
 
@@ -471,18 +471,11 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def assert_kestrel_source(root: Path, revision: str) -> None:
-    try:
-        actual = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-    except (OSError, subprocess.CalledProcessError) as error:
-        raise RuntimeError("Kestrel's source checkout must be a Git repository.") from error
-    if actual != revision:
-        raise RuntimeError(f"Expected Kestrel source {revision}, received {actual}.")
+def assert_manifest_file(path: Path, asset: dict[str, object]) -> None:
+    if not path.is_file():
+        raise RuntimeError(f"Missing pinned Kestrel asset: {path}")
+    if path.stat().st_size != asset["byteSize"] or sha256_file(path) != asset["sha256"]:
+        raise RuntimeError(f"{path} does not match the pinned Kestrel asset manifest.")
 
 
 def main() -> None:
@@ -492,22 +485,19 @@ def main() -> None:
         (project_root / "src/lib/kestrel/asset-manifest.json").read_text(encoding="utf-8")
     )
     assets = {asset["id"]: asset for asset in manifest["assets"]}
-    assert_kestrel_source(args.kestrel_root, manifest["kestrelSourceRevision"])
-    weights = args.kestrel_root / "weights"
+    exporter = manifest["kestrelExporter"]
+    if sha256_file(Path(__file__)) != exporter["sha256"]:
+        raise RuntimeError("The Kestrel exporter does not match its pinned manifest revision.")
     weight_paths = {
-        "prosody": weights / "kestrel_prosody.safetensors",
-        "decoder": weights / "kestrel_decode.safetensors",
-        "head": weights / "kestrel_sf_lw58k" / "gen.safetensors",
+        asset_id: args.weights_dir / assets[asset_id]["externalPath"]
+        for asset_id in ("prosody", "decoder", "head")
     }
     for asset_id, path in weight_paths.items():
-        if sha256_file(path) != assets[asset_id]["sha256"]:
-            raise RuntimeError(f"{path} does not match the pinned Kestrel asset manifest.")
+        assert_manifest_file(path, assets[asset_id])
 
-    prosody = SafetensorsIndex(weights / "kestrel_prosody.safetensors", "prosody.safetensors")
-    decoder = SafetensorsIndex(weights / "kestrel_decode.safetensors", "decoder.safetensors")
-    head = SafetensorsIndex(
-        weights / "kestrel_sf_lw58k" / "gen.safetensors", "head.safetensors"
-    )
+    prosody = SafetensorsIndex(weight_paths["prosody"], assets["prosody"]["externalPath"])
+    decoder = SafetensorsIndex(weight_paths["decoder"], assets["decoder"]["externalPath"])
+    head = SafetensorsIndex(weight_paths["head"], assets["head"]["externalPath"])
     with tempfile.TemporaryDirectory() as directory:
         generated = Path(directory)
         outputs = {

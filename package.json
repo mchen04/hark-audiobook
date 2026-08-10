@@ -9,6 +9,7 @@
   },
   "scripts": {
     "prepare:browser-assets": "node scripts/prepare-browser-assets.mjs",
+    "verify:kestrel-export": "node scripts/verify-kestrel-export.mjs",
     "predev": "pnpm prepare:browser-assets",
     "dev": "next dev",
     "prebuild": "pnpm prepare:browser-assets",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assertSameRenditionTimeline } from "./rendition";
+import { assertSameRenditionTimeline, KESTREL_RENDITION_KEY } from "./rendition";
 
 const timeline = {
   durationMs: 2_000,
@@ -11,6 +11,9 @@ const timeline = {
 };
 
 describe("document rendition timeline", () => {
+  it("identifies the deterministic extractor and sentence splitter", () => {
+    expect(KESTREL_RENDITION_KEY).toContain(":extract-v2:split-v1:");
+  });
   it("accepts the exact saved seek map", () => {
     expect(() => assertSameRenditionTimeline(timeline, structuredClone(timeline))).not.toThrow();
   });

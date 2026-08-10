@@ -8,24 +8,33 @@ import {
 
 import { cleanDocumentText, cleanMetadata, cleanTitle, fallbackTitle } from "./document-text";
 import type { ExtractedDocument } from "./types";
+import { readFileText } from "./file-read";
 
 export type { DocumentKind } from "@/lib/source-formats";
 export type { ExtractedDocument, ExtractedDocumentChapter } from "./types";
 
-const MAX_SOURCE_BYTES = 512 * 1024 * 1024;
-const MAX_EXTRACTED_CHARACTERS = 20_000_000;
+const MAX_SOURCE_BYTES = {
+  pdf: 96 * 1024 * 1024,
+  epub: 48 * 1024 * 1024,
+  docx: 48 * 1024 * 1024,
+  text: 8 * 1024 * 1024,
+  markdown: 8 * 1024 * 1024,
+  html: 2 * 1024 * 1024,
+} as const;
+const MAX_EXTRACTED_CHARACTERS = 2_000_000;
+const MAX_DECODED_TEXT_CHARACTERS = MAX_EXTRACTED_CHARACTERS + 100_000;
 const MAX_CHAPTERS = 10_000;
 
 export { DOCUMENT_FILE_ACCEPT, DOCUMENT_FORMAT_LABEL };
 
 export function detectDocument(file: Pick<File, "name" | "size">) {
   if (file.size <= 0) throw new Error("The selected document is empty.");
-  if (file.size > MAX_SOURCE_BYTES) {
-    throw new Error("This document is too large to convert safely on this device.");
-  }
   const format = sourceFormatForFilename(file.name);
   if (!format || !isDocumentFormat(format)) {
     throw new Error(`Choose an MP3 or a ${DOCUMENT_FORMAT_LABEL} document.`);
+  }
+  if (file.size > MAX_SOURCE_BYTES[format.id]) {
+    throw new Error("This document is too large to convert safely on this device.");
   }
   return format;
 }
@@ -55,7 +64,7 @@ export async function extractDocument(
     case "html": {
       const [{ extractHtml }, source] = await Promise.all([
         import("./formats/text"),
-        fileText(file, signal),
+        readFileText(file, MAX_DECODED_TEXT_CHARACTERS, signal),
       ]);
       extracted = extractHtml(source, fallbackTitle(file.name));
       break;
@@ -64,7 +73,7 @@ export async function extractDocument(
     case "text": {
       const [{ extractPlainText }, source] = await Promise.all([
         import("./formats/text"),
-        fileText(file, signal),
+        readFileText(file, MAX_DECODED_TEXT_CHARACTERS, signal),
       ]);
       extracted = extractPlainText(source, fallbackTitle(file.name), format.id);
       break;
@@ -76,12 +85,6 @@ export async function extractDocument(
 
 export function documentMimeType(file: Pick<File, "name" | "size">): string {
   return detectDocument(file).mimeType;
-}
-
-async function fileText(file: File, signal?: AbortSignal): Promise<string> {
-  const source = await file.text();
-  throwIfAborted(signal);
-  return source;
 }
 
 function validateExtraction(document: ExtractedDocument): ExtractedDocument {

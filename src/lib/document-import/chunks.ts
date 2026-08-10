@@ -1,5 +1,18 @@
 import { NARRATION_CHUNK_CHARACTERS } from "./rendition";
 
+const SENTENCE_ABBREVIATIONS = new Set([
+  "mr",
+  "mrs",
+  "ms",
+  "dr",
+  "prof",
+  "sr",
+  "jr",
+  "st",
+  "vs",
+  "etc",
+]);
+
 /** Small sentence-aware units bound Kestrel's peak tensors and first-audio latency. */
 export function chunkNarrationText(text: string): string[] {
   const sentences = segmentSentences(text);
@@ -18,11 +31,30 @@ export function chunkNarrationText(text: string): string[] {
 }
 
 function segmentSentences(text: string): string[] {
-  if (typeof Intl.Segmenter === "function") {
-    const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
-    return Array.from(segmenter.segment(text), ({ segment }) => segment.trim()).filter(Boolean);
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return [];
+  const sentences: string[] = [];
+  let start = 0;
+  for (let index = 0; index < normalized.length; index += 1) {
+    if (!".!?".includes(normalized[index]!)) continue;
+    while (index + 1 < normalized.length && ".!?".includes(normalized[index + 1]!)) index += 1;
+    let end = index + 1;
+    while (end < normalized.length && /[\"'”’)]/.test(normalized[end]!)) end += 1;
+    if (end < normalized.length && !/\s/.test(normalized[end]!)) continue;
+    if (normalized[index] === "." && isAbbreviation(normalized.slice(start, index + 1))) continue;
+    sentences.push(normalized.slice(start, end).trim());
+    while (end < normalized.length && /\s/.test(normalized[end]!)) end += 1;
+    start = end;
+    index = end - 1;
   }
-  return (text.match(/[^.!?]+(?:[.!?]+|$)/g) || [text]).map((part) => part.trim()).filter(Boolean);
+  if (start < normalized.length) sentences.push(normalized.slice(start).trim());
+  return sentences;
+}
+
+function isAbbreviation(sentencePrefix: string): boolean {
+  if (/(?:\b[A-Za-z]\.){2,}$/.test(sentencePrefix)) return true;
+  const token = sentencePrefix.match(/([A-Za-z]+)\.$/)?.[1]?.toLowerCase();
+  return !!token && SENTENCE_ABBREVIATIONS.has(token);
 }
 
 function splitLongSentence(sentence: string): string[] {

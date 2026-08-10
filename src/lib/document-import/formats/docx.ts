@@ -3,13 +3,7 @@ import { strFromU8 } from "fflate";
 import { throwIfAborted } from "@/lib/abort";
 
 import { lookupEntry, readEntry, unzipSelected, xmlMetadata } from "../archive";
-import {
-  cleanDocumentText,
-  cleanTitle,
-  fallbackTitle,
-  looksLikeChapterHeading,
-  parseXml,
-} from "../document-text";
+import { cleanDocumentText, cleanTitle, fallbackTitle, parseXml } from "../document-text";
 import type { ExtractedDocument, ExtractedDocumentChapter } from "../types";
 
 export async function extractDocx(file: File, signal?: AbortSignal): Promise<ExtractedDocument> {
@@ -38,7 +32,7 @@ export async function extractDocx(file: File, signal?: AbortSignal): Promise<Ext
     if (!text) continue;
     const style = paragraph.getElementsByTagName("w:pStyle")[0];
     const styleName = style?.getAttribute("w:val") || style?.getAttribute("val") || "";
-    if (/^(?:title|heading[1-3])$/i.test(styleName) || looksLikeChapterHeading(text)) {
+    if (/^(?:title|heading[1-3])$/i.test(styleName)) {
       if (paragraphs.length) commit();
       title = text;
     } else {

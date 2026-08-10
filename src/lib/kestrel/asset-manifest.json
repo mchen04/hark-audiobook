@@ -1,7 +1,16 @@
 {
   "bundleRevision": "ebfe37d8a87717801af2619f5dbb22901557028821aa22809ffdf20f4aae7ac4",
-  "kestrelSourceRevision": "cac6cb6387d00fa626f41300b4c0739c624bba91",
+  "kestrelModelRevision": "cac6cb6387d00fa626f41300b4c0739c624bba91",
   "kokoroSourceRevision": "e02c9eada7ce7416798af36b190a8a2dd2ecd566",
+  "kestrelExporter": {
+    "script": "scripts/export-kestrel-onnx.py",
+    "sha256": "706b20dcbf48c7d9095fe6e818df1ea7506cd37558828bacaad68d01ec8dcb10",
+    "pythonVersion": "3.12.11",
+    "dependencies": {
+      "numpy": "2.3.2",
+      "onnx": "1.19.0"
+    }
+  },
   "assets": [
     {
       "id": "prosody",

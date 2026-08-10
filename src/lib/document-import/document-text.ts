@@ -11,13 +11,79 @@ export function parseMarkup(source: string): Document {
 }
 
 export function extractBodyText(document: Document): string {
-  stripNonNarrativeMarkup(document);
-  const blocks = Array.from(document.body.querySelectorAll("h1, h2, h3, p, li, blockquote, pre"))
-    .filter((element) => !(element.matches("p") && element.closest("li, blockquote")))
-    .map((element) => element.textContent || "");
   return cleanDocumentText(
-    (blocks.length ? blocks : [document.body.textContent || ""]).join("\n\n"),
+    extractNarrativeBlocks(document)
+      .map(({ text }) => text)
+      .join("\n\n"),
   );
+}
+
+export type NarrativeBlock = { kind: "heading" | "text"; text: string };
+
+const BLOCK_ELEMENTS = new Set([
+  "ADDRESS",
+  "ARTICLE",
+  "ASIDE",
+  "BLOCKQUOTE",
+  "DD",
+  "DIV",
+  "DL",
+  "DT",
+  "FIGCAPTION",
+  "FIGURE",
+  "FOOTER",
+  "HEADER",
+  "HR",
+  "LI",
+  "MAIN",
+  "OL",
+  "P",
+  "PRE",
+  "SECTION",
+  "TABLE",
+  "TBODY",
+  "TD",
+  "TFOOT",
+  "TH",
+  "THEAD",
+  "TR",
+  "UL",
+]);
+
+/** A single DOM walk captures mixed container/text markup without duplicates. */
+export function extractNarrativeBlocks(document: Document): NarrativeBlock[] {
+  stripNonNarrativeMarkup(document);
+  const blocks: NarrativeBlock[] = [];
+  let inline: string[] = [];
+  const flush = () => {
+    const text = cleanDocumentText(inline.join(""));
+    if (text) blocks.push({ kind: "text", text });
+    inline = [];
+  };
+  const visit = (node: Node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      inline.push(node.textContent || "");
+      return;
+    }
+    if (!(node instanceof Element)) return;
+    if (/^H[1-3]$/.test(node.tagName)) {
+      flush();
+      const text = cleanDocumentText(node.textContent || "");
+      if (text) blocks.push({ kind: "heading", text });
+      return;
+    }
+    if (node.tagName === "BR") {
+      flush();
+      return;
+    }
+    const block = BLOCK_ELEMENTS.has(node.tagName);
+    if (block) flush();
+    for (const child of node.childNodes) visit(child);
+    if (block) flush();
+  };
+  for (const child of document.body.childNodes) visit(child);
+  flush();
+  return blocks;
 }
 
 export function cleanMetadata(value: unknown, maxLength: number): string {
@@ -40,13 +106,13 @@ export function cleanTitle(value: string, index: number): string {
 }
 
 export function looksLikeChapterHeading(value: string): boolean {
-  return (
-    value.length > 0 &&
-    value.length <= 160 &&
-    /^(?:(?:chapter|part|book|section)\b(?:\s+[\divxlcdm]+)?|prologue\b|epilogue\b|introduction\b)/i.test(
-      value,
-    )
-  );
+  if (!value || value.length > 160) return false;
+  const ordinal =
+    "(?:\\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)";
+  return new RegExp(
+    `^(?:(?:chapter|part|book|section)(?:\\s+${ordinal})?(?:\\s*[:—–-]\\s*.+)?|(?:prologue|epilogue|introduction)(?:\\s*[:—–-]\\s*.+)?)$`,
+    "i",
+  ).test(value);
 }
 
 export function fallbackTitle(filename: string): string {
@@ -55,6 +121,8 @@ export function fallbackTitle(filename: string): string {
 
 function stripNonNarrativeMarkup(document: Document): void {
   document
-    .querySelectorAll("script, style, noscript, svg, nav")
+    .querySelectorAll(
+      'script, style, noscript, svg, nav, template, iframe, object, canvas, audio, video, form, [hidden], [aria-hidden="true" i]',
+    )
     .forEach((element) => element.remove());
 }

@@ -130,11 +130,16 @@ critical path.
 2. Document import routes the source to a lazy PDF/EPUB/DOCX/text adapter, then
    a book-scoped Kestrel worker synthesizes it through WebGPU or WASM. Public
    weights, ONNX graphs, voice data, FFT runtime, and PDF worker are pinned by
-   one manifest; the build verifies their hashes and the browser caches the
-   content-addressed runtime. Generated PCM is encoded progressively into the
-   same chunked MP3 store, so neither a source-sized nor audiobook-sized buffer
-   is required. Navigation/account changes abort extraction, hashing, worker,
-   encoder, and partial storage as one import job.
+   one manifest. That manifest keeps the model commit separate from the hashed
+   exporter script and its exact Python/ONNX/NumPy environment; the build checks
+   provenance locally, while `pnpm verify:kestrel-export` downloads the pinned
+   weights and reproduces every graph byte-for-byte. Format-specific source and
+   expanded-text limits are enforced before expensive parsing, and reads plus
+   unzip workers are abortable. The deterministic extraction/sentence-splitter
+   revisions are part of rendition identity. Generated PCM is encoded
+   progressively into the same chunked MP3 store, so neither a source-sized nor
+   audiobook-sized audio buffer is required. Navigation/account changes abort
+   extraction, hashing, worker, encoder, and partial storage as one import job.
 3. `POST /api/books/local` registers metadata only — validated title/author,
    duration, byte size, fingerprint, and the full chapter list (revalidated
    server-side, batch-inserted, capped at 10,000 chapters). The expand migration

@@ -1,6 +1,6 @@
 # Operations
 
-Last reviewed: 2026-08-09
+Last reviewed: 2026-08-10
 
 ## Deployment shape
 
@@ -14,6 +14,10 @@ Last reviewed: 2026-08-09
   each device's browser storage. Public Kestrel weights are fetched directly by
   the browser and verified against the pinned manifest. There is no object
   storage or hosted inference service to provision.
+- `pnpm build` verifies the pinned exporter script and committed browser assets
+  without network access. Before changing Kestrel graphs or model pins, run
+  `pnpm verify:kestrel-export`; it downloads only the exact public weight commit
+  into an isolated temporary directory and requires byte-for-byte ONNX output.
 - Auth rate limiting uses an app-owned atomic database adapter over the
   `rate_limit` table, so cold starts and multiple instances share one
   per-IP/path attempt budget. Its cleanup retention is derived from every
@@ -105,7 +109,9 @@ restore live data from Neon snapshots or `pg_dump`, never from Drizzle metadata.
   server and reload once.
 - **Import fails with "not a valid MP3"**: the file must be a real MPEG Layer 3
   file. Document imports support PDF, EPUB, DOCX, TXT, Markdown, and HTML;
-  scanned PDFs require OCR before Hark can narrate them.
+  scanned PDFs require OCR before Hark can narrate them. Sources are bounded to
+  96 MiB PDF, 48 MiB EPUB/DOCX, 8 MiB text/Markdown, 2 MiB HTML, and two million
+  extracted characters so hostile or accidental inputs cannot exhaust a tab.
 - **"This device does not have enough free storage"**: the import is bounded
   by browser storage quota — free space or use a device with more room.
 - **A book asks for its source on another device**: expected — audio bytes never

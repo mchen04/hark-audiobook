@@ -1,6 +1,7 @@
 import manifest from "./asset-manifest.json";
 
-export const KESTREL_SOURCE_REVISION = manifest.kestrelSourceRevision;
+export const KESTREL_MODEL_REVISION = manifest.kestrelModelRevision;
+export const KESTREL_EXPORTER_REVISION = manifest.kestrelExporter.sha256;
 export const KOKORO_SOURCE_REVISION = manifest.kokoroSourceRevision;
 export const KESTREL_BUNDLE_REVISION = manifest.bundleRevision;
 
@@ -23,7 +24,7 @@ export type KestrelAsset = {
   remote: boolean;
 };
 
-const KESTREL_BASE = `https://huggingface.co/mchen04/kestrel-tts/resolve/${KESTREL_SOURCE_REVISION}`;
+const KESTREL_BASE = `https://huggingface.co/mchen04/kestrel-tts/resolve/${KESTREL_MODEL_REVISION}`;
 const KOKORO_BASE = `https://huggingface.co/prince-canuma/Kokoro-82M/resolve/${KOKORO_SOURCE_REVISION}`;
 
 export const KESTREL_ASSET_MANIFEST: readonly KestrelAsset[] = manifest.assets.map((asset) => {

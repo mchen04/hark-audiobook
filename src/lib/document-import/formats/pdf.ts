@@ -2,6 +2,7 @@ import { throwIfAborted } from "@/lib/abort";
 import { PDF_WORKER_ASSET } from "@/lib/kestrel/manifest";
 
 import { cleanDocumentText, cleanMetadata, fallbackTitle } from "../document-text";
+import { readFileBytes } from "../file-read";
 import type { ExtractedDocument, ExtractedDocumentChapter } from "../types";
 
 export async function extractPdf(file: File, signal?: AbortSignal): Promise<ExtractedDocument> {
@@ -9,7 +10,7 @@ export async function extractPdf(file: File, signal?: AbortSignal): Promise<Extr
   throwIfAborted(signal);
   pdfjs.GlobalWorkerOptions.workerSrc = PDF_WORKER_ASSET.url;
   const loading = pdfjs.getDocument({
-    data: new Uint8Array(await file.arrayBuffer()),
+    data: await readFileBytes(file, signal),
     isEvalSupported: false,
     useSystemFonts: true,
   });

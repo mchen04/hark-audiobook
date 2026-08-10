@@ -5,9 +5,9 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { strToU8, zipSync } from "fflate";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { createArchiveEntrySelector } from "./archive";
+import { createArchiveEntrySelector, runAbortableUnzip } from "./archive";
 import { detectDocument, documentMimeType, extractDocument } from "./extract";
 
 describe("document detection", () => {
@@ -26,7 +26,7 @@ describe("document detection", () => {
 
   it("rejects empty, oversized, and unsupported sources before parsing", () => {
     expect(() => detectDocument(sourceFile([], "empty.txt"))).toThrow(/empty/i);
-    expect(() => detectDocument({ name: "huge.txt", size: 512 * 1024 * 1024 + 1 })).toThrow(
+    expect(() => detectDocument({ name: "huge.txt", size: 8 * 1024 * 1024 + 1 })).toThrow(
       /too large/i,
     );
     expect(() => detectDocument(sourceFile(["text"], "book.rtf"))).toThrow(/Choose an MP3/i);
@@ -37,8 +37,8 @@ describe("local document extraction", () => {
   it("rejects cumulative selected archive expansion before inflating it", () => {
     const selector = createArchiveEntrySelector(() => true);
 
-    expect(selector.include({ name: "one.xhtml", originalSize: 70 * 1024 * 1024 })).toBe(true);
-    expect(selector.include({ name: "two.xhtml", originalSize: 70 * 1024 * 1024 })).toBe(false);
+    expect(selector.include({ name: "one.xhtml", originalSize: 20 * 1024 * 1024 })).toBe(true);
+    expect(selector.include({ name: "two.xhtml", originalSize: 20 * 1024 * 1024 })).toBe(false);
     expect(selector.exceeded()).toBe(true);
   });
 
@@ -49,6 +49,38 @@ describe("local document extraction", () => {
     await expect(
       extractDocument(sourceFile(["Never read"], "canceled.txt"), controller.signal),
     ).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("terminates archive workers immediately when extraction is canceled", async () => {
+    const controller = new AbortController();
+    let terminated = false;
+    const pending = runAbortableUnzip(
+      new Uint8Array([1]),
+      { filter: () => true },
+      controller.signal,
+      () => () => {
+        terminated = true;
+      },
+    );
+
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(terminated).toBe(true);
+  });
+
+  it("does not retain an abort listener after synchronous archive completion", async () => {
+    const signal = new AbortController().signal;
+    const observe = vi.spyOn(signal, "addEventListener");
+
+    await expect(
+      runAbortableUnzip(new Uint8Array([1]), {}, signal, (_data, _options, complete) => {
+        complete(null, {});
+        return () => undefined;
+      }),
+    ).resolves.toEqual({});
+
+    expect(observe).not.toHaveBeenCalled();
   });
 
   it("preserves the chapter boundaries used by the browser import holdout", async () => {
@@ -94,6 +126,34 @@ describe("local document extraction", () => {
     expect(document.chapters).toEqual([{ title: "Start", text: "Readable prose." }]);
   });
 
+  it("keeps direct, nested, and table prose in mixed HTML", async () => {
+    const document = await extractDocument(
+      sourceFile(
+        [
+          "<html><body><h1>Start</h1>Direct body prose.",
+          "<article><div>Nested article prose.</div><p>Paragraph prose.</p>",
+          "<table><tr><td>Table prose.</td></tr></table></article></body></html>",
+        ],
+        "mixed.html",
+      ),
+    );
+
+    expect(document.chapters).toEqual([
+      {
+        title: "Start",
+        text: "Direct body prose.\n\nNested article prose.\n\nParagraph prose.\n\nTable prose.",
+      },
+    ]);
+  });
+
+  it.each([
+    "Introduction to algorithms is a useful course.",
+    "Book clubs are popular in this neighborhood.",
+  ])("does not discard ordinary prose beginning with a structural word", async (prose) => {
+    const document = await extractDocument(sourceFile([prose], "sentence.txt"));
+    expect(document.chapters).toEqual([{ title: "Full document", text: prose }]);
+  });
+
   it("reads EPUB spine order and package metadata", async () => {
     const epub = zipFile("novel.epub", {
       "META-INF/container.xml": `<?xml version="1.0"?><container><rootfiles><rootfile full-path="OPS/book.opf" /></rootfiles></container>`,
@@ -113,6 +173,21 @@ describe("local document extraction", () => {
         { title: "Two", text: "Two\n\nSecond." },
       ],
     });
+  });
+
+  it("does not drop mixed EPUB content when one paragraph is present", async () => {
+    const epub = zipFile("mixed.epub", {
+      "META-INF/container.xml": `<container><rootfiles><rootfile full-path="book.opf" /></rootfiles></container>`,
+      "book.opf": `<package><metadata><title>Mixed</title></metadata><manifest><item id="one" href="one.xhtml"/></manifest><spine><itemref idref="one"/></spine></package>`,
+      "one.xhtml":
+        "<html><body><p>Selected paragraph.</p><div>Sibling div prose.</div><table><tr><td>Cell prose.</td></tr></table></body></html>",
+    });
+
+    const document = await extractDocument(epub);
+
+    expect(document.chapters[0]?.text).toBe(
+      "Selected paragraph.\n\nSibling div prose.\n\nCell prose.",
+    );
   });
 
   it("uses Word heading styles as chapter boundaries", async () => {

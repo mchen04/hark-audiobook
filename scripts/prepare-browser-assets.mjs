@@ -9,6 +9,12 @@ if (revision !== manifest.bundleRevision) {
   throw new Error("Kestrel's bundle revision does not match its asset manifest.");
 }
 
+const exporterBytes = await readFile(resolve(manifest.kestrelExporter.script));
+const exporterDigest = createHash("sha256").update(exporterBytes).digest("hex");
+if (exporterDigest !== manifest.kestrelExporter.sha256) {
+  throw new Error("Kestrel's exporter does not match its pinned asset manifest.");
+}
+
 const assets = [...manifest.assets.filter((asset) => asset.source), manifest.pdfWorker];
 
 for (const asset of assets) {

@@ -2,6 +2,7 @@ import {
   cleanDocumentText,
   cleanMetadata,
   cleanTitle,
+  extractNarrativeBlocks,
   looksLikeChapterHeading,
   parseMarkup,
 } from "../document-text";
@@ -17,15 +18,12 @@ export function extractHtml(source: string, title: string): ExtractedDocument {
     if (text) chapters.push({ title: cleanTitle(chapterTitle, chapters.length), text });
     paragraphs = [];
   };
-  for (const element of document.body.querySelectorAll("h1, h2, h3, p, li, blockquote, pre")) {
-    if (element.matches("p") && element.closest("li, blockquote") !== null) continue;
-    const text = cleanDocumentText(element.textContent || "");
-    if (!text) continue;
-    if (element.matches("h1, h2, h3")) {
+  for (const block of extractNarrativeBlocks(document)) {
+    if (block.kind === "heading") {
       if (paragraphs.length) commit();
-      chapterTitle = text;
+      chapterTitle = block.text;
     } else {
-      paragraphs.push(text);
+      paragraphs.push(block.text);
     }
   }
   commit();
@@ -65,5 +63,9 @@ export function extractPlainText(
     }
   }
   commit();
+  if (!chapters.length && kind === "text") {
+    const text = cleanDocumentText(source);
+    if (text) chapters.push({ title: "Full document", text });
+  }
   return { kind, title, author: "Unknown author", chapters };
 }

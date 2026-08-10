@@ -19,4 +19,17 @@ describe("chunkNarrationText", () => {
     expect(chunks.map((chunk) => chunk.length)).toEqual([320, 320, 137]);
     expect(chunks.join("")).toBe(token);
   });
+
+  it("does not change with browser Intl support or split initialisms", () => {
+    const source = "The U.S.A. team arrived. Dr. Rivera welcomed them. Next came lunch.";
+    const withIntl = chunkNarrationText(source);
+    const descriptor = Object.getOwnPropertyDescriptor(Intl, "Segmenter");
+    Object.defineProperty(Intl, "Segmenter", { configurable: true, value: undefined });
+    try {
+      expect(chunkNarrationText(source)).toEqual(withIntl);
+      expect(withIntl.join(" ")).toBe(source);
+    } finally {
+      if (descriptor) Object.defineProperty(Intl, "Segmenter", descriptor);
+    }
+  });
 });
