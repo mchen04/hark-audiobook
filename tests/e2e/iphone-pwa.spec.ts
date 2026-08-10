@@ -57,7 +57,7 @@ test("imports from iPhone Downloads, plays, seeks, relaunches, and works offline
   await expect(page).toHaveURL(/\/library/);
 
   const chooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Choose MP3" }).click();
+  await page.getByRole("button", { name: "Choose a book" }).click();
   await (
     await chooser
   ).setFiles({
