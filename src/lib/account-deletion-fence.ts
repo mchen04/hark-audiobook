@@ -12,10 +12,13 @@ const DELETION_FENCE_CHANGED_EVENT = "chapterline:account-deletion-fence-changed
 const WRITE_FENCE_CHANGED_EVENT = "chapterline:account-write-fence-changed";
 const SIGN_OUT_FENCE_MAX_AGE_MS = 2 * 60_000;
 
-type AccountSignOutFence = {
+type PendingAccountSignOutFence = {
   userId: string;
+  phase: "pending";
   createdAt: number;
 };
+
+type AccountSignOutFence = PendingAccountSignOutFence | { phase: "committed" };
 
 /** The durable, origin-wide barrier installed before any account bytes are swept. */
 export function readPendingAccountDeletion(): PendingAccountDeletion | null {
@@ -54,43 +57,67 @@ export function isAccountDeletionFenced(userId: string): boolean {
   return readPendingAccountDeletion()?.userId === userId;
 }
 
-function readAccountSignOutFence(): AccountSignOutFence | null {
+function readStoredAccountSignOutFence(): AccountSignOutFence | null {
   if (typeof localStorage === "undefined") return null;
   try {
-    const parsed = JSON.parse(
-      localStorage.getItem(ACCOUNT_SIGN_OUT_FENCE_KEY) || "null",
-    ) as Partial<AccountSignOutFence> | null;
+    const parsed = JSON.parse(localStorage.getItem(ACCOUNT_SIGN_OUT_FENCE_KEY) || "null") as {
+      userId?: unknown;
+      phase?: unknown;
+      createdAt?: unknown;
+    } | null;
+    if (!parsed) return null;
+    if (parsed.phase === "committed") return { phase: "committed" };
+    // Records written before phases existed were unconfirmed request fences.
     if (
-      !parsed ||
-      typeof parsed.userId !== "string" ||
-      typeof parsed.createdAt !== "number" ||
-      Date.now() - parsed.createdAt > SIGN_OUT_FENCE_MAX_AGE_MS
+      (parsed.phase === undefined || parsed.phase === "pending") &&
+      typeof parsed.userId === "string" &&
+      typeof parsed.createdAt === "number"
     ) {
-      return null;
+      return { userId: parsed.userId, phase: "pending", createdAt: parsed.createdAt };
     }
-    return parsed as AccountSignOutFence;
+    return null;
   } catch {
     return null;
   }
 }
 
+function readAccountSignOutFence(): AccountSignOutFence | null {
+  const fence = readStoredAccountSignOutFence();
+  if (fence?.phase === "pending" && Date.now() - fence.createdAt > SIGN_OUT_FENCE_MAX_AGE_MS) {
+    return null;
+  }
+  return fence;
+}
+
+/** A request fence may age out if the initiating document dies before auth answers. */
 export function installAccountSignOutFence(userId: string): void {
   if (typeof localStorage === "undefined") return;
+  const current = readStoredAccountSignOutFence();
+  if (current?.phase === "committed") return;
   localStorage.setItem(
     ACCOUNT_SIGN_OUT_FENCE_KEY,
-    JSON.stringify({ userId, createdAt: Date.now() }),
+    JSON.stringify({ userId, phase: "pending", createdAt: Date.now() }),
   );
   notifyWriteFenceChange();
 }
 
+/** A confirmed account boundary stays closed until a later sign-in. */
+export function commitAccountSignOutFence(): void {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(ACCOUNT_SIGN_OUT_FENCE_KEY, JSON.stringify({ phase: "committed" }));
+  notifyWriteFenceChange();
+}
+
 export function clearAccountSignOutFence(userId: string): void {
-  if (readAccountSignOutFence()?.userId !== userId) return;
+  const current = readStoredAccountSignOutFence();
+  if (current?.phase !== "pending" || current.userId !== userId) return;
   localStorage.removeItem(ACCOUNT_SIGN_OUT_FENCE_KEY);
   notifyWriteFenceChange();
 }
 
 export function isAccountSignOutFenced(userId: string): boolean {
-  return readAccountSignOutFence()?.userId === userId;
+  const fence = readAccountSignOutFence();
+  return fence?.phase === "committed" || fence?.userId === userId;
 }
 
 export function isAccountWriteFenced(userId: string): boolean {
@@ -139,6 +166,7 @@ export function createAccountWriteScope(
 }
 
 const accountLockName = (userId: string) => `chapterline-account-write:${userId}`;
+const ACCOUNT_PURGE_LOCK_NAME = "chapterline-account-purge";
 
 declare const accountWriteSlotBrand: unique symbol;
 export type AccountWriteSlot = {
@@ -148,11 +176,15 @@ export type AccountWriteSlot = {
 const heldAccountWriteSlots = new WeakSet<AccountWriteSlot>();
 
 /** One account-wide critical section shared by imports in every tab. */
-export function withAccountWriteLock<T>(
+export async function withAccountWriteLock<T>(
   userId: string,
   operation: (slot: AccountWriteSlot) => Promise<T>,
 ): Promise<T> {
-  return withKeyedLock(accountLockName(userId), async () => {
+  // Check both when the write asks to queue and when it eventually acquires
+  // the lock. A stale tab must not park work behind purge and have a later
+  // sign-in accidentally authorize it.
+  assertAccountWritable(userId);
+  return await withKeyedLock(accountLockName(userId), async () => {
     assertAccountWritable(userId);
     const slot = { userId } as AccountWriteSlot;
     heldAccountWriteSlots.add(slot);
@@ -174,7 +206,31 @@ export function holdsAccountWriteSlot(
 
 /** Purge uses the same lock after installing the fence and cancelling writers. */
 export function withAccountPurgeLock<T>(userId: string, operation: () => Promise<T>): Promise<T> {
-  return withKeyedLock(accountLockName(userId), operation);
+  // Commit before waiting for the lock. A cancelled writer may itself be
+  // wedged, but that must never let this barrier expire while purge queues.
+  commitAccountSignOutFence();
+  return withKeyedLock(ACCOUNT_PURGE_LOCK_NAME, () => {
+    // Close it again while owning the global lock: another document can race
+    // between the storage write above and this Web Lock request.
+    commitAccountSignOutFence();
+    return withKeyedLock(accountLockName(userId), operation);
+  });
+}
+
+/** Reauthentication waits for any older purge before reopening this account. */
+export function reopenAccountAfterSignIn(userId: string): Promise<void> {
+  return withKeyedLock(ACCOUNT_PURGE_LOCK_NAME, async () => {
+    const current = readStoredAccountSignOutFence();
+    if (
+      !current ||
+      (current.phase === "pending" && current.userId !== userId) ||
+      typeof localStorage === "undefined"
+    ) {
+      return;
+    }
+    localStorage.removeItem(ACCOUNT_SIGN_OUT_FENCE_KEY);
+    notifyWriteFenceChange();
+  });
 }
 
 /** Same-document custom event plus peer-document `storage` events. */

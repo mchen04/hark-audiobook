@@ -643,6 +643,7 @@ describe("sign-out drains before it purges", () => {
     expect(outcome.undelivered.map((write) => write.kind)).toStrictEqual(["preferences"]);
     expect(storage.getItem(`chapterline:preferences:${userId}`)).toBe(null);
 
+    await purgeOnSignIn(userId);
     const nextFetch = vi.fn().mockResolvedValue(new Response(null, { status: 503 }));
     vi.stubGlobal("fetch", nextFetch);
     await savePreferences(userId, DEFAULT_PREFERENCES, { skipForwardMs: 45_000 });

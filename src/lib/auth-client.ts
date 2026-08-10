@@ -2,7 +2,12 @@
 
 import { createAuthClient } from "better-auth/react";
 
-import { clearAccountSignOutFence, installAccountSignOutFence } from "@/lib/account-deletion-fence";
+import {
+  clearAccountSignOutFence,
+  commitAccountSignOutFence,
+  installAccountSignOutFence,
+  reopenAccountAfterSignIn,
+} from "@/lib/account-deletion-fence";
 import { ACTIVE_USER_KEY, SIGN_OUT_REPORT_KEY } from "@/lib/app-keys";
 import type { UndeliveredWrite } from "@/lib/offline/account-purge";
 
@@ -243,6 +248,7 @@ export async function runAccountPurge(context: AuthSuccessContext): Promise<void
     signOutUserId = null;
     const drain = signOutDrain;
     signOutDrain = { ran: false, undelivered: [] };
+    if (userId) commitAccountSignOutFence();
     const purge = await import("@/lib/offline/account-purge");
     if (!userId) {
       rememberSignOutReport({ undelivered: drain.undelivered, purgeFailed: false });
@@ -265,9 +271,16 @@ export async function runAccountPurge(context: AuthSuccessContext): Promise<void
   }
 
   if (path.includes("/sign-in") || path.includes("/sign-up")) {
-    const purge = await import("@/lib/offline/account-purge");
     const userId = signedInUserId(context.data);
-    if (userId) await purge.purgeOnSignIn(userId);
+    if (userId) {
+      // A successful authentication is the only authority that reopens a
+      // fence committed by an earlier sign-out or interrupted purge. Waiting
+      // on the same account lock keeps a concurrent old purge from deleting
+      // data underneath the newly authenticated session.
+      await reopenAccountAfterSignIn(userId);
+      const purge = await import("@/lib/offline/account-purge");
+      await purge.purgeOnSignIn(userId);
+    }
   }
 }
 

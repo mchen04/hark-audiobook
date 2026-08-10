@@ -112,7 +112,8 @@ critical path.
 - Sign-out adds a separate origin-wide write fence after its final queue drain.
   Long media work observes that fence as cancellation and shares an account
   lock with purge; a verification pass catches any short write that was already
-  between fence checks.
+  between fence checks. Once sign-out succeeds or purge starts, that fence
+  cannot expire; only a later authenticated sign-in reopens the account.
 - A cached `/books/:id` fallback is resolved directly from mirrored book,
   chapter, media, and progress metadata. Missing local audio renders the same
   verified attach gate as the online route; it never falls through to library

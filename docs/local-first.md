@@ -520,8 +520,11 @@ writes in every tab; those operations share an account lock with purge, so the
 sweep cannot snapshot around a writer or wait for hours of uncancelled speech.
 After the lock drains, purge verifies that no account-indexed row was recreated
 and repeats the sweep once if a write already in flight crossed the boundary.
-The fence is cleared when a failed sign-out leaves the session usable, or after
-a completed purge has removed the active identity.
+An unconfirmed request fence may age out if its document dies, but a successful
+sign-out or a started purge commits the fence so it cannot expire mid-sweep.
+The committed form contains no account identity and blocks writes globally
+until an authenticated sign-in waits behind the global purge lock. A failed
+sign-out clears its still-pending, account-scoped fence immediately.
 
 That asymmetry is load-bearing. Purging the incoming account's own data on every
 login would delete its downloaded audio, and per section 1 those MP3s exist

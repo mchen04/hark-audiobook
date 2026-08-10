@@ -213,6 +213,17 @@ describe("sign-in waits for the sweep", () => {
     ).toStrictEqual(["purged-on-sign-in", "sign-in-returned"]);
   });
 
+  it("reopens a committed fence only after that account authenticates again", async () => {
+    const { commitAccountSignOutFence, isAccountSignOutFenced } =
+      await import("@/lib/account-deletion-fence");
+    commitAccountSignOutFence();
+    expect(isAccountSignOutFenced("user-b")).toBe(true);
+
+    await signInThroughHooks();
+
+    expect(isAccountSignOutFenced("user-b")).toBe(false);
+  });
+
   it("still lets the user in when the sweep wedges, leaving it for the next sign-in", async () => {
     storage.setItem(ACTIVE_USER_KEY, USER_A);
     purge.wedged = true;

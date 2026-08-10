@@ -1,7 +1,7 @@
 import { ACTIVE_USER_KEY } from "@/lib/app-keys";
 import {
-  clearAccountSignOutFence,
   installAccountSignOutFence,
+  reopenAccountAfterSignIn,
   withAccountPurgeLock,
 } from "@/lib/account-deletion-fence";
 import { forgetActiveUserId } from "@/lib/active-user";
@@ -126,29 +126,25 @@ function isUserAgnosticShellEntry(url: string): boolean {
  */
 export async function purgeAccount(userId: string): Promise<void> {
   installAccountSignOutFence(userId);
-  try {
-    await withAccountPurgeLock(userId, async () => {
+  await withAccountPurgeLock(userId, async () => {
+    await purgeAccountPass(userId);
+    // A cross-tab writer that was already between its two fence checks gets
+    // one task to settle. Its journal makes the account enumerable, so a
+    // second pass removes it before the fence is released.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const { users, failures } = await enumerateLocalUsers();
+    if (failures.length) throw asPurgeFailure("the post-purge verification", failures);
+    if (users.includes(userId)) {
       await purgeAccountPass(userId);
-      // A cross-tab writer that was already between its two fence checks gets
-      // one task to settle. Its journal makes the account enumerable, so a
-      // second pass removes it before the fence is released.
-      await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      const { users, failures } = await enumerateLocalUsers();
-      if (failures.length) throw asPurgeFailure("the post-purge verification", failures);
-      if (users.includes(userId)) {
-        await purgeAccountPass(userId);
-        const verified = await enumerateLocalUsers();
-        if (verified.failures.length) {
-          throw asPurgeFailure("the final purge verification", verified.failures);
-        }
-        if (verified.users.includes(userId)) {
-          throw new Error("Account data was recreated while sign-out was purging it.");
-        }
+      const verified = await enumerateLocalUsers();
+      if (verified.failures.length) {
+        throw asPurgeFailure("the final purge verification", verified.failures);
       }
-    });
-  } finally {
-    clearAccountSignOutFence(userId);
-  }
+      if (verified.users.includes(userId)) {
+        throw new Error("Account data was recreated while sign-out was purging it.");
+      }
+    }
+  });
 }
 
 async function purgeAccountPass(userId: string): Promise<void> {
@@ -430,15 +426,26 @@ export async function drainBeforeSignOut(
  * user's writes into another user's library.
  */
 export async function purgeOnSignIn(incomingUserId: string): Promise<string[]> {
-  const { users, failures } = await enumerateLocalUsers();
-  const stale = users.filter((userId) => userId !== incomingUserId);
-  const active = typeof localStorage === "undefined" ? null : localStorage.getItem(ACTIVE_USER_KEY);
-  if (active && active !== incomingUserId && !stale.includes(active)) stale.push(active);
-  const results = await Promise.allSettled(stale.map((userId) => purgeAccount(userId)));
-  await purgeCachedPages().catch(() => undefined);
-  for (const result of results) {
-    if (result.status === "rejected") failures.push(result.reason);
+  // Reauthentication is the authority that reopens a fence committed by this
+  // account's earlier sign-out. It shares the global purge lock so an older purge
+  // must finish before the incoming session can write again.
+  await reopenAccountAfterSignIn(incomingUserId);
+  try {
+    const { users, failures } = await enumerateLocalUsers();
+    const stale = users.filter((userId) => userId !== incomingUserId);
+    const active =
+      typeof localStorage === "undefined" ? null : localStorage.getItem(ACTIVE_USER_KEY);
+    if (active && active !== incomingUserId && !stale.includes(active)) stale.push(active);
+    const results = await Promise.allSettled(stale.map((userId) => purgeAccount(userId)));
+    await purgeCachedPages().catch(() => undefined);
+    for (const result of results) {
+      if (result.status === "rejected") failures.push(result.reason);
+    }
+    if (failures.length) throw asPurgeFailure("the sign-in sweep", failures);
+    return stale;
+  } finally {
+    // Stale-account purges commit the global barrier again. Once they have all
+    // settled, the authenticated incoming account may write.
+    await reopenAccountAfterSignIn(incomingUserId);
   }
-  if (failures.length) throw asPurgeFailure("the sign-in sweep", failures);
-  return stale;
 }
