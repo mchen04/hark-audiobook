@@ -1,204 +1,166 @@
+<div align="center">
+
+<img src="public/icons/icon-192.png" alt="" width="88" height="88">
+
 # Hark
 
-A private, installable, offline-first audiobook player. Import a chaptered MP3
-directly, or give Hark a PDF, EPUB, DOCX, text, Markdown, or HTML document and
-Kestrel Fast narrates it on this device. One account is one solo library, with
-the same chapters and resume position on every device.
+**A private, offline-first audiobook player that runs entirely on your devices.**
 
-**Your books never leave your devices.** MP3s and source documents are read in
-the browser, and audio is stored in this device's own storage; the server only ever sees metadata —
-titles, chapters, progress, and playback history. There is no upload, no object storage,
-and streamed MP3 imports have no practical file-size limit beyond the device's
-free space, so a single 600-hour audiobook imports the same way a two-hour one
-does. Document conversion is deliberately bounded before parsing: PDF 96 MiB,
-EPUB/DOCX 48 MiB, text/Markdown 8 MiB, HTML 2 MiB, and two million extracted
-characters. If the MP3 carries an embedded read-along transcript, its text is
-book content too, so it is stored on the device alongside the audio and never
-included in any server request.
+Import a chaptered MP3, or hand Hark a PDF, EPUB, DOCX, text, Markdown, or HTML
+file and it narrates the document on-device. Your books never touch a server.
 
-**Your library reads from the device, too.** Every book row, chapter, tag and
-position is mirrored into this device's IndexedDB, and the library screen reads
-only from there; the network syncs afterwards, in the background. The design
-contract for that is `docs/local-first.md`.
+[![CI](https://github.com/mchen04/hark-audiobook/actions/workflows/ci.yml/badge.svg)](https://github.com/mchen04/hark-audiobook/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D20.19-brightgreen.svg)](https://nodejs.org)
+[![PWA](https://img.shields.io/badge/PWA-offline--first-5b5bd6.svg)](docs/local-first.md)
 
-## What it does
+[Quick start](#quick-start) · [How it works](#how-it-works) · [Documentation](#documentation)
 
-- **Import**: parses an MP3 entirely in the browser — title/author/narrator,
-  embedded cover art, and ID3/FFMETADATA chapters (a valid chapterless MP3
-  plays as one chapter with an honest diagnostic). Documents are extracted by
-  format-specific local adapters, narrated by Kestrel Fast through WebGPU with
-  a WASM fallback, and progressively encoded as MP3. The pinned model bundle is
-  downloaded and integrity-checked once; its pinned browser runtime is cached
-  with the offline shell, and source plus generated audio stay local.
-- **Play**: persistent player with chapters, scrubbing, configurable skip
-  intervals, 0.5x–3x speed, sleep timer (presets, custom minutes, end of
-  chapter), a 50-action playback history, finished/restart state, and
-  lock-screen Media Session controls where the browser supports them.
-- **Read along**: books whose MP3 carries an Epub Listener transcript get a
-  "Text" toggle in the player and a "Read-along" badge in the library. Tapping
-  it swaps the cover for the book text, where the narrated sentence highlights
-  and auto-scrolls and the exact spoken word is marked karaoke-style; tap a
-  sentence to jump there. It works fully offline. Books without a transcript
-  look and behave exactly as before. (Transcript, if present, is validated and
-  size-capped in the browser; a malformed one is dropped and the audio still
-  imports.)
-- **Resume anywhere**: positions, playback history, and library organization sync
-  through the server with per-device monotonic sequences and deterministic
-  conflict rules. Every write is journaled to a local outbox first, projected
-  onto the local mirror second, and replayed against the server by its
-  `mutationId` so a retry is a no-op rather than a double-apply. On a device
-  that doesn't hold the audio yet, the player asks for the original source and
-  verifies it by size and content fingerprint before attaching it.
-- **Offline**: the library screen reads this device's IndexedDB mirror, so
-  search, filters, sort, the "On this device" facet and the continue card behave
-  identically with the network off — there is no "am I online?" branch on the
-  read path. The `/library` document itself is served from Cache Storage without
-  touching the network, so a cold database and airplane mode cost what wifi
-  costs: warm-launch p95 measures 291-370ms across fast, slow,
-  3000ms-cold-database and offline profiles — a 70-73ms spread — with zero server
-  document hits and zero Postgres queries. Those recorded figures used a 4x CPU
-  throttle whose fixed proof loop cost 16ms. Current runs calibrate each host to
-  that same 16ms CPU budget, with a fresh browser process per launch, so a slow
-  shared runner cannot silently turn 4x into a much harsher device. Imported or
-  generated audio is served by the service worker with full seeking, and queued
-  writes replay when the app is next open.
-- **Organize**: search, status and tag filters, an "On this device" facet, sort
-  orders, grid/list views, collections with optional next-book autoplay,
-  archive, and delete. There is one library screen: books whose audio is not on
-  this device stay browsable, searchable, taggable and sortable, are marked as
-  not on the device, and never look playable.
-- **Own your data**: JSON export of all metadata/progress and full account
-  deletion (rows and this device's local data — the audio files were always
-  yours). A first document narration downloads about 39 MB of public Kestrel
-  weights plus a 24 MB pinned browser runtime; later narrations reuse the
-  verified on-device bundle and cached runtime.
+</div>
 
-## Local setup
+---
 
-1. Install Node.js >= 20.19 and pnpm 9.
-2. `cp .env.example .env.local` and fill in the values (see below).
-3. `pnpm install`
-4. `pnpm db:migrate`
-5. `pnpm dev` → http://localhost:3000 (or `pnpm build && pnpm start` for the
-   production build, which is what enables the service worker).
+## Why Hark
 
-### Environment variables
+Every cloud audiobook app asks you to upload your library, and every cloud
+text-to-speech service asks you to upload your book. Hark asks for neither.
 
-| Variable             | Purpose                                                          |
-| -------------------- | ---------------------------------------------------------------- |
-| `DATABASE_URL`       | Postgres connection (Neon or any Postgres 15+). Never commit it. |
-| `BETTER_AUTH_SECRET` | Session signing secret.                                          |
-| `BETTER_AUTH_URL`    | The app's own origin, e.g. `http://localhost:3000`.              |
+Audio is parsed, narrated, and stored in your browser. The server sees metadata
+only — titles, chapters, progress, playback history — which is what lets your
+resume position follow you across devices without your books following it.
 
-Optional: `RESEND_API_KEY` and `MAIL_FROM` enable password-reset email in
-production (see `docs/operations.md`); in development, reset mails are written
-to `.data/mail/` instead.
+```mermaid
+flowchart LR
+  subgraph device["Your device — the only copy of your books"]
+    direction TB
+    A["MP3 / PDF / EPUB / DOCX"] --> B["Parse and narrate<br/>in the browser"]
+    B --> C["Cache Storage<br/>audio + cover art"]
+    B --> D["IndexedDB<br/>library mirror + outbox"]
+  end
 
-### Test database
+  D <==>|"titles · chapters · progress"| E[("Postgres<br/>metadata only")]
 
-Tests never touch the hosted database: its cold start makes runs slow and flaky,
-suites must work offline, and parallel runs against one shared remote database
-interfere. `docker-compose.yml` provides a local Postgres 18 matching the hosted
-server's major version and locale (builtin `C.UTF-8`), with the `pg_trgm`
-extension migration 0009 needs, published on `127.0.0.1:54329`.
-
-```sh
-cp .env.test.example .env.test   # local-only, gitignored
-node scripts/test-db.mjs         # generates the secrets, then starts, migrates and seeds
+  style device fill:none,stroke:#5b5bd6,stroke-width:2px
+  style E fill:none,stroke:#888
 ```
 
-Everything test-related reads `.env.test`, never `.env.local`. Override the file
-with `HARK_ENV_FILE=<path>` or `--env-file=<path>`. `scripts/lib/assert-local-database.mjs`
-aborts the e2e config, the standalone test server, and this bootstrap script if
-`DATABASE_URL` ever points at a hosted provider such as Neon.
+Only the mirror has a line to the server, and it carries metadata. No route
+exists that can accept or serve audio bytes.
 
-## Commands
+There is no upload path and no object storage. Streamed MP3 imports have no
+practical size limit beyond free space, so a 600-hour audiobook imports the same
+way a two-hour one does.
 
-| Command                              | What it does                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pnpm verify`                        | The complete executable local gate: quick checks plus iPhone WebKit, offline parity, sync integrity, the 24 automatable resume cells, and launch performance. Start the test database and install the pinned browsers first.                                                                                                                                                                                             |
-| `pnpm verify:quick`                  | The fast non-browser gate: format check, lint, typecheck, all Vitest suites, and a production build.                                                                                                                                                                                                                                                                                                                     |
-| `pnpm verify:browser`                | Every executable Playwright gate, matching the browser matrix required by `.github/workflows/ci.yml`. The two real-iOS hidden-state gaps remain deliberately outside CI.                                                                                                                                                                                                                                                 |
-| `pnpm verify:kestrel-export`         | Clean-room Kestrel graph reproduction: downloads the exact pinned public model weights into a temporary directory, uses the pinned Python/ONNX/NumPy recipe, and requires byte-for-byte matches with all committed ONNX graphs.                                                                                                                                                                                          |
-| `pnpm test`                          | Vitest suites (MP3 and transcript parsing contracts, service-worker range/navigation/shell logic, progress conflict policy, the outbox and the mirror, IndexedDB upgrades, playback).                                                                                                                                                                                                                                    |
-| `pnpm test:idb-migrate`              | Just the IndexedDB upgrade suite: every shipped version of both databases is opened from a fixture and carried forward, so downloads, transcripts and a pending deletion journal survive `chapterline-offline-v1` v7 and outbox v5.                                                                                                                                                                                      |
-| `pnpm test:e2e:ios`                  | Production iPhone/WebKit flow: register, choose from Downloads, play, seek, relaunch, and play offline.                                                                                                                                                                                                                                                                                                                  |
-| `pnpm test:e2e:launch`               | The launch benchmark in `tests/perf/`: warm launch to real library content over four networks (fast, slow, 3000ms cold database, offline), asserting p95, spread, server document hits and Postgres queries.                                                                                                                                                                                                             |
-| `pnpm test:e2e:parity`               | The parity project in `tests/parity/`, whose harness removes the network at the socket instead of through Playwright interception, because interception sits above the service worker and can be bypassed.                                                                                                                                                                                                               |
-| `pnpm test:sync`                     | The data-integrity project in `tests/sync/`: outbox durability and coalescing, two-device convergence, progress conflicts, mirror/audio eviction recovery, lossless re-import, a seeded mutation fuzz across offline/online transitions, and one spec that makes its edits by clicking the real controls with the network off — the fuzz drives the engine directly, so only that one can prove the shipping UI uses it. |
-| `pnpm test:resume:ci`                | The 24 resume-durability rows the pinned WebKit engine can execute honestly. It excludes only T1 hidden online/offline, because Playwright WebKit cannot produce a real hidden transition.                                                                                                                                                                                                                               |
-| `pnpm test:resume`                   | The full 26-row resume oracle, including the two T1 rows that intentionally fail as `UNCOVERED` unless the engine can genuinely background the page. Use it when evaluating a new engine or real-device bridge.                                                                                                                                                                                                          |
-| `node scripts/test-db.mjs`           | Starts the local Postgres container, migrates it, and seeds the e2e account. Subcommands `up`, `reset`, `down`, `migrate`, `seed`, `guard`, `psql` are also exposed as `pnpm db:test:*`.                                                                                                                                                                                                                                 |
-| `pnpm db:migrate`                    | Applies ordered SQL migrations (idempotent; proven from an empty database).                                                                                                                                                                                                                                                                                                                                              |
-| `node scripts/seed-perf.mjs <email>` | Seeds 1,000 books / ~60k rows onto an existing account for performance work.                                                                                                                                                                                                                                                                                                                                             |
+## Features
 
-Browser-level verification uses `agent-browser` against the production build,
-exercising the core flows (register, import, play, offline, resume) across
-phone, tablet, and desktop viewports.
+|                     |                                                                                                                                                                                                                                                              |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Import**          | Parses MP3s entirely in the browser — title, author, narrator, cover art, and ID3/FFMETADATA chapters. Documents route to format-specific local adapters, get narrated by Kestrel Fast through WebGPU (WASM fallback), and are progressively encoded to MP3. |
+| **Play**            | Chapters, scrubbing, configurable skip intervals, 0.5x–3x speed, sleep timer, a 50-action history, and lock-screen Media Session controls.                                                                                                                   |
+| **Read along**      | MP3s carrying an Epub Listener transcript get a karaoke-style text view: the narrated sentence highlights and auto-scrolls, the spoken word is marked, and tapping a sentence jumps there. Works offline.                                                    |
+| **Resume anywhere** | Positions, history, and organization sync with per-device monotonic sequences and deterministic conflict rules. Every write is journaled before it is applied, and replayed by `mutationId` so a retry is a no-op.                                           |
+| **Offline**         | The library reads from IndexedDB and `/library` is served from Cache Storage without touching the network. There is no "am I online?" branch on the read path.                                                                                               |
+| **Organize**        | Search, status and tag filters, an "On this device" facet, sort orders, grid/list views, collections with optional autoplay, archive, and delete.                                                                                                            |
+| **Own your data**   | JSON export of all metadata and progress, plus full account deletion of both server rows and local data.                                                                                                                                                     |
 
-Pull requests run `verify:quick` and all five executable browser gates as
-separate, required-capable GitHub checks. Each job provisions its own local
-Postgres and project-pinned browser binaries; failed browser jobs retain their
-screenshots and traces as artifacts. The resume job runs 24 proven cells, while
-the two real-iOS hidden-state cells stay explicit in
-`docs/resume-durability-device-check.md` instead of making CI permanently red.
-Protect `main` with `Verify quick` and every `Browser (…)` check before treating
-a green deployment as a merge gate.
+## Quick start
 
-Three limits are worth stating before reading a green run as more than it is.
-The launch benchmark measures in a **Chromium** persistent context with iPhone 15
-emulation: in Playwright 1.61.1, WebKit's persistent context accepts
-`cache.put()` but returns nothing from `cache.match()`, in the page and in the
-service worker alike, so the app's worker cannot even install there. The harness
-probes WebKit first on every run and will switch back automatically when that is
-fixed; until then, WebKit PWA coverage comes from `tests/e2e/iphone-pwa.spec.ts`.
-The outbox drains only while the app is open, because iOS will not wake a closed
-PWA — an offline write reaches the server on the next foregrounded launch or
-reconnect, never before. And audio evicted by the OS is gone: it exists nowhere
-but the device, so the book stays visible with its metadata and asks for the
-original MP3 or document again.
+```sh
+cp .env.example .env.local   # DATABASE_URL, BETTER_AUTH_SECRET, BETTER_AUTH_URL
+pnpm install
+pnpm db:migrate
+pnpm dev                     # http://localhost:3000
+```
 
-## Repository layout
+Requires Node.js >= 20.19 and pnpm 9.6. Use `pnpm build && pnpm start` when you
+need the service worker — it ships only in the production build, so offline
+behavior cannot be exercised in dev.
 
-All application code lives in `src/`: `app/` (routes and API), `components/`
-(UI), `lib/` (the device mirror, outbox, storage, and playback), `server/`
-(schema, queries, and sync), and `domain/` (pure logic). Browser-driven suites
-live in `tests/`, migrations in `drizzle/`, and the directly maintained service
-worker in `public/sw.js`.
+Full setup, the local test database, and every command are in
+[docs/development.md](docs/development.md).
 
-A tracked-text count is about 140k lines, but that is not 140k lines of
-production logic. Roughly 58.7k are Drizzle's required cumulative migration
-snapshots and 8.5k are the lockfile — together just under half the repository.
-`src/` is 46.3k including 17.1k of co-located unit tests, and `tests/` is 18.5k
-of browser/verifier suites, which leaves about 29.2k lines of application code.
-Generated migration and dependency state is marked for GitHub in
-`.gitattributes`, not deleted or misclassified.
+## How it works
 
-Local build and run output remains ignored: `.next/`, `node_modules/`,
-TypeScript build metadata, test reports, `.data/`, local env files, and
-`.vercel/`. See [`docs/repository-anatomy.md`](docs/repository-anatomy.md) for
-the exact audit, required generated files, large authored files, and counting
-rules.
+**Reads are local.** Every book row, chapter, tag, and position is mirrored into
+IndexedDB, and the library screen reads only from there. The network syncs
+afterwards, in the background.
+
+**Writes are journaled first.** Each mutation is committed to a local outbox
+before it is projected onto the mirror, so a crash can leave a queued write with
+no visible change, but never a visible change with no queued write.
+
+**Launch does not wait for the network.** Warm-launch p95 measures 291–370ms
+across fast, slow, 3000ms-cold-database, and offline profiles — a 70–73ms spread
+— with zero server document hits and zero Postgres queries. Measured on a
+1,000-book library under a calibrated 16ms CPU budget; see
+[`tests/perf/BASELINE.md`](tests/perf/BASELINE.md) for the proven-red baseline
+this replaced.
+
+**Document narration is bounded and pinned.** Sources are capped before parsing
+(96 MiB PDF, 48 MiB EPUB/DOCX, 8 MiB text/Markdown, 2 MiB HTML, and two million
+extracted characters). The first narration downloads about 39 MB of public
+Kestrel weights plus a 24 MB pinned browser runtime, integrity-checks them once,
+and reuses them thereafter.
+
+## Testing
+
+```sh
+pnpm verify:quick     # format, lint, typecheck, Vitest, production build
+pnpm verify:browser   # iPhone WebKit, offline parity, sync, resume, launch perf
+pnpm verify           # both
+```
+
+737 unit tests run in about 3 seconds. Five Playwright projects cover the
+browser matrix. What a green run does and does not prove is written down in
+[docs/development.md](docs/development.md#what-a-green-run-does-not-prove).
+
+## Known limitations
+
+- **Evicted audio is unrecoverable** without the original file. The MP3 exists
+  only on the device that imported it; Hark keeps the book visible, never lets
+  it look playable, and reattaches by fingerprint on re-import with progress,
+  chapters, tags, and collections intact.
+- **The queue drains only while the app is open.** iOS supports no Background
+  Sync and will not wake a closed PWA.
+- **The library can be one sync behind another device.** That is the explicit
+  trade for a launch that does not depend on the network.
 
 ## Documentation
 
-- `docs/architecture.md` — stack, boundaries, data rules, the local read model,
-  the write path, and the launch path.
-- `docs/local-first.md` — the design contract for the device-authoritative
-  library: what is mirrored, the outbox, pull, conflict rules, the launch path,
-  eviction, and account lifecycle.
-- `docs/operations.md` — deployment, backups, troubleshooting, limitations.
-- `docs/ios-pwa-testing.md` — automated WebKit and physical-iPhone release gates.
-- `docs/resume-durability-device-check.md` — the remaining physical-device
-  resume-position check and its observable pass/fail signal.
-- `docs/repository-anatomy.md` — tracked-line breakdown, generated-file policy,
-  and large-file classification.
-- `tests/perf/BASELINE.md` — historical proven-red launch baseline and the
-  later measured local-first result.
+Full index in [docs/](docs/README.md).
+
+| Document                                                                    | What it covers                                                                                       |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| [architecture.md](docs/architecture.md)                                     | Stack, boundaries, data rules, the read model, the write path, the launch path                       |
+| [local-first.md](docs/local-first.md)                                       | The design contract: what is mirrored, the outbox, pull, conflict rules, eviction, account lifecycle |
+| [development.md](docs/development.md)                                       | Setup, test database, every command, CI, and the limits of a green run                               |
+| [operations.md](docs/operations.md)                                         | Deployment, backups, data lifecycle, troubleshooting                                                 |
+| [ios-pwa-testing.md](docs/ios-pwa-testing.md)                               | Automated WebKit and physical-iPhone release gates                                                   |
+| [resume-durability-device-check.md](docs/resume-durability-device-check.md) | The physical-device resume check and its pass/fail signal                                            |
+| [repository-anatomy.md](docs/repository-anatomy.md)                         | Tracked-line breakdown, generated-file policy, large-file classification                             |
+
+## Repository layout
+
+```
+src/app/         routes and API
+src/components/  UI
+src/lib/         device mirror, outbox, storage, playback, Kestrel
+src/server/      schema, queries, sync
+src/domain/      pure logic
+tests/           browser, parity, sync, resume, and performance suites
+drizzle/         ordered SQL migrations and snapshots
+public/sw.js     the shipping service worker, maintained directly
+```
+
+A tracked-text count is about 140k lines, but that is not 140k lines of
+application logic: 58.7k are Drizzle's required migration snapshots and 8.5k are
+the lockfile. `src/` is 46.3k including 17.1k of co-located unit tests, which
+leaves roughly 29.2k lines of application code. See
+[repository-anatomy.md](docs/repository-anatomy.md) for the full audit.
 
 ## License
 
-Apache License 2.0 — see [`LICENSE`](LICENSE).
+Apache License 2.0 — see [LICENSE](LICENSE).
 
 Pinned Kestrel Fast model weights and voice data are fetched from their public
 upstream sources at first narration and are not redistributed here; they carry

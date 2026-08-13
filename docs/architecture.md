@@ -15,6 +15,18 @@ local-first rules are what they are, and it is not restated here.
 Drizzle snapshots are required generated migration state, while the service
 worker and resume oracle are authored behavior.
 
+## Contents
+
+[Product boundary](#product-boundary) · [Stack](#stack) ·
+[Why this stack](#why-this-stack) · [Runtime boundaries](#runtime-boundaries) ·
+[Data rules](#data-rules) · [Media flow](#media-flow) ·
+[Local read model](#local-read-model) · [Write path](#write-path) ·
+[Launch path](#launch-path) · [One library UI](#one-library-ui) ·
+[Design system](#design-system) ·
+[Code structure](#code-structure-post-convergence) ·
+[Rejected alternatives](#rejected-alternatives) ·
+[Residual risks](#residual-risks)
+
 ## Product boundary
 
 The app accepts an MP3 directly or narrates PDF, EPUB, DOCX, TXT, Markdown, and HTML sources with Kestrel Fast on the user's device. Every account is a solo private workspace; accounts provide authentication, ownership, isolation, and cross-device progress, not social identity. The app has no friends, follows, shared libraries, messages, invitations, feeds, or collaborative features. It does not expose a public catalog, process DRM, run OCR, or send source content to a hosted TTS service. Epub Listener remains a read-only upstream producer whose FFmpeg/ID3 output is a compatibility contract.

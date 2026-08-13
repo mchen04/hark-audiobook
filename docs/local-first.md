@@ -8,6 +8,23 @@ background. There is no "am I online?" branch anywhere on the read path.
 This note is the design contract. It was written before the sync engine, because
 designing a sync engine in code first is how local-first projects lose data.
 
+## Contents
+
+1. [Why this is a completion, not a reversal](#1-why-this-is-a-completion-not-a-reversal)
+2. [What is mirrored, and what is not](#2-what-is-mirrored-and-what-is-not)
+3. [The sync unit is the book aggregate](#3-the-sync-unit-is-the-book-aggregate)
+4. [Local schema](#4-local-schema)
+5. [The outbox](#5-the-outbox)
+6. [Pull](#6-pull)
+7. [Conflict resolution — extend, do not replace](#7-conflict-resolution--extend-do-not-replace)
+8. [The launch path](#8-the-launch-path)
+9. [One library UI](#9-one-library-ui)
+10. [Eviction and storage pressure](#10-eviction-and-storage-pressure)
+11. [Account lifecycle](#11-account-lifecycle)
+12. [Migration for devices that already have data](#12-migration-for-devices-that-already-have-data)
+13. [What this design deliberately does not do](#13-what-this-design-deliberately-does-not-do)
+14. [Residual risks](#14-residual-risks)
+
 ## 1. Why this is a completion, not a reversal
 
 The book content already never leaves the device (`src/lib/local-import.ts` parses
