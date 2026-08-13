@@ -390,6 +390,26 @@
   background: var(--accent);
 }
 
+.upload-listen {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 44px;
+  margin-top: 0.85rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.upload-listen:hover {
+  background: color-mix(in srgb, var(--accent) 88%, black);
+}
+
 .upload-error {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
