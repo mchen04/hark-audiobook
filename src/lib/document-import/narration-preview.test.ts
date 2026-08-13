@@ -129,3 +129,20 @@ describe("narration preview", () => {
     ]);
   });
 });
+
+describe("holding audio nobody is listening to", () => {
+  it("drops the oldest rather than growing without bound", () => {
+    const { subject, played } = preview();
+    for (let minute = 0; minute < 10; minute += 1) subject.enqueue(seconds(60));
+    // Ten minutes narrated, at most three held.
+    expect(subject.bufferedSeconds()).toBeLessThanOrEqual(180);
+    subject.start();
+    expect(played.reduce((total, entry) => total + entry.seconds, 0)).toBeLessThanOrEqual(180);
+  });
+
+  it("never drops the only chunk it has", () => {
+    const { subject } = preview();
+    subject.enqueue(seconds(600));
+    expect(subject.bufferedSeconds()).toBe(600);
+  });
+});

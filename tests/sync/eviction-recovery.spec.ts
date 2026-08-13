@@ -180,7 +180,7 @@ test("audio evicted: the book stays visible, never looks playable, and says to r
 
     // 3. Honest about what happened, in the words the product uses.
     await expect(
-      bookCard(page).getByText("Not on this device — re-import the MP3 to listen"),
+      bookCard(page).getByText("Not on this device — attach its original file to listen"),
       "the library does not tell the user the file has to be re-imported",
     ).toBeVisible();
 

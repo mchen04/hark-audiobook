@@ -109,9 +109,16 @@ ratio, because the buffer is the thing that actually runs out.
 
 ## Listening while it narrates
 
-The import banner offers "Listen while it narrates" once about 20 seconds of
-audio is queued. It plays what has been narrated so far and keeps going as the
-rest arrives.
+A document appears in the library the moment it is chosen, as a book card like
+any other, and narration continues in the background. Opening it goes to
+`/narrating`, which plays what has been made so far and keeps updating; leaving
+that screen does not stop it. When the import finishes the card is replaced by
+the real book and the screen returns to the library.
+
+Unplayed audio is held to a three-minute bound. A nine-hour book nobody listens
+to would otherwise accumulate itself in memory, so past that the oldest audio is
+dropped and pressing play starts a few minutes back rather than at the very
+beginning.
 
 This needs none of the durable machinery. The engine returns raw samples and the
 import already holds them, so `narration-preview.ts` schedules those straight
@@ -119,10 +126,17 @@ onto an AudioContext — no media store, no service worker, no seek map, no
 registered book. `importLocalDocument` reports them through an optional
 `onNarrationAudio` callback and does not wait on it.
 
+The import runs outside React, in `import-controller.ts`. It used to live in
+the library screen, so React unmounting that screen aborted it — opening the
+book you were narrating destroyed the narration, and the library had to be held
+`inert` to stop you doing exactly that. Owning it outside the tree is what lets
+the book be opened while it is still being written, and the freeze is gone.
+
 The scheduling is kept free of Web Audio so it can be tested against a fake
 clock; `browserNarrationSink` is the only part that touches an AudioContext, and
 it is constructed from the button press because Safari will not start audio
-otherwise. If the engine falls behind playback the schedule restarts just ahead
+otherwise. An MP3 import shows the same entry without the offer: it is copied,
+not narrated, so there is no partial audio to play. If the engine falls behind playback the schedule restarts just ahead
 of the clock and counts an underrun rather than queueing a moment already gone.
 
 What this deliberately is not: there is no scrubbing, chapter jumping, or

@@ -52,9 +52,9 @@ export type DocumentImportOptions = {
   target?: DocumentImportTarget;
   signal?: AbortSignal;
   /**
-   * Every chunk of narration as it is produced, so a caller can let the reader
-   * listen before the book is finished. Purely observational: the import does
-   * not wait on it and ignores what it does.
+   * Every chunk of narration as it is produced, so the library can play a book
+   * that is still being made. Purely observational: the import does not wait on
+   * it and ignores what it does.
    */
   onNarrationAudio?: (audio: Float32Array, sampleRate: number) => void;
 };

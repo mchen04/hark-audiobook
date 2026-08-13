@@ -1,4 +1,6 @@
 import type { KestrelSynthesis } from "./client";
+import { LEMONADE_ORIGIN_KEY } from "@/lib/app-keys";
+
 import { KESTREL_SAMPLE_RATE } from "./dsp";
 
 /**
@@ -11,9 +13,29 @@ import { KESTREL_SAMPLE_RATE } from "./dsp";
  * alternative to running Kokoro in the page, not an alternative to running it
  * locally.
  */
-const LEMONADE_ORIGIN = "http://localhost:13305";
-const MODELS_URL = `${LEMONADE_ORIGIN}/api/v1/models`;
-const SPEECH_URL = `${LEMONADE_ORIGIN}/api/v1/audio/speech`;
+export const DEFAULT_LEMONADE_ORIGIN = "http://localhost:13305";
+
+/**
+ * Where this device's Lemonade listens. Read per call rather than captured at
+ * module load, so changing it in Settings takes effect on the next import
+ * instead of the next reload.
+ */
+export function lemonadeOrigin(): string {
+  try {
+    return localStorage.getItem(LEMONADE_ORIGIN_KEY)?.trim() || DEFAULT_LEMONADE_ORIGIN;
+  } catch {
+    return DEFAULT_LEMONADE_ORIGIN;
+  }
+}
+
+export function setLemonadeOrigin(origin: string): void {
+  const trimmed = origin.trim();
+  if (trimmed && trimmed !== DEFAULT_LEMONADE_ORIGIN) {
+    localStorage.setItem(LEMONADE_ORIGIN_KEY, trimmed);
+  } else {
+    localStorage.removeItem(LEMONADE_ORIGIN_KEY);
+  }
+}
 
 /** The model id Lemonade registers stock Kokoro under. */
 export const LEMONADE_MODEL_ID = "kokoro-v1";
@@ -41,7 +63,9 @@ export async function lemonadeIsAvailable(): Promise<boolean> {
   // import" — including a stranger on this port answering with something that
   // is not JSON at all.
   try {
-    const response = await fetch(MODELS_URL, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+    const response = await fetch(`${lemonadeOrigin()}/api/v1/models`, {
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    });
     if (!response.ok) return false;
     const models = ((await response.json()) as { data?: unknown })?.data;
     if (!Array.isArray(models)) return false;
@@ -75,7 +99,7 @@ export class LemonadeClient {
     const controller = new AbortController();
     this.inFlight.add(controller);
     try {
-      const response = await fetch(SPEECH_URL, {
+      const response = await fetch(`${lemonadeOrigin()}/api/v1/audio/speech`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

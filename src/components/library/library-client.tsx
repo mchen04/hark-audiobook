@@ -12,6 +12,7 @@ import {
   Trash,
   UploadSimple,
   WarningCircle,
+  WaveSine,
   X,
 } from "@phosphor-icons/react";
 import Link from "next/link";
@@ -31,7 +32,9 @@ import { asOfflinePlayerBook } from "@/lib/offline/library";
 import { getMirrorPlayerBook, type MirrorPlayerBook } from "@/lib/offline/mirror";
 import { listBookIdsWithTranscripts } from "@/lib/offline/transcript-store";
 
-import { UploadBanners, useBookImport } from "./library-upload";
+import { startListeningToImport } from "@/lib/document-import/import-controller";
+
+import { UploadBanners, useBookImport, type UploadState } from "./library-upload";
 import { type SortOrder, type StatusFilter } from "./library-view";
 import { useLibraryViewState } from "./library-view-state";
 import { usePageWindow, useSeedFollowingValue } from "./use-derived-reset";
@@ -322,13 +325,12 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
     <>
       {fileInput}
 
-      {snapshot.libraryTotal === 0 ? (
+      {snapshot.libraryTotal === 0 && !upload ? (
         <section
           className="empty-library"
           data-launch-ready={launchReady}
           aria-labelledby="library-title"
           aria-busy={!!upload}
-          inert={upload ? true : undefined}
         >
           <div className="empty-library-art" aria-hidden="true">
             <BookOpenText size={54} weight="duotone" />
@@ -351,7 +353,6 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
           data-launch-ready={launchReady}
           aria-labelledby="library-title"
           aria-busy={!!upload}
-          inert={upload ? true : undefined}
         >
           <div className="library-heading">
             <h1 id="library-title">Library</h1>
@@ -366,204 +367,209 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
             </button>
           </div>
 
-          {continueBook && (
-            <Link
-              href={`/books/${continueBook.id}`}
-              className="continue-card"
-              prefetch={false}
-              aria-label={`Continue listening ${continueBook.title}`}
-            >
-              <span className="book-cover continue-cover" aria-hidden="true">
-                <BookCover book={continueBook} coverUrl={coverUrlFor(continueRecord)} />
-              </span>
-              <span className="continue-copy">
-                <small>Continue listening</small>
-                <strong>{continueBook.title}</strong>
-                <span>
-                  {progressPercent(continueBook)}% · {remainingLabel(continueBook)}
-                  {continueRecord ? "" : " · Not on this device"}
+          <div>
+            {continueBook && (
+              <Link
+                href={`/books/${continueBook.id}`}
+                className="continue-card"
+                prefetch={false}
+                aria-label={`Continue listening ${continueBook.title}`}
+              >
+                <span className="book-cover continue-cover" aria-hidden="true">
+                  <BookCover book={continueBook} coverUrl={coverUrlFor(continueRecord)} />
                 </span>
-              </span>
-              {continueRecord ? (
-                <span className="continue-play" aria-hidden="true">
-                  <Play size={24} weight="fill" />
+                <span className="continue-copy">
+                  <small>Continue listening</small>
+                  <strong>{continueBook.title}</strong>
+                  <span>
+                    {progressPercent(continueBook)}% · {remainingLabel(continueBook)}
+                    {continueRecord ? "" : " · Not on this device"}
+                  </span>
                 </span>
-              ) : (
-                <span className="continue-play continue-unavailable" title={MISSING_MEDIA_HINT}>
-                  <CloudSlash size={22} aria-hidden="true" />
-                  <span className="visually-hidden">Not on this device</span>
-                </span>
-              )}
-            </Link>
-          )}
+                {continueRecord ? (
+                  <span className="continue-play" aria-hidden="true">
+                    <Play size={24} weight="fill" />
+                  </span>
+                ) : (
+                  <span className="continue-play continue-unavailable" title={MISSING_MEDIA_HINT}>
+                    <CloudSlash size={22} aria-hidden="true" />
+                    <span className="visually-hidden">Not on this device</span>
+                  </span>
+                )}
+              </Link>
+            )}
 
-          <div className="library-tools">
-            <label className="search-field">
-              <MagnifyingGlass size={19} aria-hidden="true" />
-              <span className="visually-hidden">Search your library</span>
-              <input
-                type="search"
-                value={query}
-                onChange={(event) => {
-                  const next = event.target.value;
-                  setSavedView((current) => ({ ...current, query: next }));
-                }}
-                placeholder="Search library"
-              />
-              {query && (
+            <div className="library-tools">
+              <label className="search-field">
+                <MagnifyingGlass size={19} aria-hidden="true" />
+                <span className="visually-hidden">Search your library</span>
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setSavedView((current) => ({ ...current, query: next }));
+                  }}
+                  placeholder="Search library"
+                />
+                {query && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSavedView((current) => ({ ...current, query: "" }));
+                    }}
+                    aria-label="Clear search"
+                  >
+                    <X size={17} aria-hidden="true" />
+                  </button>
+                )}
+              </label>
+              <label className="sort-field">
+                <span className="visually-hidden">Sort books</span>
+                <select
+                  value={sort}
+                  onChange={(event) => {
+                    const next = event.target.value as SortOrder;
+                    setSavedView((current) => ({ ...current, sort: next }));
+                  }}
+                >
+                  <option value="activity">Recent activity</option>
+                  <option value="added">Recently added</option>
+                  <option value="title">Title A–Z</option>
+                  <option value="author">Author A–Z</option>
+                </select>
+              </label>
+              <div className="view-switch" aria-label="Library view">
                 <button
                   type="button"
+                  aria-label="Grid view"
+                  aria-pressed={view === "grid"}
                   onClick={() => {
-                    setSavedView((current) => ({ ...current, query: "" }));
+                    setSavedView((current) => ({ ...current, view: "grid" }));
                   }}
-                  aria-label="Clear search"
                 >
-                  <X size={17} aria-hidden="true" />
+                  <SquaresFour size={19} weight={view === "grid" ? "fill" : "regular"} />
                 </button>
-              )}
-            </label>
-            <label className="sort-field">
-              <span className="visually-hidden">Sort books</span>
-              <select
-                value={sort}
-                onChange={(event) => {
-                  const next = event.target.value as SortOrder;
-                  setSavedView((current) => ({ ...current, sort: next }));
-                }}
-              >
-                <option value="activity">Recent activity</option>
-                <option value="added">Recently added</option>
-                <option value="title">Title A–Z</option>
-                <option value="author">Author A–Z</option>
-              </select>
-            </label>
-            <div className="view-switch" aria-label="Library view">
-              <button
-                type="button"
-                aria-label="Grid view"
-                aria-pressed={view === "grid"}
-                onClick={() => {
-                  setSavedView((current) => ({ ...current, view: "grid" }));
-                }}
-              >
-                <SquaresFour size={19} weight={view === "grid" ? "fill" : "regular"} />
-              </button>
-              <button
-                type="button"
-                aria-label="List view"
-                aria-pressed={view === "list"}
-                onClick={() => {
-                  setSavedView((current) => ({ ...current, view: "list" }));
-                }}
-              >
-                <Rows size={19} weight={view === "list" ? "bold" : "regular"} />
-              </button>
+                <button
+                  type="button"
+                  aria-label="List view"
+                  aria-pressed={view === "list"}
+                  onClick={() => {
+                    setSavedView((current) => ({ ...current, view: "list" }));
+                  }}
+                >
+                  <Rows size={19} weight={view === "list" ? "bold" : "regular"} />
+                </button>
+              </div>
             </div>
-          </div>
 
-          <div className="library-filters" role="group" aria-label="Filter your library">
-            {STATUS_FILTERS.map((filter) => (
+            <div className="library-filters" role="group" aria-label="Filter your library">
+              {STATUS_FILTERS.map((filter) => (
+                <button
+                  key={filter.id}
+                  type="button"
+                  className="filter-chip"
+                  aria-pressed={status === filter.id}
+                  onClick={() => {
+                    setSavedView((current) => ({ ...current, status: filter.id }));
+                  }}
+                >
+                  {filter.label}
+                </button>
+              ))}
+              {/* Downloads are a facet of the one library, not a second screen. */}
               <button
-                key={filter.id}
                 type="button"
-                className="filter-chip"
-                aria-pressed={status === filter.id}
+                className="filter-chip filter-chip-device"
+                aria-pressed={onDevice}
                 onClick={() => {
-                  setSavedView((current) => ({ ...current, status: filter.id }));
+                  const next = !onDevice;
+                  setOnDevice(next);
+                  setSavedView((current) => ({ ...current, onDevice: next }));
+                  updateDeviceRoute(next);
                 }}
               >
-                {filter.label}
+                <DownloadSimple size={15} weight="bold" aria-hidden="true" />
+                <span>On this device</span>
+                {device.size > 0 && <span className="filter-chip-count">{device.size}</span>}
               </button>
-            ))}
-            {/* Downloads are a facet of the one library, not a second screen. */}
-            <button
-              type="button"
-              className="filter-chip filter-chip-device"
-              aria-pressed={onDevice}
-              onClick={() => {
-                const next = !onDevice;
-                setOnDevice(next);
-                setSavedView((current) => ({ ...current, onDevice: next }));
-                updateDeviceRoute(next);
-              }}
-            >
-              <DownloadSimple size={15} weight="bold" aria-hidden="true" />
-              <span>On this device</span>
-              {device.size > 0 && <span className="filter-chip-count">{device.size}</span>}
-            </button>
-            {snapshot.tags.map((tag) => (
-              <button
-                key={`tag-${tag}`}
-                type="button"
-                className="filter-chip filter-chip-tag"
-                aria-pressed={activeTag === tag}
-                onClick={() => {
-                  const next = activeTag === tag ? null : tag;
-                  setSavedView((current) => ({ ...current, activeTag: next }));
-                }}
-              >
-                #{tag}
-              </button>
-            ))}
-          </div>
-
-          {shown.length ? (
-            <div className={`book-grid ${view === "list" ? "book-grid-list" : ""}`}>
-              {shown.map((book) => (
-                <BookItem
-                  book={book}
-                  key={book.id}
-                  compact={view === "list"}
-                  record={device.get(book.id)}
-                  hasReadAlong={readAlongIds.has(book.id)}
-                  onRemoveDownload={forgetDownload}
-                />
+              {snapshot.tags.map((tag) => (
+                <button
+                  key={`tag-${tag}`}
+                  type="button"
+                  className="filter-chip filter-chip-tag"
+                  aria-pressed={activeTag === tag}
+                  onClick={() => {
+                    const next = activeTag === tag ? null : tag;
+                    setSavedView((current) => ({ ...current, activeTag: next }));
+                  }}
+                >
+                  #{tag}
+                </button>
               ))}
             </div>
-          ) : (
-            <div className="no-results">
-              <MagnifyingGlass size={30} weight="duotone" aria-hidden="true" />
-              <h2>
-                {onDevice && device.size === 0 ? "Nothing downloaded yet" : "No matching books"}
-              </h2>
-              <p>
-                {onDevice && device.size === 0
-                  ? "Open a book and choose Download to keep its audio on this device."
-                  : "Try another search, status, or tag."}
-              </p>
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => {
-                  setSavedView((current) => ({
-                    ...current,
-                    query: "",
-                    status: "all",
-                    activeTag: null,
-                    onDevice: false,
-                  }));
-                  setOnDevice(false);
-                  updateDeviceRoute(false);
-                }}
-              >
-                Clear filters
-              </button>
-            </div>
-          )}
-          {books.length > shown.length && (
-            <div className="library-more">
-              <button type="button" className="secondary-button" onClick={showMore}>
-                Load more books
-              </button>
-              <small>
-                Showing {shown.length} of {books.length} matching books.
-              </small>
-            </div>
-          )}
+          </div>
+
+          <div>
+            {upload || shown.length ? (
+              <div className={`book-grid ${view === "list" ? "book-grid-list" : ""}`}>
+                {upload && <NarratingItem upload={upload} compact={view === "list"} />}
+                {shown.map((book) => (
+                  <BookItem
+                    book={book}
+                    key={book.id}
+                    compact={view === "list"}
+                    record={device.get(book.id)}
+                    hasReadAlong={readAlongIds.has(book.id)}
+                    onRemoveDownload={forgetDownload}
+                  />
+                ))}
+              </div>
+            ) : upload ? null : (
+              <div className="no-results">
+                <MagnifyingGlass size={30} weight="duotone" aria-hidden="true" />
+                <h2>
+                  {onDevice && device.size === 0 ? "Nothing downloaded yet" : "No matching books"}
+                </h2>
+                <p>
+                  {onDevice && device.size === 0
+                    ? "Open a book and choose Download to keep its audio on this device."
+                    : "Try another search, status, or tag."}
+                </p>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => {
+                    setSavedView((current) => ({
+                      ...current,
+                      query: "",
+                      status: "all",
+                      activeTag: null,
+                      onDevice: false,
+                    }));
+                    setOnDevice(false);
+                    updateDeviceRoute(false);
+                  }}
+                >
+                  Clear filters
+                </button>
+              </div>
+            )}
+            {books.length > shown.length && (
+              <div className="library-more">
+                <button type="button" className="secondary-button" onClick={showMore}>
+                  Load more books
+                </button>
+                <small>
+                  Showing {shown.length} of {books.length} matching books.
+                </small>
+              </div>
+            )}
+          </div>
         </section>
       )}
 
-      <UploadBanners upload={upload} error={error} onDismissError={() => setError(null)} />
+      <UploadBanners error={error} onDismissError={() => setError(null)} />
     </>
   );
 }
@@ -669,7 +675,7 @@ const BookItem = memo(function BookItem({
         {!record && (
           <p className="book-device book-device-missing" title={MISSING_MEDIA_HINT}>
             <CloudSlash size={14} aria-hidden="true" />
-            <span>Not on this device — re-import the MP3 to listen</span>
+            <span>Not on this device — attach its original file to listen</span>
           </p>
         )}
         {/* Duration, progress and what the audio costs this device are one
@@ -734,3 +740,77 @@ const BookItem = memo(function BookItem({
     </article>
   );
 });
+
+/**
+ * The book being narrated right now, shown in the library before it exists as a
+ * book at all.
+ *
+ * It is rendered outside the frozen part of the library on purpose. An import
+ * is aborted when this screen unmounts, so tapping a real book mid-import would
+ * destroy the narration in progress — which is why everything that navigates
+ * stays inert. This card navigates nowhere: it plays what has been narrated so
+ * far, straight from the engine's own samples.
+ */
+function NarratingItem({ upload, compact }: { upload: UploadState; compact: boolean }) {
+  // Nothing here answers to a finished book's name. A link called exactly the
+  // book's title would be a second thing claiming to be that book: anything
+  // waiting for the book to appear would be satisfied by the narration that has
+  // not produced it yet.
+  const label = `Play ${upload.title}, narrating now`;
+  return (
+    <article className={`narrating-book ${compact ? "narrating-book-compact" : ""}`}>
+      {upload.narrated ? (
+        <Link
+          href="/narrating"
+          className="book-cover narrating-cover"
+          prefetch={false}
+          onClick={startListeningToImport}
+          aria-label={label}
+        >
+          <NarratingCoverArt percent={upload.percent} />
+        </Link>
+      ) : (
+        <div className="book-cover narrating-cover">
+          <NarratingCoverArt percent={upload.percent} />
+        </div>
+      )}
+      <div className="narrating-copy">
+        {upload.narrated ? (
+          <Link
+            href="/narrating"
+            className="narrating-title"
+            prefetch={false}
+            onClick={startListeningToImport}
+            aria-label={label}
+          >
+            {upload.title}
+          </Link>
+        ) : (
+          <p className="narrating-title">{upload.title}</p>
+        )}
+        <p>{upload.listening ? "Playing as it is narrated" : upload.stage}</p>
+        <div
+          className="narrating-progress"
+          role="progressbar"
+          aria-valuenow={upload.percent}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={`Narrating ${upload.title}`}
+        >
+          <span style={{ width: `${upload.percent}%` }} />
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function NarratingCoverArt({ percent }: { percent: number }) {
+  return (
+    <>
+      <span className="book-cover-fallback" aria-hidden="true">
+        <WaveSine size={26} weight="duotone" />
+      </span>
+      <span className="narrating-badge">{percent}%</span>
+    </>
+  );
+}

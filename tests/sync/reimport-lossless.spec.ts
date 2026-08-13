@@ -116,7 +116,7 @@ test("re-importing an evicted book reconnects to the same book and restores ever
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForSelector("[data-launch-ready]", { state: "attached", timeout: 60_000 });
     await expect(
-      page.locator(".book-item", { hasText: FIXTURE_TITLE }).getByText(/re-import the MP3/),
+      page.locator(".book-item", { hasText: FIXTURE_TITLE }).getByText(/attach its original file/),
       "the evicted book does not tell the user to re-import it, so nothing here would be " +
         "testing the recovery the product actually offers",
     ).toBeVisible({ timeout: 30_000 });
@@ -722,7 +722,7 @@ test("an evicted book is recovered by re-import when the app chunks cannot be fe
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForSelector("[data-launch-ready]", { state: "attached", timeout: 60_000 });
     await expect(
-      page.locator(".book-item", { hasText: FIXTURE_TITLE }).getByText(/re-import the MP3/),
+      page.locator(".book-item", { hasText: FIXTURE_TITLE }).getByText(/attach its original file/),
       "the evicted book does not tell the user to re-import it, so nothing here would be " +
         "testing the recovery the product actually offers",
     ).toBeVisible({ timeout: 30_000 });
