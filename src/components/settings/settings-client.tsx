@@ -15,6 +15,8 @@ import {
   rememberPendingAccountDeletion,
 } from "@/lib/account-deletion";
 
+import { LemonadeSettings } from "./lemonade-settings";
+
 export function SettingsClient({ email }: { email: string }) {
   const router = useRouter();
   const { userId } = usePlayback();
@@ -136,6 +138,8 @@ export function SettingsClient({ email }: { email: string }) {
           Changes apply immediately on this device and sync to your other devices.
         </p>
       </section>
+
+      <LemonadeSettings />
 
       <ResumeDiagnostics userId={userId} />
 

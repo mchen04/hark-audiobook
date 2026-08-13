@@ -669,7 +669,7 @@ const BookItem = memo(function BookItem({
         {!record && (
           <p className="book-device book-device-missing" title={MISSING_MEDIA_HINT}>
             <CloudSlash size={14} aria-hidden="true" />
-            <span>Not on this device — re-import the MP3 to listen</span>
+            <span>Not on this device — attach its original file to listen</span>
           </p>
         )}
         {/* Duration, progress and what the audio costs this device are one

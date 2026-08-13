@@ -390,26 +390,6 @@
   background: var(--accent);
 }
 
-.upload-listen {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  min-height: 44px;
-  margin-top: 0.85rem;
-  padding: 0 1rem;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--accent);
-  color: var(--accent-contrast);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.upload-listen:hover {
-  background: color-mix(in srgb, var(--accent) 88%, black);
-}
-
 .upload-error {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -689,7 +669,7 @@
 /* A card whose audio is missing still says so in words, and still says what to
    do about it — the cover badge is clipped by the 4.5rem cover in list view, so
    it cannot be the only marker. It wraps rather than truncating, because
-   "re-import the MP3 to listen" is the whole point of it. A card whose audio IS
+   "attach its original file to listen" is the whole point of it. A card whose audio IS
    here needs no sentence: its size sits in the meta line above. */
 .book-device {
   display: flex;

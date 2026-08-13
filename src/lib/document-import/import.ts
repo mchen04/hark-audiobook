@@ -51,12 +51,6 @@ export type DocumentImportTarget = {
 export type DocumentImportOptions = {
   target?: DocumentImportTarget;
   signal?: AbortSignal;
-  /**
-   * Every chunk of narration as it is produced, so a caller can let the reader
-   * listen before the book is finished. Purely observational: the import does
-   * not wait on it and ignores what it does.
-   */
-  onNarrationAudio?: (audio: Float32Array, sampleRate: number) => void;
 };
 
 /** Turns a document into a normal, chaptered, offline Hark audiobook. */
@@ -85,7 +79,7 @@ async function importLocalDocumentWithinFence(
   onProgress: DocumentImportProgress,
   options: DocumentImportOptions,
 ): Promise<OfflineBook> {
-  const { target, signal, onNarrationAudio } = options;
+  const { target, signal } = options;
   throwIfAborted(signal);
   const requiredEngine = target ? engineForRenditionKey(target.renditionKey) : null;
   if (target && !requiredEngine) {
@@ -203,7 +197,6 @@ async function importLocalDocumentWithinFence(
             throw new Error("The narration engine returned invalid audio.");
           }
           await addAudio(audioSource, synthesis.audio, totalSamples);
-          onNarrationAudio?.(synthesis.audio, synthesis.sampleRate);
           totalSamples += synthesis.audio.length;
           completedCharacters += text.length;
           meter.record(text.length, Date.now() - chunkStartedAt);

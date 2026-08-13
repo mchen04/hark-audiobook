@@ -166,3 +166,44 @@
 .account-deletion-overlay .secondary-button {
   margin-top: 1rem;
 }
+
+.lemonade-field {
+  display: block;
+  margin-bottom: 0.85rem;
+}
+
+.lemonade-field span {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.lemonade-field input {
+  width: 100%;
+  max-width: 22rem;
+  min-height: 44px;
+  padding: 0 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: inherit;
+  font-family: inherit;
+  font-size: var(--text-sm);
+}
+
+.lemonade-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.lemonade-status {
+  margin: 0.85rem 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.lemonade-status-ready {
+  color: var(--accent);
+}

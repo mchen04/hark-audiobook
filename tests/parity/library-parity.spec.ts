@@ -347,7 +347,7 @@ test("books not on this device are marked, browsable, searchable and never playa
     // Visibly marked, in both places the design promises: on the cover and in
     // the card's own copy.
     expect(card!.offDeviceBadge, `"${seed.title}" is not marked on its cover`).toBe(true);
-    expect(card!.deviceLine).toBe("Not on this device — re-import the MP3 to listen");
+    expect(card!.deviceLine).toBe("Not on this device — attach its original file to listen");
     // And never looks playable: no play link, only the inert stand-in.
     expect(card!.playLink, `"${seed.title}" offers a play affordance it cannot honour`).toBe(false);
     expect(card!.playUnavailable).toBe(true);
