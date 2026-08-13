@@ -752,32 +752,45 @@ const BookItem = memo(function BookItem({
  * far, straight from the engine's own samples.
  */
 function NarratingItem({ upload, compact }: { upload: UploadState; compact: boolean }) {
+  // Nothing here answers to a finished book's name. A link called exactly the
+  // book's title would be a second thing claiming to be that book: anything
+  // waiting for the book to appear would be satisfied by the narration that has
+  // not produced it yet.
+  const label = `Play ${upload.title}, narrating now`;
   return (
-    <article className={`book-item narrating-book ${compact ? "book-item-compact" : ""}`}>
-      <Link
-        href="/narrating"
-        className="book-cover narrating-cover"
-        prefetch={false}
-        onClick={startListeningToImport}
-        aria-label={`Play ${upload.title}, narrating now`}
-      >
-        <span className="book-cover-fallback" aria-hidden="true">
-          <WaveSine size={26} weight="duotone" />
-        </span>
-        <span className="book-offdevice narrating-badge">{upload.percent}%</span>
-      </Link>
-      <div className="book-copy">
+    <article className={`narrating-book ${compact ? "narrating-book-compact" : ""}`}>
+      {upload.narrated ? (
         <Link
           href="/narrating"
-          className="book-title"
+          className="book-cover narrating-cover"
           prefetch={false}
           onClick={startListeningToImport}
+          aria-label={label}
         >
-          {upload.title}
+          <NarratingCoverArt percent={upload.percent} />
         </Link>
+      ) : (
+        <div className="book-cover narrating-cover">
+          <NarratingCoverArt percent={upload.percent} />
+        </div>
+      )}
+      <div className="narrating-copy">
+        {upload.narrated ? (
+          <Link
+            href="/narrating"
+            className="narrating-title"
+            prefetch={false}
+            onClick={startListeningToImport}
+            aria-label={label}
+          >
+            {upload.title}
+          </Link>
+        ) : (
+          <p className="narrating-title">{upload.title}</p>
+        )}
         <p>{upload.listening ? "Playing as it is narrated" : upload.stage}</p>
         <div
-          className="book-progress"
+          className="narrating-progress"
           role="progressbar"
           aria-valuenow={upload.percent}
           aria-valuemin={0}
@@ -788,5 +801,16 @@ function NarratingItem({ upload, compact }: { upload: UploadState; compact: bool
         </div>
       </div>
     </article>
+  );
+}
+
+function NarratingCoverArt({ percent }: { percent: number }) {
+  return (
+    <>
+      <span className="book-cover-fallback" aria-hidden="true">
+        <WaveSine size={26} weight="duotone" />
+      </span>
+      <span className="narrating-badge">{percent}%</span>
+    </>
   );
 }
