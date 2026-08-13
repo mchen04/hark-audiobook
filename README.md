@@ -117,10 +117,10 @@ falls back to the browser engine unchanged. See
 
 **You do not wait for the whole book.** The length is arithmetic from the
 character count, so the import says "about 9h 30m of audio" before a single
-sample exists, then counts down as it narrates. About twenty seconds in, a
-**Listen while it narrates** button appears and plays what exists while the rest
-is still being made — narration runs several times faster than listening, so it
-stays ahead.
+sample exists, then counts down as it narrates. The document appears in the library
+straight away as a narrating entry, and about twenty seconds in it offers
+**Listen now** — playing what exists while the rest is still being made.
+Narration runs several times faster than listening, so it stays ahead.
 
 ## Testing
 

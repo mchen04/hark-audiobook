@@ -109,9 +109,10 @@ ratio, because the buffer is the thing that actually runs out.
 
 ## Listening while it narrates
 
-The import banner offers "Listen while it narrates" once about 20 seconds of
-audio is queued. It plays what has been narrated so far and keeps going as the
-rest arrives.
+A document appears in the library the moment it is chosen, as a narrating entry
+with its own progress. Once about 20 seconds of audio is queued the entry offers
+"Listen now" and plays what exists while the rest is still being made. When the
+import finishes the entry is replaced by the real book.
 
 This needs none of the durable machinery. The engine returns raw samples and the
 import already holds them, so `narration-preview.ts` schedules those straight
@@ -119,10 +120,17 @@ onto an AudioContext — no media store, no service worker, no seek map, no
 registered book. `importLocalDocument` reports them through an optional
 `onNarrationAudio` callback and does not wait on it.
 
+The entry is rendered **outside** the library's frozen region on purpose.
+`useBookImport` aborts the import when the library unmounts, so tapping a real
+book mid-import would destroy the narration in progress — which is why
+everything that navigates stays `inert` while an import runs. This entry
+navigates nowhere, so it can stay live.
+
 The scheduling is kept free of Web Audio so it can be tested against a fake
 clock; `browserNarrationSink` is the only part that touches an AudioContext, and
 it is constructed from the button press because Safari will not start audio
-otherwise. If the engine falls behind playback the schedule restarts just ahead
+otherwise. An MP3 import shows the same entry without the offer: it is copied,
+not narrated, so there is no partial audio to play. If the engine falls behind playback the schedule restarts just ahead
 of the clock and counts an underrun rather than queueing a moment already gone.
 
 What this deliberately is not: there is no scrubbing, chapter jumping, or

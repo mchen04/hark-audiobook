@@ -5,12 +5,16 @@ import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { isAbortError } from "@/lib/abort";
 import { importLocalMp3 } from "@/lib/local-import";
+import type { NarrationPreviewHandle } from "@/lib/document-import/narration-preview-handle";
 import { BOOK_FILE_ACCEPT, sourceFormatForFilename } from "@/lib/source-formats";
 
 export type UploadState = {
   filename: string;
   percent: number;
   stage: string;
+  /** Enough narration is buffered that playing it will not stutter at once. */
+  canListen: boolean;
+  listening: boolean;
 };
 
 /**
@@ -26,14 +30,27 @@ export function useBookImport(
 ) {
   const inputRef = useRef<HTMLInputElement>(null);
   const importRef = useRef<AbortController | null>(null);
+  const previewRef = useRef<NarrationPreviewHandle | null>(null);
   const [upload, setUpload] = useState<UploadState | null>(null);
+
+  const closePreview = useCallback(() => {
+    previewRef.current?.close();
+    previewRef.current = null;
+  }, []);
+
+  /** Starts the narrated-so-far audio. The gesture is what lets Safari play. */
+  const startListening = useCallback(() => {
+    previewRef.current?.start();
+    setUpload((current) => (current ? { ...current, listening: true, canListen: false } : current));
+  }, []);
 
   useEffect(
     () => () => {
       importRef.current?.abort();
       importRef.current = null;
+      closePreview();
     },
-    [userId],
+    [userId, closePreview],
   );
 
   const chooseFile = useCallback(() => {
@@ -52,18 +69,40 @@ export function useBookImport(
       const controller = new AbortController();
       importRef.current = controller;
       reportError(null);
-      setUpload({ filename: file.name, percent: 0, stage: "Starting" });
+      setUpload({
+        filename: file.name,
+        percent: 0,
+        stage: "Starting",
+        canListen: false,
+        listening: false,
+      });
+      closePreview();
       try {
         const reportProgress = (percent: number, stage: string) => {
           if (importRef.current === controller && !controller.signal.aborted) {
-            setUpload({ filename: file.name, percent, stage });
+            setUpload((current) => ({
+              filename: file.name,
+              percent,
+              stage,
+              listening: current?.listening ?? false,
+              canListen: !current?.listening && !!previewRef.current?.isReady(),
+            }));
           }
         };
         if (sourceFormatForFilename(file.name)?.id === "mp3") {
           await importLocalMp3(userId, file, reportProgress, controller.signal);
         } else {
-          const { importLocalDocument } = await import("@/lib/document-import/import");
-          await importLocalDocument(userId, file, reportProgress, { signal: controller.signal });
+          const [{ importLocalDocument }, { createBrowserNarrationPreview }] = await Promise.all([
+            import("@/lib/document-import/import"),
+            import("@/lib/document-import/narration-preview-handle"),
+          ]);
+          await importLocalDocument(userId, file, reportProgress, {
+            signal: controller.signal,
+            onNarrationAudio: (audio, sampleRate) => {
+              previewRef.current ??= createBrowserNarrationPreview(sampleRate);
+              previewRef.current.enqueue(audio);
+            },
+          });
         }
         if (controller.signal.aborted) return;
         await onImported();
@@ -78,9 +117,12 @@ export function useBookImport(
           importRef.current = null;
           setUpload(null);
         }
+        // The finished book plays through the real player, which owns chapters,
+        // scrubbing and resume; the preview has no business outliving the import.
+        closePreview();
       }
     },
-    [userId, onImported, reportError],
+    [userId, onImported, reportError, closePreview],
   );
 
   // Rendered by the caller wherever the hidden input belongs in its tree; the
@@ -97,33 +139,23 @@ export function useBookImport(
     />
   );
 
-  return { fileInput, upload, chooseFile };
+  return { fileInput, upload, chooseFile, startListening };
 }
 
-/** The progress banner and the error banner, rendered after the library body. */
+/**
+ * The error banner, rendered after the library body. Import progress is not
+ * here: it belongs to the entry the library shows for the book being made, and
+ * saying it twice on one screen was noise.
+ */
 export function UploadBanners({
-  upload,
   error,
   onDismissError,
 }: {
-  upload: UploadState | null;
   error: string | null;
   onDismissError: () => void;
 }) {
   return (
     <>
-      {upload && (
-        <div className="upload-status" role="status" aria-live="polite">
-          <div>
-            <span>
-              {upload.stage} · {upload.filename}
-            </span>
-            <strong>{upload.percent}%</strong>
-          </div>
-          <progress value={upload.percent} max={100} aria-label={`Importing ${upload.filename}`} />
-        </div>
-      )}
-
       {error && (
         <div className="upload-error" role="alert">
           <WarningCircle size={21} weight="fill" aria-hidden="true" />
