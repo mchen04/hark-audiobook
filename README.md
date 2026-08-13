@@ -107,6 +107,14 @@ thereafter. No text is sent anywhere. Sources are capped before parsing (96 MiB
 PDF, 48 MiB EPUB/DOCX, 8 MiB text/Markdown, 2 MiB HTML, and two million
 extracted characters).
 
+**Lemonade narrates it faster, still locally.** If [AMD's Lemonade
+server](https://lemonade-server.ai) is running on the same machine, Hark
+narrates through it instead of in the page, putting Kokoro on a Ryzen AI NPU,
+a GPU, or the CPU. It is detected on loopback, so nothing leaves the machine and
+no configuration is needed; if it is absent — every phone, for one — narration
+falls back to the browser engine unchanged. See
+[docs/lemonade.md](docs/lemonade.md).
+
 ## Testing
 
 ```sh
