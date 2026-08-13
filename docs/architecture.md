@@ -2,7 +2,7 @@
 
 ## Status
 
-Decision record started 2026-07-09; last reconciled with the code on 2026-08-09
+Decision record started 2026-07-09; last reconciled with the code on 2026-08-13
 after the full-codebase UI, offline, sync, and authentication audit.
 Update this document whenever executable reality changes.
 
@@ -296,11 +296,16 @@ renders no user rows.
   library is already on screen either way.
 
 Measured by `pnpm test:e2e:launch` on a 1,000-book library: warm-launch p95 is
-134ms / 139ms / 146ms / 151ms across fast, slow, 3000ms-cold-database and
-offline, a 17ms spread, with zero server document hits and zero Postgres queries
-on every launch. The recorded pre-change baseline in `tests/perf/BASELINE.md` is
-92 / 509 / 3104 / >=15007ms with a 14915ms spread. Hit counts and a query
-counter, not timings, are what decide whether the document came from cache.
+291-370ms across fast, slow, 3000ms-cold-database and offline, a 70-73ms spread
+over two consecutive clean runs, with zero server document hits and zero
+Postgres queries on every launch. Those recorded runs used a literal 4x CPU
+throttle whose fixed proof loop cost 16ms; current runs calibrate each host to
+that same 16ms budget rather than to a host-relative multiplier, so the frozen
+500ms p95 and 150ms spread bars mean the same thing on a shared CI runner. The
+recorded pre-change baseline in `tests/perf/BASELINE.md` is 92 / 509 / 3104 /
+
+> =15007ms with a 14915ms spread. Hit counts and a query counter, not timings,
+> are what decide whether the document came from cache.
 
 ## One library UI
 

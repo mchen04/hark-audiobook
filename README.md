@@ -121,7 +121,7 @@ aborts the e2e config, the standalone test server, and this bootstrap script if
 | `pnpm verify:browser`                | Every executable Playwright gate, matching the browser matrix required by `.github/workflows/ci.yml`. The two real-iOS hidden-state gaps remain deliberately outside CI.                                                                                                                                                                                                                                                 |
 | `pnpm verify:kestrel-export`         | Clean-room Kestrel graph reproduction: downloads the exact pinned public model weights into a temporary directory, uses the pinned Python/ONNX/NumPy recipe, and requires byte-for-byte matches with all committed ONNX graphs.                                                                                                                                                                                          |
 | `pnpm test`                          | Vitest suites (MP3 and transcript parsing contracts, service-worker range/navigation/shell logic, progress conflict policy, the outbox and the mirror, IndexedDB upgrades, playback).                                                                                                                                                                                                                                    |
-| `pnpm test:idb-migrate`              | Just the IndexedDB upgrade suite: every shipped version of both databases is opened from a fixture and carried forward, so downloads, transcripts and a pending deletion journal survive `chapterline-offline-v1` v7 and outbox v4.                                                                                                                                                                                      |
+| `pnpm test:idb-migrate`              | Just the IndexedDB upgrade suite: every shipped version of both databases is opened from a fixture and carried forward, so downloads, transcripts and a pending deletion journal survive `chapterline-offline-v1` v7 and outbox v5.                                                                                                                                                                                      |
 | `pnpm test:e2e:ios`                  | Production iPhone/WebKit flow: register, choose from Downloads, play, seek, relaunch, and play offline.                                                                                                                                                                                                                                                                                                                  |
 | `pnpm test:e2e:launch`               | The launch benchmark in `tests/perf/`: warm launch to real library content over four networks (fast, slow, 3000ms cold database, offline), asserting p95, spread, server document hits and Postgres queries.                                                                                                                                                                                                             |
 | `pnpm test:e2e:parity`               | The parity project in `tests/parity/`, whose harness removes the network at the socket instead of through Playwright interception, because interception sits above the service worker and can be bypassed.                                                                                                                                                                                                               |
@@ -166,11 +166,13 @@ All application code lives in `src/`: `app/` (routes and API), `components/`
 live in `tests/`, migrations in `drizzle/`, and the directly maintained service
 worker in `public/sw.js`.
 
-A tracked-text count is about 94k lines, but that is not 94k lines of production
-logic. Roughly 36.6k are Drizzle's required cumulative migration snapshots,
-8.3k are the lockfile, 31k are `src/` including co-located tests, and 15.9k are
-browser/verifier suites. Generated migration and dependency state is marked for
-GitHub in `.gitattributes`, not deleted or misclassified.
+A tracked-text count is about 140k lines, but that is not 140k lines of
+production logic. Roughly 58.7k are Drizzle's required cumulative migration
+snapshots and 8.5k are the lockfile — together just under half the repository.
+`src/` is 46.3k including 17.1k of co-located unit tests, and `tests/` is 18.5k
+of browser/verifier suites, which leaves about 29.2k lines of application code.
+Generated migration and dependency state is marked for GitHub in
+`.gitattributes`, not deleted or misclassified.
 
 Local build and run output remains ignored: `.next/`, `node_modules/`,
 TypeScript build metadata, test reports, `.data/`, local env files, and
@@ -193,3 +195,12 @@ rules.
   and large-file classification.
 - `tests/perf/BASELINE.md` — historical proven-red launch baseline and the
   later measured local-first result.
+
+## License
+
+Apache License 2.0 — see [`LICENSE`](LICENSE).
+
+Pinned Kestrel Fast model weights and voice data are fetched from their public
+upstream sources at first narration and are not redistributed here; they carry
+their own upstream licenses. `src/lib/kestrel/asset-manifest.json` records the
+exact model and exporter revisions.
