@@ -107,7 +107,29 @@ The meter also reports `realtimeRatio` — audio produced per second of wall clo
 On this Mac through Lemonade it measures about 5.6x. Nothing consumes that yet;
 it exists because it is the gate for streaming playback (below).
 
-## Streaming playback, not built
+## Listening while it narrates
+
+The import banner offers "Listen while it narrates" once about 20 seconds of
+audio is queued. It plays what has been narrated so far and keeps going as the
+rest arrives.
+
+This needs none of the durable machinery. The engine returns raw samples and the
+import already holds them, so `narration-preview.ts` schedules those straight
+onto an AudioContext — no media store, no service worker, no seek map, no
+registered book. `importLocalDocument` reports them through an optional
+`onNarrationAudio` callback and does not wait on it.
+
+The scheduling is kept free of Web Audio so it can be tested against a fake
+clock; `browserNarrationSink` is the only part that touches an AudioContext, and
+it is constructed from the button press because Safari will not start audio
+otherwise. If the engine falls behind playback the schedule restarts just ahead
+of the clock and counts an underrun rather than queueing a moment already gone.
+
+What this deliberately is not: there is no scrubbing, chapter jumping, or
+resume, and the preview does not outlive the import. Those belong to a book with
+a committed timeline, which is the next section.
+
+## Streaming the book itself, not built
 
 Narration currently completes before a book becomes playable. At 5.6x realtime a
 300-page book is roughly 9.5 hours of audio and about 100 minutes of waiting,
