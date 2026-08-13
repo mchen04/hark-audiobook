@@ -4,10 +4,12 @@
 
 # Hark
 
-**A private, offline-first audiobook player that runs entirely on your devices.**
+**A private, installable, offline-first audiobook player that runs entirely on
+your devices.**
 
 Import a chaptered MP3, or hand Hark a PDF, EPUB, DOCX, text, Markdown, or HTML
-file and it narrates the document on-device. Your books never touch a server.
+file and a neural voice narrates it in your browser — no cloud TTS, no upload.
+Install it to your home screen and it keeps working with the network off.
 
 [![CI](https://github.com/mchen04/hark-audiobook/actions/workflows/ci.yml/badge.svg)](https://github.com/mchen04/hark-audiobook/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
@@ -96,11 +98,22 @@ across fast, slow, 3000ms-cold-database, and offline profiles — a 70–73ms sp
 [`tests/perf/BASELINE.md`](tests/perf/BASELINE.md) for the proven-red baseline
 this replaced.
 
-**Document narration is bounded and pinned.** Sources are capped before parsing
-(96 MiB PDF, 48 MiB EPUB/DOCX, 8 MiB text/Markdown, 2 MiB HTML, and two million
-extracted characters). The first narration downloads about 39 MB of public
-Kestrel weights plus a 24 MB pinned browser runtime, integrity-checks them once,
-and reuses them thereafter.
+**Narration is a local model, not an API call.** Hark extracts the document
+text, then runs Kestrel Fast in a Web Worker through ONNX Runtime — WebGPU where
+the device has it, WASM everywhere else — and encodes the result to MP3 on the
+device. The first narration downloads about 39 MB of public model weights plus a
+24 MB pinned browser runtime, integrity-checks them once, and reuses them
+thereafter. No text is sent anywhere. Sources are capped before parsing (96 MiB
+PDF, 48 MiB EPUB/DOCX, 8 MiB text/Markdown, 2 MiB HTML, and two million
+extracted characters).
+
+**Lemonade narrates it faster, still locally.** If [AMD's Lemonade
+server](https://lemonade-server.ai) is running on the same machine, Hark
+narrates through it instead of in the page, putting Kokoro on a Ryzen AI NPU,
+a GPU, or the CPU. It is detected on loopback, so nothing leaves the machine and
+no configuration is needed; if it is absent — every phone, for one — narration
+falls back to the browser engine unchanged. See
+[docs/lemonade.md](docs/lemonade.md).
 
 ## Testing
 

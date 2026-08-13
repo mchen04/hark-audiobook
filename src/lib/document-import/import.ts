@@ -13,8 +13,8 @@ import type { PlayerBook, PlayerChapter } from "@/domain/player";
 import { createAccountWriteScope, withAccountWriteLock } from "@/lib/account-deletion-fence";
 import { throwIfAborted } from "@/lib/abort";
 import { KESTREL_DOWNLOAD_BYTES } from "@/lib/kestrel/assets";
-import { KestrelClient } from "@/lib/kestrel/client";
 import { KESTREL_SAMPLE_RATE } from "@/lib/kestrel/dsp";
+import { createNarrationEngine } from "@/lib/kestrel/engine";
 import { registerLocalBook, type LocalBookRegistration } from "@/lib/local-import";
 import { fingerprintMedia } from "@/lib/media-fingerprint";
 import { createStreamedLocalBookMedia, withLocalMediaSlot } from "@/lib/offline/media-store";
@@ -24,9 +24,10 @@ import { chunkNarrationText } from "./chunks";
 import { documentMimeType, extractDocument } from "./extract";
 import {
   assertSameRenditionTimeline,
+  engineForRenditionKey,
   GENERATED_MP3_BITRATE,
-  KESTREL_RENDITION_KEY,
-  KESTREL_VOICE_LABEL,
+  narratorLabelFor,
+  renditionKeyFor,
 } from "./rendition";
 
 const CHAPTER_SILENCE_SAMPLES = Math.round(0.4 * KESTREL_SAMPLE_RATE);
@@ -74,9 +75,10 @@ async function importLocalDocumentWithinFence(
 ): Promise<OfflineBook> {
   const { target, signal } = options;
   throwIfAborted(signal);
-  if (target && target.renditionKey !== KESTREL_RENDITION_KEY) {
+  const requiredEngine = target ? engineForRenditionKey(target.renditionKey) : null;
+  if (target && !requiredEngine) {
     throw new Error(
-      "This book was narrated with a different Kestrel version. Import the document as a new book to preserve its timing.",
+      "This book was narrated by a narration engine this build no longer has. Import the document as a new book to preserve its timing.",
     );
   }
   onProgress(2, "Reading the document on this device");
@@ -109,15 +111,20 @@ async function importLocalDocumentWithinFence(
       estimatedAudioBytes,
       slot,
     );
-    const kestrel = new KestrelClient();
-    const cancelKestrel = () => kestrel.close();
-    signal?.addEventListener("abort", cancelKestrel, { once: true });
+    const engine = await createNarrationEngine(requiredEngine ?? undefined);
+    const cancelNarration = () => engine.close();
+    signal?.addEventListener("abort", cancelNarration, { once: true });
     let output: Output<Mp3OutputFormat, AppendOnlyStreamTarget> | null = null;
     try {
       throwIfAborted(signal);
       await ensureMp3Encoder();
-      onProgress(12, `Loading Kestrel on this device (${formatModelSize()})`);
-      await kestrel.initialize((progress) => {
+      onProgress(
+        12,
+        engine.id === "lemonade"
+          ? "Narrating through Lemonade on this device"
+          : `Loading Kestrel on this device (${formatModelSize()})`,
+      );
+      await engine.initialize((progress) => {
         if (progress.stage !== "model") return;
         onProgress(
           12 + Math.round(progress.fraction * 13),
@@ -142,7 +149,7 @@ async function importLocalDocumentWithinFence(
         albumArtist: document.author,
         album: document.title,
         genre: "Audiobook",
-        comment: "Narrated privately on-device by Hark with Kestrel Fast.",
+        comment: `Narrated privately on-device by Hark with ${narratorLabelFor(engine.id)}.`,
       });
       await output.start();
 
@@ -157,7 +164,7 @@ async function importLocalDocumentWithinFence(
         for (const text of unit.chunks) {
           throwIfAborted(signal);
           const baseCharacters = completedCharacters;
-          const synthesis = await kestrel.synthesize(
+          const synthesis = await engine.synthesize(
             text,
             seedFor(fingerprint, synthesisIndex++),
             (progress) => {
@@ -171,7 +178,7 @@ async function importLocalDocumentWithinFence(
           );
           throwIfAborted(signal);
           if (synthesis.sampleRate !== KESTREL_SAMPLE_RATE || !synthesis.audio.length) {
-            throw new Error("Kestrel returned invalid audio.");
+            throw new Error("The narration engine returned invalid audio.");
           }
           await addAudio(audioSource, synthesis.audio, totalSamples);
           totalSamples += synthesis.audio.length;
@@ -214,10 +221,10 @@ async function importLocalDocumentWithinFence(
           durationMs,
           fingerprint,
           fingerprintKind: "sha256-v1",
-          renditionKey: KESTREL_RENDITION_KEY,
+          renditionKey: renditionKeyFor(engine.id),
           title: document.title,
           author: document.author,
-          narrator: KESTREL_VOICE_LABEL,
+          narrator: narratorLabelFor(engine.id),
           chapterDiagnostic: null,
           chapters: chapters.map((chapter) => ({
             position: chapter.position,
@@ -252,8 +259,8 @@ async function importLocalDocumentWithinFence(
       throwIfAborted(signal);
       throw error;
     } finally {
-      signal?.removeEventListener("abort", cancelKestrel);
-      kestrel.close();
+      signal?.removeEventListener("abort", cancelNarration);
+      engine.close();
     }
   });
 }

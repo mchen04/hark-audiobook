@@ -42,7 +42,8 @@ The app accepts an MP3 directly or narrates PDF, EPUB, DOCX, TXT, Markdown, and 
 - `music-metadata` parsing MP3s and ID3 chapters in the browser at import
 - PDF.js and bounded format adapters for local document extraction
 - Kestrel Fast in a module worker through ONNX Runtime WebGPU/WASM, with a
-  pinned, content-addressed and SHA-256-verified model/runtime bundle
+  pinned, content-addressed and SHA-256-verified model/runtime bundle; AMD's
+  Lemonade server preferred over it when present on loopback
 - Mediabunny plus LAME for progressive generated-MP3 encoding
 - Cache Storage for the device-local audio, covers, and the launch shell
 - IndexedDB for the device-authoritative library mirror and the mutation outbox
@@ -141,7 +142,12 @@ critical path.
    rejected as malformed), and a streaming whole-file
    SHA-256 identifies the exact bytes without buffering the book in memory.
 2. Document import routes the source to a lazy PDF/EPUB/DOCX/text adapter, then
-   a book-scoped Kestrel worker synthesizes it through WebGPU or WASM. Public
+   a book-scoped narration engine synthesizes it. When AMD's Lemonade server is
+   running on the same machine it is used — stock Kokoro on an NPU, GPU, or CPU
+   over loopback — and otherwise a Kestrel worker synthesizes through WebGPU or
+   WASM. The engine is chosen once per book and names itself in the rendition
+   key, because the two builds do not produce interchangeable samples; the
+   reasoning and its consequences are in `docs/lemonade.md`. Public
    weights, ONNX graphs, voice data, FFT runtime, PDF worker, and ONNX Runtime
    browser module are pinned by one manifest. That manifest keeps the model
    commit separate from the hashed exporter script and its exact

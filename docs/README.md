@@ -5,11 +5,12 @@ Start with [architecture.md](architecture.md) for how the app is built, and
 
 ## Design and behavior
 
-| Document                                       | What it covers                                                                                              |
-| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| [architecture.md](architecture.md)             | Stack, boundaries, data rules, the local read model, the write path, the launch path, rejected alternatives |
-| [local-first.md](local-first.md)               | The design contract: what is mirrored, the outbox, pull, conflict rules, eviction, account lifecycle        |
-| [repository-anatomy.md](repository-anatomy.md) | Tracked-line breakdown, generated-file policy, large-file classification, counting rules                    |
+| Document                                       | What it covers                                                                                                           |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| [architecture.md](architecture.md)             | Stack, boundaries, data rules, the local read model, the write path, the launch path, rejected alternatives              |
+| [local-first.md](local-first.md)               | The design contract: what is mirrored, the outbox, pull, conflict rules, eviction, account lifecycle                     |
+| [lemonade.md](lemonade.md)                     | Narrating through AMD's Lemonade server: setup, engine selection, why the rendition key names the engine, and the limits |
+| [repository-anatomy.md](repository-anatomy.md) | Tracked-line breakdown, generated-file policy, large-file classification, counting rules                                 |
 
 ## Building and running
 
