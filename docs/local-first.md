@@ -1,12 +1,29 @@
 # Local-first architecture
 
-Last reviewed against the implementation: 2026-07-28
+Last reviewed against the implementation: 2026-08-13
 
 Hark's library reads from the device, always. The network only syncs in the
 background. There is no "am I online?" branch anywhere on the read path.
 
 This note is the design contract. It was written before the sync engine, because
 designing a sync engine in code first is how local-first projects lose data.
+
+## Contents
+
+1. [Why this is a completion, not a reversal](#1-why-this-is-a-completion-not-a-reversal)
+2. [What is mirrored, and what is not](#2-what-is-mirrored-and-what-is-not)
+3. [The sync unit is the book aggregate](#3-the-sync-unit-is-the-book-aggregate)
+4. [Local schema](#4-local-schema)
+5. [The outbox](#5-the-outbox)
+6. [Pull](#6-pull)
+7. [Conflict resolution — extend, do not replace](#7-conflict-resolution--extend-do-not-replace)
+8. [The launch path](#8-the-launch-path)
+9. [One library UI](#9-one-library-ui)
+10. [Eviction and storage pressure](#10-eviction-and-storage-pressure)
+11. [Account lifecycle](#11-account-lifecycle)
+12. [Migration for devices that already have data](#12-migration-for-devices-that-already-have-data)
+13. [What this design deliberately does not do](#13-what-this-design-deliberately-does-not-do)
+14. [Residual risks](#14-residual-risks)
 
 ## 1. Why this is a completion, not a reversal
 
@@ -123,8 +140,8 @@ One cursor sweep is still fire-and-forget:
 The `void` means a rejection inside the sweep becomes an unhandled rejection
 instead of aborting the version-change transaction. The new version number still
 commits, and because the sweep is guarded by `oldVersion < N` it can never run
-again. The outbox's sweeps in `offline-sync/db.ts` are awaited — the v4 step
-rewrites rows and says so in place.
+again. The outbox's sweeps in `offline-sync/db.ts` are awaited — the v4 and v5
+steps rewrite rows and say so in place.
 
 Today the fire-and-forget sweep only _deletes_ legacy rows, so a silent partial
 sweep leaves stale-but-harmless data. That stops being true the moment an upgrade **rewrites**
@@ -133,12 +150,25 @@ version is bumped, so a failure aborts the transaction and the upgrade is retrie
 rather than half-committed. Copying the existing `void` pattern into a
 data-rewriting migration is how this design would lose user data.
 
-### `chapterline-sync-v1` — the outbox, version 3 → 4
+### `chapterline-sync-v1` — the outbox, version 3 → 4 → 5
 
-Today `mutations` holds only `kind: "progress"`. Version 4 generalizes it to
-every mirrored mutation. `sequences` (per-book device high-water marks) is
-unchanged and must never be reset — those values order replay, and losing them
-loses writes.
+Version 4 generalized `mutations` from `kind: "progress"` alone to every
+mirrored mutation. It is the first upgrade in this database that **rewrites**
+rows rather than only dropping them, so it is awaited: each row is a user write
+that has not reached the server, and losing one is indistinguishable from losing
+the write itself.
+
+Version 5 keys `sequences` by `userId:bookId` and names each row's owner, so an
+account purge sweeps it by key range like every other store. It is awaited for
+the same reason. Two properties make it safe mid-flight: with no signed-in
+account there is no honest attribution, so rows are left as they are and
+`nextDeviceSequence` keeps reading them through its bare-key fallback; and the
+scoped row takes the maximum of both values, so re-running the step cannot lower
+a counter.
+
+`sequences` holds per-book device high-water marks and must never be reset —
+those values order replay, and a counter that restarts below the server's high-water
+mark loses every write until it catches up.
 
 ## 5. The outbox
 
