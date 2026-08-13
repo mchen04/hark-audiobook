@@ -324,7 +324,7 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
     <>
       {fileInput}
 
-      {snapshot.libraryTotal === 0 ? (
+      {snapshot.libraryTotal === 0 && !upload ? (
         <section
           className="empty-library"
           data-launch-ready={launchReady}
@@ -345,7 +345,6 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
             <span>{upload ? "Importing" : "Choose a book"}</span>
           </button>
           <small>MP3, PDF, EPUB, DOCX, TXT, Markdown, or HTML. Files never upload.</small>
-          {upload && <NarratingItem upload={upload} onListen={startListening} />}
         </section>
       ) : (
         <section
@@ -524,7 +523,7 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
                   />
                 ))}
               </div>
-            ) : (
+            ) : upload ? null : (
               <div className="no-results">
                 <MagnifyingGlass size={30} weight="duotone" aria-hidden="true" />
                 <h2>
