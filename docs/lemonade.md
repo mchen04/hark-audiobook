@@ -103,9 +103,9 @@ Below a minute remaining, the countdown is withheld rather than rounded:
 `formatDurationRounded` floors at "1m", so a short import would otherwise sit on
 "1m left" through its final chapters and read as stuck.
 
-The meter also reports `realtimeRatio` — audio produced per second of wall clock.
-On this Mac through Lemonade it measures about 5.6x. Nothing consumes that yet;
-it exists because it is the gate for streaming playback (below).
+Narration measured about 5.6x realtime here, which is why listening during an
+import works at all. Readiness is judged from the buffer rather than from that
+ratio, because the buffer is the thing that actually runs out.
 
 ## Listening while it narrates
 
@@ -151,9 +151,10 @@ Two decisions worth recording before anyone builds it:
 
 - **Gate on measured throughput, not on the engine.** "Is it Lemonade?" is a
   proxy for the real question. A CPU-only Lemonade box can run below realtime,
-  and a fast WebGPU desktop can run above it. `realtimeRatio` answers it
-  directly, degrades honestly on slow hardware, and improves for free as engines
-  get faster.
+  and a fast WebGPU desktop can run above it. The preview already does this the
+  right way — it offers to start only once the buffer says it will not stutter,
+  which degrades honestly on slow hardware and improves for free as engines get
+  faster.
 - **Chunks, not chapters.** A 320-character chunk is roughly 20 seconds of
   audio and takes about 3.6s to produce here, so two chunks give a usable buffer
   in about 7 seconds. Waiting for a whole first chapter would be needlessly

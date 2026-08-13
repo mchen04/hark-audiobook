@@ -26,13 +26,6 @@ export function estimateNarrationSeconds(characters: number, chapterCount: numbe
   return characters / NARRATED_CHARACTERS_PER_AUDIO_SECOND + gaps;
 }
 
-export type NarrationProgress = {
-  /** Audio produced per second of wall clock. Above 1 is faster than listening. */
-  realtimeRatio: number;
-  /** Wall-clock milliseconds left, or null until there is enough signal. */
-  remainingMs: number | null;
-};
-
 /**
  * Tracks narration throughput as it happens.
  *
@@ -45,25 +38,21 @@ const MINIMUM_SAMPLES = 2;
 
 export function createNarrationMeter(totalCharacters: number) {
   let narratedCharacters = 0;
-  let audioSeconds = 0;
   let elapsedMs = 0;
   let samples = 0;
 
   return {
-    record(characters: number, producedAudioSeconds: number, chunkElapsedMs: number): void {
+    record(characters: number, chunkElapsedMs: number): void {
       narratedCharacters += characters;
-      audioSeconds += producedAudioSeconds;
       elapsedMs += chunkElapsedMs;
       samples += 1;
     },
 
-    progress(): NarrationProgress | null {
+    /** Wall-clock milliseconds left, or null until there is enough signal. */
+    remainingMs(): number | null {
       if (samples < MINIMUM_SAMPLES || elapsedMs <= 0 || narratedCharacters <= 0) return null;
       const remainingCharacters = Math.max(0, totalCharacters - narratedCharacters);
-      return {
-        realtimeRatio: audioSeconds / (elapsedMs / 1000),
-        remainingMs: (remainingCharacters / narratedCharacters) * elapsedMs,
-      };
+      return (remainingCharacters / narratedCharacters) * elapsedMs;
     },
   };
 }

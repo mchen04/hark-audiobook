@@ -177,7 +177,7 @@ async function importLocalDocumentWithinFence(
       const meter = createNarrationMeter(totalCharacters);
       /** Narration is the long stretch, so it is the only stage that earns a clock. */
       const withRemaining = (stage: string) => {
-        const remaining = formatRemainingNarration(meter.progress()?.remainingMs);
+        const remaining = formatRemainingNarration(meter.remainingMs());
         return remaining ? `${stage} · ${remaining}` : stage;
       };
       for (let chapterIndex = 0; chapterIndex < narrationUnits.length; chapterIndex += 1) {
@@ -206,11 +206,7 @@ async function importLocalDocumentWithinFence(
           onNarrationAudio?.(synthesis.audio, synthesis.sampleRate);
           totalSamples += synthesis.audio.length;
           completedCharacters += text.length;
-          meter.record(
-            text.length,
-            synthesis.audio.length / synthesis.sampleRate,
-            Date.now() - chunkStartedAt,
-          );
+          meter.record(text.length, Date.now() - chunkStartedAt);
           onProgress(
             25 + Math.round((completedCharacters / totalCharacters) * 66),
             withRemaining(stage),

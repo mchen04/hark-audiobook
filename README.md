@@ -115,6 +115,13 @@ no configuration is needed; if it is absent — every phone, for one — narrati
 falls back to the browser engine unchanged. See
 [docs/lemonade.md](docs/lemonade.md).
 
+**You do not wait for the whole book.** The length is arithmetic from the
+character count, so the import says "about 9h 30m of audio" before a single
+sample exists, then counts down as it narrates. About twenty seconds in, a
+**Listen while it narrates** button appears and plays what exists while the rest
+is still being made — narration runs several times faster than listening, so it
+stays ahead.
+
 ## Testing
 
 ```sh

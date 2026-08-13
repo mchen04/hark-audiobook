@@ -358,6 +358,9 @@ playable; byte size and "remove the download" survive in the merged view.
   an external store (`playback-time-store.ts`) so timeupdate ticks don't
   re-render the player tree; chapter selection binary-searches on the hot path.
   The provider is the single sink for progress-conflict reconciliation.
+- `src/lib/document-import/`: the format adapters, the chunker, `rendition.ts`
+  (engine-aware rendition identity), `narration-estimate.ts` (length and
+  remaining time) and `narration-preview.ts` (listening during the import).
 - `src/lib/offline/` (`db`, `media-store`, `deletion-journal`, `library`,
   `account-purge`) + `local-import.ts`: the device-local media store and the
   in-browser import pipeline; `mirror.ts` + `sync-protocol.ts`: the library
