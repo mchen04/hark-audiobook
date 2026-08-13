@@ -508,15 +508,10 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
             </div>
           </div>
 
-          {upload && (
-            <div className={`book-grid ${view === "list" ? "book-grid-list" : ""}`}>
-              <NarratingItem upload={upload} compact={view === "list"} />
-            </div>
-          )}
-
           <div>
-            {shown.length ? (
+            {upload || shown.length ? (
               <div className={`book-grid ${view === "list" ? "book-grid-list" : ""}`}>
+                {upload && <NarratingItem upload={upload} compact={view === "list"} />}
                 {shown.map((book) => (
                   <BookItem
                     book={book}

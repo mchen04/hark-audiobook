@@ -765,44 +765,23 @@
   font-variant-numeric: tabular-nums;
 }
 
-.narrating-page {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 1.5rem 1rem 3rem;
-  text-align: center;
-}
-
-.narrating-back {
-  align-self: flex-start;
-}
-
-.narrating-art {
+/* The narrating screen borrows the player's layout; only the parts a book
+   without finished audio cannot have are defined here. */
+.narrating-cover-art {
   display: grid;
   place-items: center;
-  width: 132px;
-  height: 132px;
-  margin: 2rem 0 1.25rem;
-  border-radius: var(--radius-panel);
   background: var(--surface-muted);
   color: var(--accent);
 }
 
-.narrating-page h1 {
-  margin: 0;
-  font-size: var(--text-lg);
-}
-
-.narrating-stage {
-  margin: 0.35rem 0 1.25rem;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
+.narrating-scrubber {
+  width: 100%;
+  margin: 1.25rem 0 0.5rem;
 }
 
 .narrating-bar {
-  width: min(100%, 26rem);
+  width: 100%;
   height: 0.4rem;
-  margin-bottom: 1.5rem;
   overflow: hidden;
   border-radius: var(--radius-pill);
   background: var(--surface-muted);
@@ -814,16 +793,33 @@
   background: var(--accent);
 }
 
+.narrating-scrubber-legend {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.45rem;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.narrating-transport {
+  display: flex;
+  justify-content: center;
+  min-height: 56px;
+  margin: 0.75rem 0;
+}
+
 .narrating-live {
   margin: 0;
+  align-self: center;
   color: var(--accent);
   font-size: var(--text-sm);
   font-weight: 600;
 }
 
 .narrating-note {
-  max-width: 28rem;
-  margin: 1.5rem 0 0;
+  max-width: 30rem;
+  margin: 0.5rem auto 0;
   color: var(--text-muted);
   font-size: var(--text-sm);
+  text-align: center;
 }
