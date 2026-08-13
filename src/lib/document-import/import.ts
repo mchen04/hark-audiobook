@@ -17,10 +17,16 @@ import { KESTREL_SAMPLE_RATE } from "@/lib/kestrel/dsp";
 import { createNarrationEngine } from "@/lib/kestrel/engine";
 import { registerLocalBook, type LocalBookRegistration } from "@/lib/local-import";
 import { fingerprintMedia } from "@/lib/media-fingerprint";
+import { formatDurationRounded } from "@/lib/format-time";
 import { createStreamedLocalBookMedia, withLocalMediaSlot } from "@/lib/offline/media-store";
 import type { OfflineBook } from "@/lib/offline/db";
 
 import { chunkNarrationText } from "./chunks";
+import {
+  createNarrationMeter,
+  estimateNarrationSeconds,
+  formatRemainingNarration,
+} from "./narration-estimate";
 import { documentMimeType, extractDocument } from "./extract";
 import {
   assertSameRenditionTimeline,
@@ -118,11 +124,16 @@ async function importLocalDocumentWithinFence(
     try {
       throwIfAborted(signal);
       await ensureMp3Encoder();
+      // The length follows from the character count, so it can be shown before
+      // a single sample exists — the one number a reader wants up front.
+      const estimatedLength = formatDurationRounded(
+        estimateNarrationSeconds(totalCharacters, narrationUnits.length) * 1_000,
+      );
       onProgress(
         12,
         engine.id === "lemonade"
-          ? "Narrating through Lemonade on this device"
-          : `Loading Kestrel on this device (${formatModelSize()})`,
+          ? `Narrating through Lemonade on this device · about ${estimatedLength} of audio`
+          : `Loading Kestrel on this device (${formatModelSize()}) · about ${estimatedLength} of audio`,
       );
       await engine.initialize((progress) => {
         if (progress.stage !== "model") return;
@@ -157,6 +168,12 @@ async function importLocalDocumentWithinFence(
       let totalSamples = 0;
       const chapters: PlayerChapter[] = [];
       let synthesisIndex = 0;
+      const meter = createNarrationMeter(totalCharacters);
+      /** Narration is the long stretch, so it is the only stage that earns a clock. */
+      const withRemaining = (stage: string) => {
+        const remaining = formatRemainingNarration(meter.progress()?.remainingMs);
+        return remaining ? `${stage} · ${remaining}` : stage;
+      };
       for (let chapterIndex = 0; chapterIndex < narrationUnits.length; chapterIndex += 1) {
         throwIfAborted(signal);
         const unit = narrationUnits[chapterIndex]!;
@@ -164,16 +181,15 @@ async function importLocalDocumentWithinFence(
         for (const text of unit.chunks) {
           throwIfAborted(signal);
           const baseCharacters = completedCharacters;
+          const chunkStartedAt = Date.now();
+          const stage = `Narrating chapter ${chapterIndex + 1} of ${narrationUnits.length} on this device`;
           const synthesis = await engine.synthesize(
             text,
             seedFor(fingerprint, synthesisIndex++),
             (progress) => {
               if (progress.stage !== "speech") return;
               const narrated = baseCharacters + text.length * progress.fraction;
-              onProgress(
-                25 + Math.round((narrated / totalCharacters) * 66),
-                `Narrating chapter ${chapterIndex + 1} of ${narrationUnits.length} on this device`,
-              );
+              onProgress(25 + Math.round((narrated / totalCharacters) * 66), withRemaining(stage));
             },
           );
           throwIfAborted(signal);
@@ -183,6 +199,15 @@ async function importLocalDocumentWithinFence(
           await addAudio(audioSource, synthesis.audio, totalSamples);
           totalSamples += synthesis.audio.length;
           completedCharacters += text.length;
+          meter.record(
+            text.length,
+            synthesis.audio.length / synthesis.sampleRate,
+            Date.now() - chunkStartedAt,
+          );
+          onProgress(
+            25 + Math.round((completedCharacters / totalCharacters) * 66),
+            withRemaining(stage),
+          );
         }
         if (chapterIndex < narrationUnits.length - 1) {
           await addAudio(audioSource, new Float32Array(CHAPTER_SILENCE_SAMPLES), totalSamples);

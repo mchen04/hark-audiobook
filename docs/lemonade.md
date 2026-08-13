@@ -81,6 +81,62 @@ roughly 400–700ms, and a three-chapter document imports end to end in about 27
 seconds. AMD NPU figures are unmeasured here; this repository has no Ryzen AI
 hardware to report from.
 
+## How long it will take
+
+`src/lib/document-import/narration-estimate.ts` answers two different questions
+with two different methods.
+
+**How much audio a document will produce** is arithmetic. Kokoro's pace is a
+property of the voice, not of the machine: measured across two documents on
+`af_heart`, speech ran 15.85 and 16.53 characters per audio second once
+inter-chapter silence is excluded, so the midpoint of 16.2 predicts length from
+the character count alone. That number is shown before a single sample exists.
+
+**How long producing it will take** is not arithmetic — it depends on the engine
+and the hardware, from an NPU to a phone on WASM — so it is measured while
+narrating. The meter withholds a reading until two chunks are in, because the
+first carries one-time cost (model load, cold graph, JIT warm-up) and an
+estimate drawn from it would be wrong in the pessimistic direction exactly when
+the user is watching.
+
+Below a minute remaining, the countdown is withheld rather than rounded:
+`formatDurationRounded` floors at "1m", so a short import would otherwise sit on
+"1m left" through its final chapters and read as stuck.
+
+The meter also reports `realtimeRatio` — audio produced per second of wall clock.
+On this Mac through Lemonade it measures about 5.6x. Nothing consumes that yet;
+it exists because it is the gate for streaming playback (below).
+
+## Streaming playback, not built
+
+Narration currently completes before a book becomes playable. At 5.6x realtime a
+300-page book is roughly 9.5 hours of audio and about 100 minutes of waiting,
+which is the difference between a feature people use and one they abandon.
+
+The audio itself already streams: the encoder writes progressively into 4 MiB
+Cache Storage chunks as narration runs, and the service worker already answers
+range requests from those chunks. What blocks playback is bookkeeping, not
+audio — a book becomes playable only once its final duration and chapter seek
+map are known, and `commitChunkedMedia` runs at the end.
+
+Streaming would mean registering a book against an _estimated_ duration and
+provisional chapter marks, then correcting them at the end. That is exactly what
+`assertSameRenditionTimeline` exists to refuse, so the contract would have to
+learn the difference between "still generating" and "wrong" — which is why this
+is a designed change rather than a patch.
+
+Two decisions worth recording before anyone builds it:
+
+- **Gate on measured throughput, not on the engine.** "Is it Lemonade?" is a
+  proxy for the real question. A CPU-only Lemonade box can run below realtime,
+  and a fast WebGPU desktop can run above it. `realtimeRatio` answers it
+  directly, degrades honestly on slow hardware, and improves for free as engines
+  get faster.
+- **Chunks, not chapters.** A 320-character chunk is roughly 20 seconds of
+  audio and takes about 3.6s to produce here, so two chunks give a usable buffer
+  in about 7 seconds. Waiting for a whole first chapter would be needlessly
+  conservative on a book whose opening chapter runs ten minutes.
+
 ## Limits
 
 - **Desktop only.** Lemonade has no iOS build and iOS does not permit background
