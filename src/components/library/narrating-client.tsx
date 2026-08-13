@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Play, WaveSine } from "@phosphor-icons/react";
+import { ArrowLeft, SpeakerHigh, WaveSine } from "@phosphor-icons/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useSyncExternalStore } from "react";
 
@@ -31,6 +31,12 @@ export function NarratingClient() {
   useEffect(() => {
     if (upload === null) router.replace("/library");
   }, [upload, router]);
+
+  // Opening a book is asking to hear it. The tap that got here already started
+  // playback; this covers arriving any other way, and is a no-op once playing.
+  useEffect(() => {
+    if (upload?.narrated && !upload.listening) startListeningToImport();
+  }, [upload?.narrated, upload?.listening]);
 
   if (!upload) return null;
 
@@ -71,26 +77,17 @@ export function NarratingClient() {
             </div>
             <div className="narrating-scrubber-legend">
               <span>{upload.percent}% narrated</span>
-              <span>{upload.listening ? "Playing live" : "Not playing"}</span>
+              <span>{upload.listening ? "Playing live" : "Starting…"}</span>
             </div>
           </div>
 
           <div className="narrating-transport">
-            {upload.narrated ? (
-              upload.listening ? (
-                <p className="narrating-live">Playing as it is narrated</p>
-              ) : (
-                <button
-                  type="button"
-                  className="primary-button"
-                  onClick={startListeningToImport}
-                  disabled={!upload.canListen}
-                >
-                  <Play size={20} weight="fill" aria-hidden="true" />
-                  <span>{upload.canListen ? "Listen now" : "Narrating…"}</span>
-                </button>
-              )
-            ) : null}
+            {upload.narrated && (
+              <p className="narrating-live">
+                <SpeakerHigh size={18} weight="fill" aria-hidden="true" />
+                Playing as it is narrated
+              </p>
+            )}
           </div>
 
           <p className="narrating-note">

@@ -32,6 +32,8 @@ import { asOfflinePlayerBook } from "@/lib/offline/library";
 import { getMirrorPlayerBook, type MirrorPlayerBook } from "@/lib/offline/mirror";
 import { listBookIdsWithTranscripts } from "@/lib/offline/transcript-store";
 
+import { startListeningToImport } from "@/lib/document-import/import-controller";
+
 import { UploadBanners, useBookImport, type UploadState } from "./library-upload";
 import { type SortOrder, type StatusFilter } from "./library-view";
 import { useLibraryViewState } from "./library-view-state";
@@ -756,7 +758,8 @@ function NarratingItem({ upload, compact }: { upload: UploadState; compact: bool
         href="/narrating"
         className="book-cover narrating-cover"
         prefetch={false}
-        aria-label={`Open ${upload.title}, narrating now`}
+        onClick={startListeningToImport}
+        aria-label={`Play ${upload.title}, narrating now`}
       >
         <span className="book-cover-fallback" aria-hidden="true">
           <WaveSine size={26} weight="duotone" />
@@ -764,7 +767,12 @@ function NarratingItem({ upload, compact }: { upload: UploadState; compact: bool
         <span className="book-offdevice narrating-badge">{upload.percent}%</span>
       </Link>
       <div className="book-copy">
-        <Link href="/narrating" className="book-title" prefetch={false}>
+        <Link
+          href="/narrating"
+          className="book-title"
+          prefetch={false}
+          onClick={startListeningToImport}
+        >
           {upload.title}
         </Link>
         <p>{upload.listening ? "Playing as it is narrated" : upload.stage}</p>

@@ -31,7 +31,13 @@ export type NarrationPreviewOptions = {
   leadSeconds?: number;
 };
 
-const DEFAULT_READY_SECONDS = 20;
+/**
+ * Playing starts as soon as there is anything to play. A larger cushion would
+ * only make a reader who asked for the book wait while audio they could already
+ * hear sat in a buffer; an engine slower than playback is handled by the
+ * schedule catching up, not by stalling the start.
+ */
+const DEFAULT_READY_SECONDS = 1;
 const DEFAULT_LEAD_SECONDS = 0.15;
 
 /**

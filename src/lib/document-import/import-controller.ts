@@ -86,6 +86,16 @@ export async function runImport(
   const own = new AbortController();
   controller = own;
   ownerId = userId;
+  const narratedFile = sourceFormatForFilename(file.name)?.id !== "mp3";
+  if (narratedFile) {
+    // Built here, inside the gesture that chose the file, because Safari will
+    // not let an AudioContext start outside one. Waiting until the first chunk
+    // arrives would put its construction on a timer callback, and playing would
+    // then need a second, separate tap.
+    const { createBrowserNarrationPreview } = await import("./narration-preview-handle");
+    const { KESTREL_SAMPLE_RATE } = await import("@/lib/kestrel/dsp");
+    preview = createBrowserNarrationPreview(KESTREL_SAMPLE_RATE);
+  }
   const narrated = sourceFormatForFilename(file.name)?.id !== "mp3";
   const title = file.name.replace(/\.[^.]+$/, "");
   publish({
@@ -115,16 +125,10 @@ export async function runImport(
     if (!narrated) {
       await importLocalMp3(userId, file, report, own.signal);
     } else {
-      const [{ importLocalDocument }, { createBrowserNarrationPreview }] = await Promise.all([
-        import("./import"),
-        import("./narration-preview-handle"),
-      ]);
+      const { importLocalDocument } = await import("./import");
       await importLocalDocument(userId, file, report, {
         signal: own.signal,
-        onNarrationAudio: (audio, sampleRate) => {
-          preview ??= createBrowserNarrationPreview(sampleRate);
-          preview.enqueue(audio);
-        },
+        onNarrationAudio: (audio) => preview?.enqueue(audio),
       });
     }
     if (own.signal.aborted) return;
