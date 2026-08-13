@@ -34,6 +34,16 @@ export type NarrationPreviewOptions = {
 const DEFAULT_READY_SECONDS = 20;
 const DEFAULT_LEAD_SECONDS = 0.15;
 
+/**
+ * How much unplayed audio to hold before listening starts.
+ *
+ * A book nobody listens to would otherwise accumulate its whole self in memory
+ * — nine hours of 24 kHz float is well over a gigabyte. Past this bound the
+ * oldest audio is dropped, so pressing play starts a few minutes back rather
+ * than at the very beginning.
+ */
+const MAX_PENDING_SECONDS = 180;
+
 export function createNarrationPreview(options: NarrationPreviewOptions) {
   const { sink, sampleRate } = options;
   const readySeconds = options.readySeconds ?? DEFAULT_READY_SECONDS;
@@ -67,8 +77,15 @@ export function createNarrationPreview(options: NarrationPreviewOptions) {
 
     /** Every chunk the engine produces, whether or not anyone is listening. */
     enqueue(audio: Float32Array): void {
-      if (listening) schedule(audio);
-      else pending.push(audio);
+      if (listening) {
+        schedule(audio);
+        return;
+      }
+      pending.push(audio);
+      let held = pending.reduce((total, chunk) => total + chunk.length / sampleRate, 0);
+      while (pending.length > 1 && held > MAX_PENDING_SECONDS) {
+        held -= pending.shift()!.length / sampleRate;
+      }
     },
 
     /** True once there is enough queued that starting will not stutter at once. */

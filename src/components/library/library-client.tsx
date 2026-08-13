@@ -7,7 +7,6 @@ import {
   MagnifyingGlass,
   Play,
   Rows,
-  SpeakerHigh,
   SquaresFour,
   TextAlignLeft,
   Trash,
@@ -26,7 +25,6 @@ import { LocalMediaGate } from "@/components/player/local-media-gate";
 import { useActiveUserId } from "@/components/use-active-user";
 import type { LibraryBook } from "@/domain/library";
 import { formatBytes } from "@/lib/format-bytes";
-import { sourceFormatForFilename } from "@/lib/source-formats";
 import { formatDurationRounded } from "@/lib/format-time";
 import { markLaunchPainted } from "@/lib/launch-revalidation";
 import type { OfflineBook } from "@/lib/offline/db";
@@ -107,7 +105,7 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
   // The page owns its one alert region; the import hook and the download
   // remover both report into it.
   const [error, setError] = useState<string | null>(null);
-  const { fileInput, upload, chooseFile, startListening } = useBookImport(userId, reload, setError);
+  const { fileInput, upload, chooseFile } = useBookImport(userId, reload, setError);
 
   const books = snapshot?.books || [];
   const device: DeviceIndex = snapshot?.device || EMPTY_DEVICE_INDEX;
@@ -367,7 +365,7 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
             </button>
           </div>
 
-          <div inert={upload ? true : undefined}>
+          <div>
             {continueBook && (
               <Link
                 href={`/books/${continueBook.id}`}
@@ -512,11 +510,11 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
 
           {upload && (
             <div className={`book-grid ${view === "list" ? "book-grid-list" : ""}`}>
-              <NarratingItem upload={upload} onListen={startListening} compact={view === "list"} />
+              <NarratingItem upload={upload} compact={view === "list"} />
             </div>
           )}
 
-          <div inert={upload ? true : undefined}>
+          <div>
             {shown.length ? (
               <div className={`book-grid ${view === "list" ? "book-grid-list" : ""}`}>
                 {shown.map((book) => (
@@ -756,45 +754,24 @@ const BookItem = memo(function BookItem({
  * stays inert. This card navigates nowhere: it plays what has been narrated so
  * far, straight from the engine's own samples.
  */
-function NarratingItem({
-  upload,
-  onListen,
-  compact,
-}: {
-  upload: UploadState;
-  onListen: () => void;
-  compact: boolean;
-}) {
-  // An MP3 is copied, not narrated: there is no partial audio to play, so the
-  // card is not offered as something to tap.
-  const narrated = sourceFormatForFilename(upload.filename)?.id !== "mp3";
-  const title = upload.filename.replace(/\.[^.]+$/, "");
+function NarratingItem({ upload, compact }: { upload: UploadState; compact: boolean }) {
   return (
     <article className={`book-item narrating-book ${compact ? "book-item-compact" : ""}`}>
-      <button
-        type="button"
+      <Link
+        href="/narrating"
         className="book-cover narrating-cover"
-        onClick={onListen}
-        disabled={!narrated || !upload.canListen}
-        aria-label={
-          upload.listening
-            ? `Playing ${title} as it is narrated`
-            : upload.canListen
-              ? `Listen to ${title} while it is narrated`
-              : `${title} is being narrated`
-        }
+        prefetch={false}
+        aria-label={`Open ${upload.title}, narrating now`}
       >
         <span className="book-cover-fallback" aria-hidden="true">
-          {upload.listening ? (
-            <SpeakerHigh size={26} weight="fill" />
-          ) : (
-            <WaveSine size={26} weight="duotone" />
-          )}
+          <WaveSine size={26} weight="duotone" />
         </span>
         <span className="book-offdevice narrating-badge">{upload.percent}%</span>
-      </button>
+      </Link>
       <div className="book-copy">
-        <p className="book-title">{title}</p>
+        <Link href="/narrating" className="book-title" prefetch={false}>
+          {upload.title}
+        </Link>
         <p>{upload.listening ? "Playing as it is narrated" : upload.stage}</p>
         <div
           className="book-progress"
@@ -802,7 +779,7 @@ function NarratingItem({
           aria-valuenow={upload.percent}
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-label={`Narrating ${title}`}
+          aria-label={`Narrating ${upload.title}`}
         >
           <span style={{ width: `${upload.percent}%` }} />
         </div>

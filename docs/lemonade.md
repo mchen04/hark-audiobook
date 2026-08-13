@@ -109,10 +109,16 @@ ratio, because the buffer is the thing that actually runs out.
 
 ## Listening while it narrates
 
-A document appears in the library the moment it is chosen, as a narrating entry
-with its own progress. Once about 20 seconds of audio is queued the entry offers
-"Listen now" and plays what exists while the rest is still being made. When the
-import finishes the entry is replaced by the real book.
+A document appears in the library the moment it is chosen, as a book card like
+any other, and narration continues in the background. Opening it goes to
+`/narrating`, which plays what has been made so far and keeps updating; leaving
+that screen does not stop it. When the import finishes the card is replaced by
+the real book and the screen returns to the library.
+
+Unplayed audio is held to a three-minute bound. A nine-hour book nobody listens
+to would otherwise accumulate itself in memory, so past that the oldest audio is
+dropped and pressing play starts a few minutes back rather than at the very
+beginning.
 
 This needs none of the durable machinery. The engine returns raw samples and the
 import already holds them, so `narration-preview.ts` schedules those straight
@@ -120,11 +126,11 @@ onto an AudioContext — no media store, no service worker, no seek map, no
 registered book. `importLocalDocument` reports them through an optional
 `onNarrationAudio` callback and does not wait on it.
 
-The entry is rendered **outside** the library's frozen region on purpose.
-`useBookImport` aborts the import when the library unmounts, so tapping a real
-book mid-import would destroy the narration in progress — which is why
-everything that navigates stays `inert` while an import runs. This entry
-navigates nowhere, so it can stay live.
+The import runs outside React, in `import-controller.ts`. It used to live in
+the library screen, so React unmounting that screen aborted it — opening the
+book you were narrating destroyed the narration, and the library had to be held
+`inert` to stop you doing exactly that. Owning it outside the tree is what lets
+the book be opened while it is still being written, and the freeze is gone.
 
 The scheduling is kept free of Web Audio so it can be tested against a fake
 clock; `browserNarrationSink` is the only part that touches an AudioContext, and
