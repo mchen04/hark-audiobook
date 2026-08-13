@@ -743,79 +743,24 @@
   color: var(--danger);
 }
 
-/* The book being narrated, shown before it is a book. It sits above the shelf
-   and stays interactive while the rest of the library is frozen. */
-.narrating-item {
-  display: flex;
-  align-items: center;
-  gap: 0.9rem;
-  margin-bottom: 1.1rem;
-  padding: 0.85rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-panel);
-  background: var(--surface-strong);
-}
-
-.narrating-cover {
+/* The book being narrated. It is a book card like any other, so the shelf does
+   not gain a second visual language for one transient row. It sits outside the
+   frozen region because an import is aborted when the library unmounts: the
+   real cards must stay unnavigable, this one must stay tappable. */
+.narrating-book .book-cover {
   display: grid;
-  flex: none;
   place-items: center;
-  width: 46px;
-  height: 46px;
-  border-radius: var(--radius-panel);
+  border: 0;
   background: var(--surface-muted);
   color: var(--accent);
-}
-
-.narrating-body {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.narrating-title {
-  margin: 0;
-  overflow: hidden;
-  font-size: var(--text-sm);
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.narrating-stage {
-  margin: 0.15rem 0 0.5rem;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: var(--text-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.narrating-play {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 0.4rem;
-  min-height: 44px;
-  padding: 0 1rem;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--accent);
-  color: var(--accent-contrast);
-  font-size: var(--text-sm);
-  font-weight: 600;
   cursor: pointer;
 }
 
-.narrating-play:disabled {
-  background: var(--surface-muted);
+.narrating-book .book-cover:disabled {
   color: var(--text-muted);
   cursor: default;
 }
 
-.narrating-listening {
-  flex: none;
-  margin: 0;
-  color: var(--accent);
-  font-size: var(--text-sm);
-  font-weight: 600;
+.narrating-badge {
+  font-variant-numeric: tabular-nums;
 }

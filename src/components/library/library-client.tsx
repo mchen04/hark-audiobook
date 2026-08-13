@@ -7,6 +7,7 @@ import {
   MagnifyingGlass,
   Play,
   Rows,
+  SpeakerHigh,
   SquaresFour,
   TextAlignLeft,
   Trash,
@@ -366,8 +367,6 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
             </button>
           </div>
 
-          {upload && <NarratingItem upload={upload} onListen={startListening} />}
-
           <div inert={upload ? true : undefined}>
             {continueBook && (
               <Link
@@ -509,7 +508,15 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
                 </button>
               ))}
             </div>
+          </div>
 
+          {upload && (
+            <div className={`book-grid ${view === "list" ? "book-grid-list" : ""}`}>
+              <NarratingItem upload={upload} onListen={startListening} compact={view === "list"} />
+            </div>
+          )}
+
+          <div inert={upload ? true : undefined}>
             {shown.length ? (
               <div className={`book-grid ${view === "list" ? "book-grid-list" : ""}`}>
                 {shown.map((book) => (
@@ -749,42 +756,57 @@ const BookItem = memo(function BookItem({
  * stays inert. This card navigates nowhere: it plays what has been narrated so
  * far, straight from the engine's own samples.
  */
-function NarratingItem({ upload, onListen }: { upload: UploadState; onListen: () => void }) {
-  // An MP3 is copied, not narrated: there is no partial audio to listen to, so
-  // it gets the progress row without an offer it could never honor.
+function NarratingItem({
+  upload,
+  onListen,
+  compact,
+}: {
+  upload: UploadState;
+  onListen: () => void;
+  compact: boolean;
+}) {
+  // An MP3 is copied, not narrated: there is no partial audio to play, so the
+  // card is not offered as something to tap.
   const narrated = sourceFormatForFilename(upload.filename)?.id !== "mp3";
+  const title = upload.filename.replace(/\.[^.]+$/, "");
   return (
-    <div className="narrating-item">
-      <div className="narrating-cover" aria-hidden="true">
-        <WaveSine size={26} weight="duotone" />
-      </div>
-      <div className="narrating-body">
-        <p className="narrating-title">{upload.filename}</p>
-        <p className="narrating-stage">{upload.stage}</p>
+    <article className={`book-item narrating-book ${compact ? "book-item-compact" : ""}`}>
+      <button
+        type="button"
+        className="book-cover narrating-cover"
+        onClick={onListen}
+        disabled={!narrated || !upload.canListen}
+        aria-label={
+          upload.listening
+            ? `Playing ${title} as it is narrated`
+            : upload.canListen
+              ? `Listen to ${title} while it is narrated`
+              : `${title} is being narrated`
+        }
+      >
+        <span className="book-cover-fallback" aria-hidden="true">
+          {upload.listening ? (
+            <SpeakerHigh size={26} weight="fill" />
+          ) : (
+            <WaveSine size={26} weight="duotone" />
+          )}
+        </span>
+        <span className="book-offdevice narrating-badge">{upload.percent}%</span>
+      </button>
+      <div className="book-copy">
+        <p className="book-title">{title}</p>
+        <p>{upload.listening ? "Playing as it is narrated" : upload.stage}</p>
         <div
           className="book-progress"
           role="progressbar"
           aria-valuenow={upload.percent}
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-label={`Narrating ${upload.filename}`}
+          aria-label={`Narrating ${title}`}
         >
           <span style={{ width: `${upload.percent}%` }} />
         </div>
       </div>
-      {!narrated ? null : upload.listening ? (
-        <p className="narrating-listening">Playing as it is made</p>
-      ) : (
-        <button
-          type="button"
-          className="narrating-play"
-          onClick={onListen}
-          disabled={!upload.canListen}
-        >
-          <Play size={16} weight="fill" aria-hidden="true" />
-          {upload.canListen ? "Listen now" : "Preparing…"}
-        </button>
-      )}
-    </div>
+    </article>
   );
 }
