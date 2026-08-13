@@ -38,48 +38,43 @@ describe("estimateNarrationSeconds", () => {
 describe("createNarrationMeter", () => {
   it("withholds a reading until the one-time startup cost is behind it", () => {
     const meter = createNarrationMeter(1_000);
-    expect(meter.progress()).toBeNull();
-    meter.record(100, 6, 4_000); // first chunk carries the model load
-    expect(meter.progress()).toBeNull();
-    meter.record(100, 6, 1_000);
-    expect(meter.progress()).not.toBeNull();
-  });
-
-  it("reports how far ahead of listening the engine is running", () => {
-    const meter = createNarrationMeter(1_000);
-    meter.record(100, 6, 1_000);
-    meter.record(100, 6, 1_000);
-    // 12s of audio produced in 2s of wall clock.
-    expect(meter.progress()?.realtimeRatio).toBeCloseTo(6, 5);
+    expect(meter.remainingMs()).toBeNull();
+    meter.record(100, 4_000); // first chunk carries the model load
+    expect(meter.remainingMs()).toBeNull();
+    meter.record(100, 1_000);
+    expect(meter.remainingMs()).not.toBeNull();
   });
 
   it("projects the remaining wall clock from the characters left", () => {
     const meter = createNarrationMeter(1_000);
-    meter.record(200, 12, 2_000);
-    meter.record(200, 12, 2_000);
+    meter.record(200, 2_000);
+    meter.record(200, 2_000);
     // 400 of 1,000 characters took 4s, so the remaining 600 should take 6s.
-    expect(meter.progress()?.remainingMs).toBeCloseTo(6_000, 5);
+    expect(meter.remainingMs()).toBeCloseTo(6_000, 5);
   });
 
   it("winds down to no time remaining on the last chunk", () => {
     const meter = createNarrationMeter(200);
-    meter.record(100, 6, 1_000);
-    meter.record(100, 6, 1_000);
-    expect(meter.progress()?.remainingMs).toBe(0);
+    meter.record(100, 1_000);
+    meter.record(100, 1_000);
+    expect(meter.remainingMs()).toBe(0);
   });
 
   it("never projects a negative remainder when a document narrates long", () => {
     const meter = createNarrationMeter(100);
-    meter.record(100, 6, 1_000);
-    meter.record(100, 6, 1_000);
-    expect(meter.progress()?.remainingMs).toBe(0);
+    meter.record(100, 1_000);
+    meter.record(100, 1_000);
+    expect(meter.remainingMs()).toBe(0);
   });
 
-  it("reflects a slow engine as running behind realtime", () => {
-    const meter = createNarrationMeter(1_000);
-    meter.record(100, 6, 12_000);
-    meter.record(100, 6, 12_000);
-    expect(meter.progress()!.realtimeRatio).toBeLessThan(1);
+  it("carries a slow engine into a longer projection", () => {
+    const fast = createNarrationMeter(1_000);
+    fast.record(100, 1_000);
+    fast.record(100, 1_000);
+    const slow = createNarrationMeter(1_000);
+    slow.record(100, 12_000);
+    slow.record(100, 12_000);
+    expect(slow.remainingMs()!).toBeGreaterThan(fast.remainingMs()!);
   });
 });
 

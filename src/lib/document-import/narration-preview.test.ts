@@ -106,15 +106,6 @@ describe("narration preview", () => {
     subject.enqueue(seconds(10));
 
     expect(played.at(-1)!.at).toBe(25);
-    expect(subject.stats().underruns).toBe(1);
-  });
-
-  it("counts no underrun for the very first chunk, which has nothing to fall behind", () => {
-    const { subject, advance } = preview();
-    advance(5);
-    subject.enqueue(seconds(10));
-    subject.start();
-    expect(subject.stats().underruns).toBe(0);
   });
 
   it("never reports a negative buffer once the schedule is exhausted", () => {
@@ -125,11 +116,16 @@ describe("narration preview", () => {
     expect(subject.bufferedSeconds()).toBe(0);
   });
 
-  it("tracks everything produced, whether or not it was listened to", () => {
-    const { subject } = preview();
+  it("starts a late listener from the beginning, not from the clock", () => {
+    const { subject, played, advance } = preview();
     subject.enqueue(seconds(10));
+    advance(30); // narration ran on for a while before anyone pressed play
     subject.enqueue(seconds(10));
-    expect(subject.stats().producedSeconds).toBe(20);
-    expect(subject.stats().listening).toBe(false);
+    subject.start();
+
+    expect(played).toEqual([
+      { at: 30, seconds: 10 },
+      { at: 40, seconds: 10 },
+    ]);
   });
 });

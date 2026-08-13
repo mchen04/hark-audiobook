@@ -42,42 +42,38 @@ export function createNarrationPreview(options: NarrationPreviewOptions) {
   const pending: Float32Array[] = [];
   let listening = false;
   let scheduledUntil = 0;
-  let producedSeconds = 0;
-  let underruns = 0;
 
   const schedule = (audio: Float32Array) => {
     const now = sink.now();
-    // Falling behind is not an error worth throwing: the engine is slower than
-    // playback on this machine. Resume just ahead of the clock and count it, so
-    // the caller can stop offering something this device cannot sustain.
-    if (scheduledUntil < now) {
-      if (scheduledUntil > 0) underruns += 1;
-      scheduledUntil = now + leadSeconds;
-    }
+    // Falling behind is not an error worth throwing: it means the engine is
+    // slower than playback on this machine. Resume just ahead of the clock
+    // rather than queueing a moment that has already gone.
+    if (scheduledUntil < now) scheduledUntil = now + leadSeconds;
     sink.play(audio, scheduledUntil);
     scheduledUntil += audio.length / sampleRate;
   };
 
+  /**
+   * Unplayed audio in hand. Before listening starts that is everything held;
+   * afterwards it is however far the schedule runs past the clock.
+   */
+  const bufferedSeconds = () => {
+    if (!listening) return pending.reduce((total, audio) => total + audio.length / sampleRate, 0);
+    return Math.max(0, scheduledUntil - sink.now());
+  };
+
   return {
+    bufferedSeconds,
+
     /** Every chunk the engine produces, whether or not anyone is listening. */
     enqueue(audio: Float32Array): void {
-      producedSeconds += audio.length / sampleRate;
       if (listening) schedule(audio);
       else pending.push(audio);
     },
 
     /** True once there is enough queued that starting will not stutter at once. */
     isReady(): boolean {
-      return !listening && this.bufferedSeconds() >= readySeconds;
-    },
-
-    /**
-     * Unplayed audio in hand. Before listening starts that is everything held;
-     * afterwards it is however far the schedule runs past the clock.
-     */
-    bufferedSeconds(): number {
-      if (!listening) return pending.reduce((total, audio) => total + audio.length / sampleRate, 0);
-      return Math.max(0, scheduledUntil - sink.now());
+      return !listening && bufferedSeconds() >= readySeconds;
     },
 
     /** Starts playback from the beginning of what has been narrated so far. */
@@ -87,11 +83,6 @@ export function createNarrationPreview(options: NarrationPreviewOptions) {
       scheduledUntil = sink.now() + leadSeconds;
       for (const audio of pending) schedule(audio);
       pending.length = 0;
-    },
-
-    /** How far ahead of the listener the engine is running. */
-    stats(): { listening: boolean; producedSeconds: number; underruns: number } {
-      return { listening, producedSeconds, underruns };
     },
   };
 }
