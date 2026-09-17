@@ -174,7 +174,14 @@ critical path.
    `/offline-media/<uuid>` URL backed by independently cached 4 MiB chunks, with
    a per-user IndexedDB record; embedded cover art is stored beside it along
    with a downscaled thumbnail so small surfaces (library cards, downloads
-   list, mini player) never decode full-size art. Fingerprint hashing runs in
+   list, mini player) never decode full-size art. The first chunk is checked
+   for a lying Xing/Info seek table (`src/domain/mp3-seek-header.ts`): ffmpeg
+   writes the stream's byte count into a 32-bit field, so any book over 4 GiB
+   carries a wrapped count and a seek table scaled to it, and Chromium's
+   fast-seek path turns hour 16 into byte 4.6 MB. The stored copy has the
+   byte-count and table flags cleared while the frame count stays, so browsers
+   seek by bitrate; the source file and its fingerprint are untouched.
+   Fingerprint hashing runs in
    a web worker to keep `hash-wasm` out of page bundles. If
    storing fails, the metadata remains recoverable and choosing the source again
    completes the device attachment. A rejected request, timeout, 408, 429, or

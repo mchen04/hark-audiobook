@@ -1,3 +1,4 @@
+import { repairMp3SeekHeader } from "@/domain/mp3-seek-header";
 import type { PlayerBook } from "@/domain/player";
 import {
   assertAccountWritable,
@@ -406,12 +407,13 @@ async function storeLocalBookMediaUnlocked(
       async (index) => {
         if (writeFailed || signal?.aborted) return;
         try {
+          const chunk = file.slice(
+            index * MEDIA_CHUNK_BYTES,
+            Math.min(file.size, (index + 1) * MEDIA_CHUNK_BYTES),
+          );
           await writer.writeChunk(
             index,
-            file.slice(
-              index * MEDIA_CHUNK_BYTES,
-              Math.min(file.size, (index + 1) * MEDIA_CHUNK_BYTES),
-            ),
+            index === 0 ? await repairedFirstChunk(chunk, file) : chunk,
             true,
           );
         } catch (error) {
@@ -476,6 +478,25 @@ async function storeLocalBookMediaUnlocked(
     { url: offlineCoverUrl, thumbUrl: offlineCoverThumbUrl },
     startedAt,
   );
+}
+
+/**
+ * The browser seeks a saved MP3 by the byte table in its first frame, and
+ * ffmpeg writes that table wrong for any book over 4 GiB. The copy this device
+ * keeps carries a disarmed table; the source file and its fingerprint stay
+ * untouched, so re-importing the same file still resolves to the same book.
+ */
+async function repairedFirstChunk(
+  chunk: Blob,
+  file: File,
+): Promise<Blob | Uint8Array<ArrayBuffer>> {
+  const head = new Uint8Array(await chunk.arrayBuffer());
+  const repair = repairMp3SeekHeader(head, file.size);
+  if (!repair.repaired) return chunk;
+  console.info(
+    `Disarmed the seek table of "${file.name}": it declared ${repair.declaredBytes} of ${repair.actualBytes} audio bytes.`,
+  );
+  return repair.bytes;
 }
 
 export function hasEnoughCapacity(
