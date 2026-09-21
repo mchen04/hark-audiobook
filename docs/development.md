@@ -68,8 +68,23 @@ use a separate new test database. Database-read and verifier failures name the
 operation and a safe error category; raw messages, passwords and hashes are
 omitted. This helper does not rotate credentials or reset volumes.
 
+On the configured disposable test database, this read-only query reports whether
+the retained identity and its credential exist without returning any password or
+hash. Zero rows means signup is appropriate; a user with no credential needs
+provisioning repair or a separate new fixture database, not a password retry.
+
+```sql
+SELECT u.id,
+       count(a.id) AS credential_rows,
+       coalesce(bool_or(nullif(a.password, '') IS NOT NULL), false) AS credential_present
+FROM "user" u
+LEFT JOIN account a ON a.user_id = u.id AND a.provider_id = 'credential'
+WHERE u.email = 'retained-workflows@hark.test'
+GROUP BY u.id;
+```
+
 Retained browser workflows reuse the fixed `.111` test IP and read the real
-database sign-in and signup buckets before each attempt. They wait for an
+database sign-in and signup buckets before each attempt. They wait for a
 bucket's remaining idle window and extend that test's timeout. They leave two
 sign-in attempts and one signup attempt as headroom. Each call permits at most
 two waits totaling one real window plus 1,500 ms of slack (61.5 seconds for

@@ -1080,3 +1080,272 @@ Another quick gate rebuild requires restarting only the verified owned test
 server and recording its new build provenance. The implementer pauses here for
 Forge's cleanup gate if needed and **independent fixes-only external review**.
 No reviewer, cleanup procedure or board action was run by the implementer.
+
+## Acceptance repairs after independent additional review
+
+This section supersedes earlier final-candidate coverage claims without changing
+their receipts. Michael authorized continuing task `t_99d8ece2`. The complete
+external review of `3209b06` was read before changes and is copied verbatim to
+`.data/objective/acceptance-fixes/review-input.md`. It approved S1–S6 as fixes,
+not the card's acceptance. N1–N9, including the two reproduced pre-existing
+product defects, are addressed below. No independent review or cleanup gate was
+run by this implementer.
+
+### Candidate, baseline and provenance
+
+Host was verified as **mbp-old** before work. This remained one implementer,
+ordinary turns, no native goal, no subagents, no remote publication or board
+actions. The clean round baseline was **`3209b06e56f8638478009838570bbd84dd0d625b`**.
+Before edits, `baseline-quick` passed formatting, lint, types, **787 unit tests
+in 89 files** and a production build. `baseline-source.json` was measured
+separately from the command receipt, using the unchanged source scanner.
+
+The stale owned `:3000` server was stopped only after checking its PID and exact
+checkout cwd. The new baseline server served build `URgcnaMQyWPVp3kDffZ2W`;
+`served-baseline.json` verifies the source, process, HTML/build ID and **65**
+assets: all 64 emitted static files plus `public/sw.js`. Reviewer ports **3100
+and 3199** were not altered. No real library, database/volume or credential was
+reset. Tests use guarded local disposable accounts and their existing stable
+per-project IP allocations; auth rate limits remain active.
+
+The repaired source/test commit is **`a6eecfb07e5f0c9dfa23e8f386d14fd14637812c`** —
+`Repair media identity, sync clocks and bounded fixture checks`. Its full quick
+gate passed with **803 tests in 90 files**, then built `Mf1y0CMcug2Ygn89_7aTB`.
+Only the owned server was restarted: PID **1538**, `:3000`, exact cwd
+`hark/.next/standalone`. `served-candidate-1.json` pins this source and verifies
+the same 65 live/disk hashes. All candidate browser results below use this
+build. Later documentation-only changes are checked separately at handoff;
+they do not relabel the tested source or the earlier review's candidate.
+
+### N1–N9 dispositions
+
+| Finding                                   | Disposition and evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **N1 — cancellation outlives its intent** | The gate's state is scoped to account, book and rendition identity. A fresh attachment clears cancellation only after a nonempty file selection. Navigating away/back creates fresh intent. Cancel still re-reads committed availability with autoplay suppressed. Component regressions exercise reattachment, late completion and return to the cancelled book. Both full iPhone runs prove **0** play calls after Cancel and **1** after manual Play, using the already-committed media without another attachment.                                                                                                                                                                                                                                                   |
+| **N2 — stale final-candidate handoff**    | The previous handoff is explicitly historical at `a08d27c`/tested source `0bdf543`. Cleanup commits `e8afea7` and `3209b06`, their harness changes and the external execution at `3209b06` are now named. The old verifier and receipts remain untouched, but the stale verifier is no longer recommended. The new verifier accepts only documentation changes after this tested source and checks clean-tree/build/process/65-asset provenance.                                                                                                                                                                                                                                                                                                                         |
+| **N3 — conflated fixture diagnostics**    | A missing user returns the signup path. An existing disposable user lacking its credential fails with a provisioning diagnosis; an env backup cannot repair it. A real mismatch retains the matching-env/separate-fixture guidance. Database and verifier failures name their stage and a safe whitelisted error category, without raw error text, credentials or hashes. Seven unit cases cover these distinct outcomes. No user/credential mutation is attempted. `docs/development.md` includes a read-only identity/credential-count query.                                                                                                                                                                                                                          |
+| **N4 — tautological password assertion**  | The browser case now captures the actual thrown Error, checks its actual message for the attempted password and exact expected text, and writes that actual verified message. Boolean assertions avoid leaking a mismatched secret through a diff. A mutation appending the attempted password to the real helper's error fails **1 of 7** unit cases; source is restored exactly. Both live runs receive **401**, keep the fixture book count **1 → 1**, and authenticate with the original credential afterward.                                                                                                                                                                                                                                                       |
+| **N5 — unproved decoder advancement**     | The collection control waits for unpaused, non-seeking decoded readiness, samples the next book's position, then requires advancement beyond that sample by **0.1 s**. Its artifact derives the result. Consecutive live runs observed **0.148975 → 0.516866 s** and **0.157375 → 0.503335 s** with `autoplay=1`, without a second Play click.                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| **N6 — unbounded budget waits**           | The retained helper re-reads real buckets after each wait, retains **2 sign-in / 1 signup** attempts as headroom and 1,500 ms slack. Each call allows at most two waits with cumulative scheduled duration at most one window plus slack: **61.5 s / 601.5 s**. Continued saturation or a future clock fails with a serial-run/bucket/clock diagnosis, never reset/rotate/disable guidance. Nine fake-clock cases include repeated saturation and future timestamps. Both consecutive full browser runs exercised real sign-in waits, logged rounded to **62 s**, and passed with account deletion retained.                                                                                                                                                             |
+| **N7 — metrics and cleanup attribution**  | Historical `residual-fixes-source.json` still pins `0bdf543`; it is not rewritten. The ledger now names cleanup's `3209b06` test counts, and the new source summary below pins this candidate. `CLEANUP.md` identifies its actual input range `e9feaee..a08d27c` (5 commits/12 files), the subsequent 7-commit/13-file range, and the largest-file audit's actual location in `docs/repository-anatomy.md`. Its postcheck paragraph distinguishes outcomes at report creation from subsequent coordinator/reviewer execution.                                                                                                                                                                                                                                            |
+| **N8 — new identity mounts old audio**    | A keyed inner media gate synchronously discards state on account/book/fingerprint/rendition changes before React commits the new identity. An effect-only reset would be too late. Three regressions delay the next lookup and inspect committed player renders: no old media may mount under the new identity; the resolved source must be the new account/book/rendition's distinct URL. Together with N1 regressions, the old implementation fails **5 of 9** cases and the corrected gate passes all **9**. No account fence or legacy-rendition refusal was weakened.                                                                                                                                                                                               |
+| **N9 — mixed receipt clocks break sync**  | The original collection failure reproduced on the baseline with a **19 ms backward** timestamp. Server receipt updates now use atomic database `greatest(clock_timestamp(), previous + interval '1 microsecond')` under the row write lock, for books, collections, playback, preferences, sequence receipts and tombstone conflicts. Creation remains database-timed. Client playback event clocks/conflict decisions and positions are unchanged. Three new real-browser tests move only disposable fixture rows one minute ahead, then require strictly advancing SQL microsecond timestamps and real incremental convergence after repeated metadata/tag/archive/membership or playback/preferences mutations. All three are red before the fix and green afterward. |
+
+The timestamp expression establishes monotonic **per-row receipt time**; it is
+not a global revision counter or a redesign of transaction ordering. The measured
+host/database skew now cannot make these receipt updates step backwards. A
+read-only probe found the database **28.16–28.82 ms ahead** in seven short
+round trips; a slower initial sample measured 43.17 ms. No host or database clock
+was changed, no sleep was added to the product/tests to conceal N9, and no
+assertion was weakened. Raw clock and microsecond timestamp artifacts remain.
+
+### Prior sync/mirror failures and current coverage
+
+`baseline-prior-failures` exercised all seven formerly failing case names on the
+clean `3209b06` production build: **6 passed / 1 failed**. The collection
+timestamp failure reproduced. The account-purge canary, online/offline archived
+library evidence, offline Back navigation, fuzz seed `20260102`, tag edit and
+queued tag edge did not fail in that bounded baseline run. Their historical red
+receipts remain valid observations; their individual root causes are not claimed
+to have been proven by the clock fix.
+
+On `a6eecfb`, full parity and sync pass **33/33 + 35/35**, including all those
+cases and all twelve fixed fuzz seeds. The six-case targeted timestamp run also
+passes. A further bounded run repeats seed `20260102`, tag edit and queued tag
+edge three times each: **9/9 passed**, with no narrowed operation vocabulary.
+These results clear the current candidate's executed cases; they are
+not a claim that intermittent historical failures were imaginary or that every
+possible scheduling/clock condition is covered.
+
+Both consecutive full `iphone-webkit` runs pass **8/8**. Only read-only auth
+bucket snapshots ran between them. The fixed `.111` signup bucket went from
+absent to **1 → 2**; sign-in snapshots also show absent to **1 → 2**, across the
+real idle-window resets. Each wait is preserved in the raw logs. Deletion is
+still executed in each run; the next case creates/reuses the disposable fixture
+through real auth. No live ten-minute signup-exhaustion experiment is claimed:
+that boundary and continual saturation use bounded fake-clock tests, while
+consecutive browser runs prove normal signup/reuse/deletion and real limiter
+integration.
+
+| Retained workflow / state                                                                     | Candidate coverage and oracle                                                                                                                                                                                          |
+| --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MP3 import, player, chapters, speed, skips, transcript, history, smart rewind and sleep timer | Both complete iPhone journeys, parity and supported resume cases; real media decoding and offline relaunch assertions.                                                                                                 |
+| Document narration, progress, cancellation and completed-only playback                        | TXT/Markdown/HTML/PDF/DOCX/EPUB execute local narration in both iPhone runs; progress/cancel and legacy rendition refusal remain; committed-cancel range proof is **206 / 1,024 bytes**.                               |
+| Empty/loading/error/success/offline/recovery                                                  | Full iPhone first-sync/retained journeys and parity; durable screenshots include empty, loading, unreachable, recovered, offline and not-on-device states.                                                             |
+| Organization, tags, archive, collections and autoplay                                         | Both iPhone journeys plus full sync; next-book decoder advances relative to a sampled position, and future receipt-clock cases converge after every edit.                                                              |
+| Offline storage, reattachment, books/positions/timeline integrity                             | iPhone offline playback, parity identity/account contracts, media-gate committed-render tests and supported resume coverage; no real user library is used.                                                             |
+| Accounts/sync, export, book/account deletion and diagnostics                                  | Full parity/sync and two retained runs; actual credential-mismatch diagnostic, successful original login, account deletion and metadata export remain asserted.                                                        |
+| Privacy and account isolation                                                                 | Full parity account/fence tests, full quick gate, unchanged static architecture guard and both live privacy controls. The N8 tests prove the synchronous identity boundary; existing fence assertions remain in place. |
+
+The committed-cancel browser control retains its disclosed instrumentation:
+wrappers around `IDBObjectStore.prototype.put` and
+`BroadcastChannel.prototype.postMessage` delegate to the real APIs and click
+Cancel after the durable commit while the mirror work remains blocked; both
+wrappers are restored. `HTMLMediaElement.prototype.play` delegates and counts
+calls until page teardown. This establishes behavior in the targeted window,
+not that an unaided human click reliably reaches it.
+
+Privacy claims retain their limits. Each document run recorded **99 app-origin
+wire requests / 11 bodies** and **258 browser observations**, with no fixture
+document text detected. Each independent cross-origin loopback control observed
+all six sentinel bodies at the socket; WebKit omitted the Blob request body and
+the service-worker request event from browser capture. No cloud upload occurred.
+The collector does not observe arbitrary remote destinations, encrypted/encoded
+payloads or binary audio; source/static checks and app-origin wire capture
+complement the browser channel. These are not universal non-exfiltration proofs.
+
+### Fresh source metrics, separate from historical benchmarks
+
+[acceptance-fixes-source.json](acceptance-fixes-source.json) records the unchanged
+scanner's same scope: application TS/TSX and `public/sw.js`, excluding tests;
+token-occupied lines exclude comments and blanks. ESLint classic cyclomatic
+complexity counts each function and its branches/short-circuit/optional paths.
+Tests/harness, CSS and generated JSON are separate. Full static bundle totals
+include every emitted JS/CSS/WASM asset, not initial page transfer.
+
+| Metric                                | Original `0e1f17e` | Round baseline `3209b06` | Tested source `a6eecfb` |
+| ------------------------------------- | -----------------: | -----------------------: | ----------------------: |
+| App files                             |                185 |                      178 |                     179 |
+| App physical lines                    |             28,134 |                   27,280 |                  27,316 |
+| App code lines                        |             23,950 |                   23,232 |                  23,258 |
+| App cyclomatic complexity sum         |              5,623 |                    5,456 |                   5,455 |
+| App functions / maximum complexity    |         1,810 / 70 |               1,745 / 70 |              1,747 / 70 |
+| Functions above complexity 10         |                 84 |                       79 |                      79 |
+| Retained library subset complexity    |                357 |                      329 |                     329 |
+| Tests/harness files                   |                130 |                      134 |                     135 |
+| Tests/harness physical / code lines   |    35,655 / 32,148 |          36,755 / 33,279 |         37,222 / 33,733 |
+| CSS physical lines                    |              3,249 |                    3,149 |                   3,149 |
+| Generated Drizzle JSON physical lines |             58,251 |                   58,251 |                  58,251 |
+| Static raw bytes                      |         28,550,966 |               28,540,479 |              28,540,585 |
+| Static individually gzipped bytes     |          7,559,946 |                7,555,810 |               7,555,842 |
+
+This round adds **26 application code lines**, reduces summed complexity by
+**1**, and costs **106 raw / 32 gzip bytes**. Regression coverage increases
+separately. No source-pruning or performance improvement is inferred from those
+small deltas. The original calibrated browser startup/responsiveness/heap/import
+measurements remain attributed to **`be79d4e`**, original source snapshot
+`4964071`. Current functional narration timings are diagnostics, not a matched
+performance comparison or replacement for that benchmark.
+
+### Raw outcomes and verification limits
+
+All prefixes in this section are under `.data/objective/acceptance-fixes/`.
+Each command receipt records exact argv, cwd, hostname, UTC times, elapsed time
+and exit status beside its unedited combined log. New output paths preserve all
+earlier observations.
+
+| Prefix                                 | Exact outcome                                                                                                                                                                                                                                                                                |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `baseline-quick`                       | Exit 0, **34.569 s**, format/lint/types, **787 tests / 89 files**, production build.                                                                                                                                                                                                         |
+| `baseline-source-check`                | Exit 0, **2.401 s**, clean `3209b06` source/build metrics in a distinct JSON output.                                                                                                                                                                                                         |
+| `baseline-prior-failures`              | Exit 1, **6 passed / 1 failed**, **34.529 s**; original collection timestamp moves backwards 19 ms.                                                                                                                                                                                          |
+| `n1-n8-red`, `n1-n8-green`             | Exit 1 (**5 failed / 4 passed**) against old gate; exit 0 (**9 passed**) with the fix.                                                                                                                                                                                                       |
+| `n3-red`                               | Exit 1, **5 failed / 2 passed**; two missing-credential cases also had malformed `it.each` fixture arguments, so these two failures are not product evidence.                                                                                                                                |
+| `n3-red-corrected-fixture`, `n3-green` | With the fixture corrected, exit 1 (**5 failed / 2 passed**) against the old helper; exit 0 (**7 passed**) with differentiated diagnostics.                                                                                                                                                  |
+| `n4-diagnostic-mutation`               | Exit 1, **1 failed / 6 passed** after appending the attempted dummy password to the real thrown error; exact source restored.                                                                                                                                                                |
+| `n6-red`, `n6-green`                   | Exit 1 (**5 failed / 4 passed**) against the old wait helper; exit 0 (**9 passed**) with bounded waits/headroom.                                                                                                                                                                             |
+| `n9-future-red`                        | Exit 1, **2 failed**, **7.927 s**; book/collection updates move behind their retained future receipt.                                                                                                                                                                                        |
+| `n9-state-red`                         | Exit 1, **1 failed**, **5.258 s**; playback/preferences clocks move backward and the second device remains at 10,000 ms instead of 24,000 ms. The test file was formatted after runner compilation, so some stack line excerpts are shifted; actual assertions and raw errors are preserved. |
+| `quick-candidate-1`                    | Exit 0, **32.974 s**, full format/lint/types/**803 tests in 90 files**/production-build gate.                                                                                                                                                                                                |
+| `provenance-candidate-1`               | Exit 0; exact source, owned process/build and **65 live asset hashes** match.                                                                                                                                                                                                                |
+| `source-candidate-1-check`             | Exit 0, **2.356 s**, fresh source/build scan.                                                                                                                                                                                                                                                |
+| `clock-candidate-1`                    | Exit 0; read-only database/host skew probe, no clock change.                                                                                                                                                                                                                                 |
+| `n9-green-candidate-1`                 | Exit 0, **6 passed**, **11.495 s**: original membership/tag/edge cases and all three new clock regressions.                                                                                                                                                                                  |
+| `parity-sync-candidate-1`              | Exit 0, **68 passed**, **240.286 s**: **33 parity + 35 sync**, no skipped/unrun cases.                                                                                                                                                                                                       |
+| `prior-sync-repeat-candidate-1`        | Exit 0, **9 passed**, **17.905 s**: seed `20260102`, tag edit and queued tag edge each run three times.                                                                                                                                                                                      |
+| `iphone-candidate-1-run-1`             | Exit 0, **8 passed**, **108.546 s**, including a real sign-in idle wait.                                                                                                                                                                                                                     |
+| `iphone-candidate-1-run-2`             | Exit 0, **8 passed**, **111.829 s**, immediately consecutive full run with a real sign-in idle wait.                                                                                                                                                                                         |
+| `resume-candidate-1`                   | Exit 0, **24 passed**, **682.248 s**; all supported resume cases on the same candidate build, with **22** raw scenario rows in `resume-candidate-1-rows.jsonl`. Two physical-background cases excluded explicitly.                                                                           |
+| `launch-candidate-1`                   | Exit 0, **1 passed**, **24.359 s**; four profiles × six warm launches, 1,000-book fixture, separate current launch acceptance measurement.                                                                                                                                                   |
+| `browser-collection`                   | Exit 0; `browser-summary.json` indexes exact receipts and assertion-backed controls, including all 22 resume rows with the tested build ID.                                                                                                                                                  |
+| `historical-preservation`              | Exit 0; **311 original + 112 prior-fix + 360 residual-fix = 783** indexed artifacts retain exact sizes/hashes.                                                                                                                                                                               |
+| `historical-preservation-final`        | Exit 0 after all browser runs; the same **783** historical artifacts remain unchanged.                                                                                                                                                                                                       |
+| `provenance-after-browser`             | Exit 1 before checking the server: a new output label was mistakenly passed as the existing server label, producing `ENOENT` for `server-candidate-1-after-browser.json`. No receipt was overwritten.                                                                                        |
+| `provenance-after-browser-v2`          | Exit 0; the preserved verifier's new version separates the existing server label from a fresh output label and refuses overwrites. Same source/build/PID and **65** live/disk asset hashes verified after all browser runs.                                                                  |
+
+The supported resume rows report **0–201 ms** drift against their existing
+250/1,000 ms limits; all four repeated-open cycle rows report **0 ms** accumulated
+drift. The paused-player row records **0 writes** over 12.009 seconds paused.
+All 22 rows identify build `Mf1y0CMcug2Ygn89_7aTB`.
+The two `T1 hidden (online|offline)` cases remain excluded from the supported
+resume command: physical iPhone/Home Screen/lock-screen and OS background
+behavior are not verified by desktop Playwright. The existing resume instrument
+uses ephemeral contexts, owned renderer termination, fixture-only cache/cookie
+restoration and documented second-tap allowances. Neither those aids nor mocked
+unit cases are presented as unaided physical-device evidence.
+
+`visual-inspection.json` records direct inspection of the final run's paused
+committed-cancel player, unreachable-first-sync state and completed document
+library, with exact PNG paths. The library image paints four visible cards;
+all six formats are established by the executed assertions and narration JSON,
+not by treating that one screenshot as six-card evidence. The current test
+artifacts also contain empty, loading, recovered, transcript, organization,
+settings/diagnostics, account-deletion, legacy-refusal and cancellation screens.
+
+The launch run's WebKit capability probe returned **Cache Storage read-back =
+null**, and rejected CDP CPU throttling (`CDP session is only available in
+Chromium`). The unchanged existing fallback selected persistent **Chromium with
+iPhone 15 emulation**, whose storage probe succeeded. This is not WebKit or
+physical-iPhone startup certification. A fixed 8-million-iteration workload
+measured 7 ms at 1× and 15 ms at the calibrated 2.22× throttle, targeting the
+existing 16 ms reference. Browser-process spawn is excluded: its observed p95
+was 112 ms; harness overhead p95 was 51 ms. Raw per-launch timings, network
+arming and persistence proofs are in `launch-candidate-1.log`.
+
+| Current launch profile |    p50 | p95 / maximum | Timeouts | Server document/API/asset hits / DB queries |
+| ---------------------- | -----: | ------------: | -------: | ------------------------------------------: |
+| A, 0 ms latency        | 159 ms |        166 ms |        0 |                               0 / 0 / 0 / 0 |
+| B, 400 ms latency      | 157 ms |        166 ms |        0 |                               0 / 0 / 0 / 0 |
+| C, 3,000 ms latency    | 156 ms |        165 ms |        0 |                               0 / 0 / 0 / 0 |
+| D, offline             | 155 ms |        163 ms |        0 |                               0 / 0 / 0 / 0 |
+
+All 24 launches painted **50 book cards** from the 1,000-book account and
+received the document from Cache Storage with **0 wire bytes**. P95 spread was
+**3 ms**, within the unchanged 150 ms limit; all profiles met the unchanged
+500 ms p95 limit. This checks current acceptance, not a new before/after
+performance improvement claim. No new heap or responsiveness comparison was
+run in this bounded repair round; original measurements retain their original
+commit attribution.
+
+### Durable handoff and bounded external checks
+
+[acceptance-fixes-artifacts.json](acceptance-fixes-artifacts.json) indexes this
+round's **195 artifacts / 23,105,262 bytes**: raw receipts, red reproductions,
+failed mutation, measurements, helper scripts and screenshots with SHA-256 and
+byte size. All **783** previously indexed artifacts still match. The active owned server's
+`server-candidate-1-live.log` is excluded because it remains mutable; a captured
+snapshot is indexed. Seal, final formatting, manifest verification and final
+handoff receipts live outside that root under `.data/objective/acceptance-fixes-*`
+to avoid self-reference. No previous red receipt, outcome or artifact was
+deleted or replaced. `inspection-notes.json` also records corrected read-path
+mistakes without presenting them as product failures.
+
+The source/test commit is `a6eecfb` as listed above. The subsequent local commit
+`Record acceptance repair evidence and final coverage` changes documentation
+only. Its exact resulting HEAD is recorded in
+`.data/objective/acceptance-fixes-handoff.{json,log}`. The new
+`verify-final-handoff.mjs candidate-1` checks a clean checkout, app/harness
+identity relative to the tested source, current build/process/HTML and every
+one of the 65 served/disk hashes. Unlike the stale historical verifier, it
+explicitly permits `CLEANUP.md` report corrections along with `docs/` changes;
+any app/harness change requires fresh build/test evidence.
+
+Recommended bounded read-only cleanup/review checks from this checkout:
+
+```sh
+git diff --check 3209b06 HEAD
+pnpm format:check
+python3 .data/objective/acceptance-fixes/check-historical-artifacts.py
+python3 .data/objective/acceptance-fixes/check-artifacts.py
+node .data/objective/acceptance-fixes/verify-final-handoff.mjs candidate-1
+```
+
+Raw JSON receipts contain the exact full quick/browser commands. Use fresh
+receipt and Playwright output paths if rerunning them; never overwrite these
+indexed paths. A new quick gate rebuilds `.next`, so only the owned `:3000`
+server may be restarted and its new candidate/build provenance must be recorded.
+Do not alter reviewer ports 3100/3199. There are no failed final executed gates;
+the two excluded physical-background resume cases, browser instrumentation,
+privacy capture gaps and launch-engine fallback remain explicit limits. The
+implementer pauses for authorized cleanup if needed and independent external
+review; acceptance belongs to those external gates.

@@ -1,0 +1,985 @@
+{
+  "createdAt": "2026-09-21T23:42:34.799067+00:00",
+  "root": ".data/objective/acceptance-fixes",
+  "sourceCommit": "a6eecfb07e5f0c9dfa23e8f386d14fd14637812c",
+  "buildId": "Mf1y0CMcug2Ygn89_7aTB",
+  "excludedMutablePaths": [".data/objective/acceptance-fixes/server-candidate-1-live.log"],
+  "note": "Active server log is mutable; a snapshot is indexed. Seal/check/final-format/handoff receipts are outside the indexed root to avoid self-reference. Earlier manifests are unchanged.",
+  "artifacts": [
+    {
+      "file": ".data/objective/acceptance-fixes/auth-after-iphone-1.json",
+      "bytes": 472,
+      "sha256": "0cf7e036ce0163856de74a55600cad1839531d1f29a721c970008bd9a1743d7f"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/auth-after-iphone-1.log",
+      "bytes": 419,
+      "sha256": "922b7d0cbd0d09c046aff75716aba95820f6305d0563f1766c0d4a62b4382e44"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/auth-after-iphone-2.json",
+      "bytes": 472,
+      "sha256": "a4b7f461e82c7f08a98d1672c5722510bdce91ff001a470ae23f5cbb5a45d016"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/auth-after-iphone-2.log",
+      "bytes": 419,
+      "sha256": "9239026d288c702d93551e9329d3f1843f512182972b509ff70341a58e4c3318"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/auth-before-iphone.json",
+      "bytes": 471,
+      "sha256": "74573f4f7f3a0df6943fcb1e750c95271504694b690b470f86f74c98128e7642"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/auth-before-iphone.log",
+      "bytes": 187,
+      "sha256": "a1caddffcafa7a7df05df7439469f9e837a8e3f60cb5076d92dfc305afdeccb4"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/baseline-checkout.json",
+      "bytes": 152,
+      "sha256": "e72878af4b12cee7a957ae3dfd272bca1863703064ea99ec3a3968c165acb5e8"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/baseline-parity-screenshots/library-offline.png",
+      "bytes": 1313813,
+      "sha256": "aa653a3807bb81fc525c9a2326ae7bf4695ba5f23e54d64451a92a9d9171bb86"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/baseline-parity-screenshots/library-online.png",
+      "bytes": 1313813,
+      "sha256": "aa653a3807bb81fc525c9a2326ae7bf4695ba5f23e54d64451a92a9d9171bb86"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/baseline-prior-artifacts/.last-run.json",
+      "bytes": 96,
+      "sha256": "3bfaae382bfba9512e1c1889443e9b177b7a8017f4e01873381696b4e5a132ac"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/baseline-prior-artifacts/two-device-convergence-a-c-1bc65-ther-on-an-incremental-pull-sync/error-context.md",
+      "bytes": 10745,
+      "sha256": "a54010eb887e58a6f3932e233694a4f9fe9fb93e74a753ed2245f8822f0426e3"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/baseline-prior-artifacts/two-device-convergence-a-c-1bc65-ther-on-an-incremental-pull-sync/test-failed-1.png",
+      "bytes": 155076,
+      "sha256": "a0fa0a53632d9d4f59e01ea0e35ac94db195adde562ee51b8bde3b1767a7e50b"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/baseline-prior-artifacts/two-device-convergence-a-c-1bc65-ther-on-an-incremental-pull-sync/test-failed-2.png",
+      "bytes": 155076,
+      "sha256": "a0fa0a53632d9d4f59e01ea0e35ac94db195adde562ee51b8bde3b1767a7e50b"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/baseline-prior-failures.json",
+      "bytes": 843,
+      "sha256": "47b423140e94cd6d92e0cb28e0600085b0a5c047d77973e818625f72cdcfa7a5"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/baseline-prior-failures.log",
+      "bytes": 6222,
+      "sha256": "da61a2fb662256af987c2eb06eb2a932b5e262cfdfd2235613f0cf3ded14296c"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/baseline-provenance.json",
+      "bytes": 420,
+      "sha256": "3b730ff464125cd3d0061e059cbc6181ac799f9fe977e566c49c801c6d3c8e97"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/baseline-provenance.log",
+      "bytes": 199,
+      "sha256": "4a9a94817d511abfb3f7f7731c066f400c3fec0cab4b7bcfa33afa4d153c226f"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/baseline-quick.json",
+      "bytes": 486,
+      "sha256": "2c3ff6b86e94b81aa6e7fbf5bd85f95df9d71eb06c2a94c2cd1910624aa967c6"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/baseline-quick.log",
+      "bytes": 2871,
+      "sha256": "df43d6a6afac92bb108177b5ac46947af8764a67ecb2d9b5c47ab3d224dbf17a"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/baseline-source-check.json",
+      "bytes": 437,
+      "sha256": "e1e550a6a9230586fbbe45ef9ce407c56557a89990564d9af6a37dcb70c61643"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/baseline-source-check.log",
+      "bytes": 934,
+      "sha256": "1be3d1316e8aa4dcb874d27a8d3ae837b2ac5bab15b324c4144f1e8219dd5259"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/baseline-source.json",
+      "bytes": 341703,
+      "sha256": "5b5ebc58136dc4d402f9e544fde315fcc0fc699806282b008478491bfb281aaa"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/browser-collection.json",
+      "bytes": 408,
+      "sha256": "80fae76f35425c7f1b01106580fb1802d17c12d8341c2030f9bce5aaaad13948"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/browser-collection.log",
+      "bytes": 1911,
+      "sha256": "a62c21df78f39ced2bb99292b37f32b45dec0f973d07e2c45dadcbbc0ddfa07d"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/browser-summary.json",
+      "bytes": 14467,
+      "sha256": "f9fd204393d3474ce8c39cb20e5ac4ac00a04e23332b711ffbb49f6249ab06ad"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/check-artifacts.py",
+      "bytes": 690,
+      "sha256": "259f7f9a2548cf99debbdaa2292f3faf0ff733ccf35ac9b827887743b533ae84"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/check-historical-artifacts.py",
+      "bytes": 857,
+      "sha256": "a6f39147afd1391517426b744fc04dcd8c1a4920265a835d6445209a75d8abe3"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/cleanup-input.md",
+      "bytes": 2793,
+      "sha256": "7e2e8ed6300f592e3a618bc9e662f2a472876755792e1e9651a5a02f7965fe05"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/clock-candidate-1.json",
+      "bytes": 464,
+      "sha256": "9f88e0fcda6d27336618f56661a1f28c4a7f393df6d8b086ea844c0995920c5e"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/clock-candidate-1.log",
+      "bytes": 1777,
+      "sha256": "65b87358991b9f0cd71a4267a7dfa85ee8eacf4239c36b52cf0a8f05d7e79432"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/collect-browser-evidence.py",
+      "bytes": 3090,
+      "sha256": "ad37fd796f85bfa4bce36f3552127a21af8eeb903bc4fdbd66a2d7c3ac1aca37"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/format-docs-initial.json",
+      "bytes": 471,
+      "sha256": "01694b1ae4ade22303a6acbec17a98f02a3fbaff24904d44fd4e34efd646f48b"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/format-docs-initial.log",
+      "bytes": 120,
+      "sha256": "76e503d97bd1ac9ee890f57c21d3068062c21c0ae23df33071201be6ea49c23e"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/format-initial.json",
+      "bytes": 997,
+      "sha256": "6b560f58d2719eada73bfd750b5c251ddd490864358396d210718d80131f0e75"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/format-initial.log",
+      "bytes": 631,
+      "sha256": "b4081987eddce234fb76f4d573516a0e843b63dc678c254044c82cedf6559721"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/historical-preservation-final.json",
+      "bytes": 422,
+      "sha256": "0f42beda28116e79a27b4f87ba081ddca5f6896b5d441394bc92a3d31e23b97a"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/historical-preservation-final.log",
+      "bytes": 338,
+      "sha256": "984e2a87752dda5a7e03c6d50af433f44ad5102ff39e5f335d48dd3fb11a158f"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/historical-preservation.json",
+      "bytes": 416,
+      "sha256": "4e6aa5c89357413ae22545ac019c85a7ad8e6f39e25c91d7244355898e344ca0"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/historical-preservation.log",
+      "bytes": 338,
+      "sha256": "984e2a87752dda5a7e03c6d50af433f44ad5102ff39e5f335d48dd3fb11a158f"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/initial-types.json",
+      "bytes": 411,
+      "sha256": "20ca45aa60cf24e0b47c9d6461f5471791c151bac4f529461927729b49ba7344"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/initial-types.log",
+      "bytes": 111,
+      "sha256": "ea30ad7ff274f7da8986350b03b433de64985ed753453eabc5fbd7d51a0b7725"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/inspection-notes.json",
+      "bytes": 2162,
+      "sha256": "c9cd010917699ea24e0c05d433aca2a2bdd8066544564ea31826722f77625803"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/privacy-transport-cross-or-65987-ctual-loopback-wire-traffic-iphone-webkit/cross-origin-privacy-controls.json",
+      "bytes": 1263,
+      "sha256": "0d292a6a9ad92901329c149e2d1a449ece8f592390f4879e4d6ea9beabf2ad65"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-cancell-ab90b-ent-and-suppresses-autoplay-iphone-webkit/committed-attachment-after-cancel.png",
+      "bytes": 456999,
+      "sha256": "920f0a57283bbfdb032ab37c826159c769f756ff4e80d9a55fdf4c3b321ea950"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-cancell-ab90b-ent-and-suppresses-autoplay-iphone-webkit/committed-attachment.json",
+      "bytes": 218,
+      "sha256": "2fc2804a51b0a055d3a4bca75e884da46960722925eae55e97e09816c25f5d1a"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-first-s-e61eb--empty-library-and-recovers-iphone-webkit/first-sync-loading.png",
+      "bytes": 97327,
+      "sha256": "c9397d4632054e61415aa4ba1b75d9c37c81e6a38b638ff16e9c70766b49da52"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-first-s-e61eb--empty-library-and-recovers-iphone-webkit/first-sync-recovered.png",
+      "bytes": 155671,
+      "sha256": "de02a90baf5fce6fee60821cb2c9f3e44008028d1948748566500f06208592d6"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-first-s-e61eb--empty-library-and-recovers-iphone-webkit/first-sync-unreachable.png",
+      "bytes": 132805,
+      "sha256": "f4bc8a7c8c8e15d57adb6123a0cb9deb94613db65bd67c3665fe48c796b8097d"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-first-s-e61eb--empty-library-and-recovers-iphone-webkit/import-while-sync-stalled.png",
+      "bytes": 486183,
+      "sha256": "cd34bf8f376bd2ae3b66d791af5023ec96ee2be82c8f342944c60af494c5e208"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-library-ea5f3-tted-edits-from-another-tab-iphone-webkit/filter-after-another-tab-edit.png",
+      "bytes": 494314,
+      "sha256": "7f09acf3fe211a339e18506725246109f24cb21336199d76fca7239f025cfd86"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-real-do-271b3--preserve-legacy-identities-iphone-webkit/legacy-rendition-refused.png",
+      "bytes": 150548,
+      "sha256": "c34c0daeb650a696646fe34092a935828767f78739e5920b63fa9791638d0bdd"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-real-do-271b3--preserve-legacy-identities-iphone-webkit/narration-cancel.png",
+      "bytes": 195584,
+      "sha256": "9849630ec93983c6d9801249240633d0695e4e7d5ca27b4d2c194c222ac171cf"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-real-do-271b3--preserve-legacy-identities-iphone-webkit/narration-times.json",
+      "bytes": 354,
+      "sha256": "9f6dea77772c478425f1d95d4a07e5be6cb79f6ecf0dac4efd08b4ced73ba01b"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-real-do-271b3--preserve-legacy-identities-iphone-webkit/privacy-capture.json",
+      "bytes": 396,
+      "sha256": "f01b4471b1052785d190963182741bf513e17ebea72a88e0f6999a097e6d383a"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-real-do-271b3--preserve-legacy-identities-iphone-webkit/six-document-formats.png",
+      "bytes": 1082505,
+      "sha256": "8bfb8beeaf4a8c97b4c3aa235acdf5d42ae4a6c08d80f4a913c1bbccb4396c71"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/account-deleted.png",
+      "bytes": 1258150,
+      "sha256": "aff99928b60244089e057a698e71ac5d48dd6471645f02fc00f16ce1a06ce442"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/chapters.mp3",
+      "bytes": 720837,
+      "sha256": "de36aea034d36758b903c19a9544bcd21e6c1eb91898125f7abd4e99727d9ab0"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/chapters.txt",
+      "bytes": 243,
+      "sha256": "dbccbf304d009954b038c9584f3a19599b6f57248dfa0159c09aeee2fbf48a65"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/collection-autoplay.json",
+      "bytes": 204,
+      "sha256": "a1560b9e3dbc26a6d8dc555e9cf0284d71b8f3c4c8d307bc1efbe564ab29ca47"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/collection-autoplay.png",
+      "bytes": 459968,
+      "sha256": "a4082fb54bfa61ef4aa96f93fed73316fddd1ff3fac84832fbf1e02a7b8b70ac"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/empty.png",
+      "bytes": 155671,
+      "sha256": "de02a90baf5fce6fee60821cb2c9f3e44008028d1948748566500f06208592d6"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/metadata-export.json",
+      "bytes": 6879,
+      "sha256": "7eecae9ed9ffeaf448d4b70253b99e665f2ad2b99dab8fc797f82782f9c5af07"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/organization.png",
+      "bytes": 208878,
+      "sha256": "df33ff0bb5e92cdc3e00a940360cf516bfead66ab453fbad0d60880da06fb475"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/player.png",
+      "bytes": 462125,
+      "sha256": "9c388af3e80aab89041f68e51cf53372d1a28f9fa94cdd41e470ce58ee47994b"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/settings-diagnostics.png",
+      "bytes": 429459,
+      "sha256": "c0a987378d5308125f182d176c381571be4a05be34aeb306b50a0d79ac9817b1"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/transcript.png",
+      "bytes": 161431,
+      "sha256": "0fd458360879291da79c1e1c817f40765bbbc33ff5b4377f518d81fd1800da38"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1-artifacts/retained-workflows-retaine-5e425-rect-credentials-still-work-iphone-webkit/credential-mismatch.json",
+      "bytes": 579,
+      "sha256": "85e98646546bb4a267b0df53430253f4831a9d32e1032727872f27cdb856421c"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1.json",
+      "bytes": 667,
+      "sha256": "7f158e888fd53c592aa8dae91ed315f02abc7a262d851f6f4274c898ed3a9233"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-1.log",
+      "bytes": 2726,
+      "sha256": "8e92e60f017ed149c230e7c6dd6f180080bb527b64de542be05048d9ca91c9ad"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/privacy-transport-cross-or-65987-ctual-loopback-wire-traffic-iphone-webkit/cross-origin-privacy-controls.json",
+      "bytes": 1263,
+      "sha256": "30641cc3cf6b475a2a1a44d6abf64a93c09b2d0d44f79c9725c5d408af2241df"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-cancell-ab90b-ent-and-suppresses-autoplay-iphone-webkit/committed-attachment-after-cancel.png",
+      "bytes": 456482,
+      "sha256": "3aa1e2076473a81f14096d22ab0f72718d50a5648ad58c6d5268ca6bc37a9acc"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-cancell-ab90b-ent-and-suppresses-autoplay-iphone-webkit/committed-attachment.json",
+      "bytes": 218,
+      "sha256": "2fc2804a51b0a055d3a4bca75e884da46960722925eae55e97e09816c25f5d1a"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-first-s-e61eb--empty-library-and-recovers-iphone-webkit/first-sync-loading.png",
+      "bytes": 97327,
+      "sha256": "c9397d4632054e61415aa4ba1b75d9c37c81e6a38b638ff16e9c70766b49da52"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-first-s-e61eb--empty-library-and-recovers-iphone-webkit/first-sync-recovered.png",
+      "bytes": 155671,
+      "sha256": "de02a90baf5fce6fee60821cb2c9f3e44008028d1948748566500f06208592d6"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-first-s-e61eb--empty-library-and-recovers-iphone-webkit/first-sync-unreachable.png",
+      "bytes": 132805,
+      "sha256": "f4bc8a7c8c8e15d57adb6123a0cb9deb94613db65bd67c3665fe48c796b8097d"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-first-s-e61eb--empty-library-and-recovers-iphone-webkit/import-while-sync-stalled.png",
+      "bytes": 486183,
+      "sha256": "cd34bf8f376bd2ae3b66d791af5023ec96ee2be82c8f342944c60af494c5e208"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-library-ea5f3-tted-edits-from-another-tab-iphone-webkit/filter-after-another-tab-edit.png",
+      "bytes": 118442,
+      "sha256": "e4c59ada65000adac2fbb0517212fd9e15994d337e8c54f84bdbee19f6c7d9c1"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-real-do-271b3--preserve-legacy-identities-iphone-webkit/legacy-rendition-refused.png",
+      "bytes": 150548,
+      "sha256": "c34c0daeb650a696646fe34092a935828767f78739e5920b63fa9791638d0bdd"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-real-do-271b3--preserve-legacy-identities-iphone-webkit/narration-cancel.png",
+      "bytes": 194872,
+      "sha256": "db06d022890a21a71acb2bc531898241219392758d4aed33f1aec4798c61d293"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-real-do-271b3--preserve-legacy-identities-iphone-webkit/narration-times.json",
+      "bytes": 354,
+      "sha256": "16dcfcdd74504bbe43c01983e1763b77c417e1f1840847e1504a50ab9d451f46"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-real-do-271b3--preserve-legacy-identities-iphone-webkit/privacy-capture.json",
+      "bytes": 396,
+      "sha256": "f01b4471b1052785d190963182741bf513e17ebea72a88e0f6999a097e6d383a"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-real-do-271b3--preserve-legacy-identities-iphone-webkit/six-document-formats.png",
+      "bytes": 1082505,
+      "sha256": "8bfb8beeaf4a8c97b4c3aa235acdf5d42ae4a6c08d80f4a913c1bbccb4396c71"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/account-deleted.png",
+      "bytes": 1258150,
+      "sha256": "aff99928b60244089e057a698e71ac5d48dd6471645f02fc00f16ce1a06ce442"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/chapters.mp3",
+      "bytes": 720837,
+      "sha256": "de36aea034d36758b903c19a9544bcd21e6c1eb91898125f7abd4e99727d9ab0"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/chapters.txt",
+      "bytes": 243,
+      "sha256": "dbccbf304d009954b038c9584f3a19599b6f57248dfa0159c09aeee2fbf48a65"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/collection-autoplay.json",
+      "bytes": 204,
+      "sha256": "cd1bfd11bdf1f7b9c291cc12565565f85687abf72b593eda42da4030c9ab29f2"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/collection-autoplay.png",
+      "bytes": 459968,
+      "sha256": "eb3ae949a1d00abce9396f7e5b52959c29827c8bf5794b13a0463b4b4fa68a74"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/empty.png",
+      "bytes": 155671,
+      "sha256": "de02a90baf5fce6fee60821cb2c9f3e44008028d1948748566500f06208592d6"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/metadata-export.json",
+      "bytes": 6879,
+      "sha256": "b46a8620f33d119523d9690920daacdf63228c8d9d960fe22fc4329871b6d3a7"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/organization.png",
+      "bytes": 208910,
+      "sha256": "0cb35834af30a55a2a4372655594b03ff7a38ab05eff150b9747c5c581b45144"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/player.png",
+      "bytes": 462087,
+      "sha256": "4f3819e3fff900dda926f8362e2b2f72a387a4d0ba6041da5e41f411e8e7e477"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/settings-diagnostics.png",
+      "bytes": 429459,
+      "sha256": "c0a987378d5308125f182d176c381571be4a05be34aeb306b50a0d79ac9817b1"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/transcript.png",
+      "bytes": 161431,
+      "sha256": "0fd458360879291da79c1e1c817f40765bbbc33ff5b4377f518d81fd1800da38"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2-artifacts/retained-workflows-retaine-5e425-rect-credentials-still-work-iphone-webkit/credential-mismatch.json",
+      "bytes": 579,
+      "sha256": "85e98646546bb4a267b0df53430253f4831a9d32e1032727872f27cdb856421c"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2.json",
+      "bytes": 667,
+      "sha256": "c61c0bed00fc4804d38fbaaeb31e423680305f718d81802619bcee19d5534366"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/iphone-candidate-1-run-2.log",
+      "bytes": 2727,
+      "sha256": "e3635c0dd3a6c6a8dc1316391c9fea30d965ebc77f43a3981d4125a00cd8e1fa"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/launch-candidate-1-artifacts/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/launch-candidate-1.json",
+      "bytes": 652,
+      "sha256": "8a0a8ca559619a8b3699e18299d794b1ef22cabde4aad4a74db4307bb9b08409"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/launch-candidate-1.log",
+      "bytes": 8080,
+      "sha256": "101a932780a72a77e8a09ca8661d00ca525f98f34bb85482f4d8e0cc13dca555"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/ledger-input.md",
+      "bytes": 113138,
+      "sha256": "ddf9e74a0d46ae3b664ebdacb2489c861e1d6d7bc359ef14159ba9be76bcf2b3"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/mutate-diagnostic.py",
+      "bytes": 526,
+      "sha256": "72352b09e7de84ed23c2d52164a4c4f4e0a4f4fa2c3eb498a3789bd20e2da431"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n1-n8-green.json",
+      "bytes": 484,
+      "sha256": "945f29996abf1b4a5b8a93a169c993667ff47d76ed9852b7bdb88bce20940d96"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n1-n8-green.log",
+      "bytes": 246,
+      "sha256": "25f3c7bf52a45fe6ca23c5e32de9c23efe967768b564b8c331fdf3f4e517dd74"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n1-n8-red.json",
+      "bytes": 482,
+      "sha256": "8aaa4d54f74b292db319ef36bea43e05fc34e7e15f2ced300346dd40ba5ed9c7"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n1-n8-red.log",
+      "bytes": 3939,
+      "sha256": "0a3ceafc0c3b6c5984295f4c10a95151fefc1ee42946baa979d296ffd4ac2677"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n3-green.json",
+      "bytes": 467,
+      "sha256": "8c224a2c99574d9e548911e64e3723500c780bc816320f4c076452ac7a10010e"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n3-green.log",
+      "bytes": 241,
+      "sha256": "f45ce07486de2fb1403b5765da85505d958348a22adceed5111b000ae7ed1993"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n3-red-corrected-fixture.json",
+      "bytes": 483,
+      "sha256": "aa39a22a7f20be3ab2bdd945358dd61e5fb576155974c7942ea186cbcf367788"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n3-red-corrected-fixture.log",
+      "bytes": 4100,
+      "sha256": "aef9b654387847e4a83c562d10f66bf01576f198f605e5ffc8d1f0987891b5e5"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n3-red.json",
+      "bytes": 465,
+      "sha256": "c85ceb1411fb6de85bd2b665cc61bcb034d634d3a14b4cfd4f4200c3775da9d8"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n3-red.log",
+      "bytes": 3728,
+      "sha256": "b9191251706993d348fd2426251c480f912eeeb4a6cbd7fe3d3f67d5e0af796a"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n4-diagnostic-mutation.json",
+      "bytes": 466,
+      "sha256": "b46c66d7faab73a8df3baf9c2eece09ebd315ec813f9f3de9f1a5ae89b7c9b5d"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n4-diagnostic-mutation.log",
+      "bytes": 1201,
+      "sha256": "c59c74bada69badcc37114ba44dd7baa3eecb3ef66e74ee737ee30d920b8b1d8"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n6-green.json",
+      "bytes": 465,
+      "sha256": "67a2c0cb69a6b1d03518a7d116c79357abf01809b76ac73dc8dafb835b390dfd"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n6-green.log",
+      "bytes": 241,
+      "sha256": "991c6f4edb40fa09ae56cb3967dfb2a5e50e5cffd4ea75c7a70051906f828a54"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n6-red.json",
+      "bytes": 463,
+      "sha256": "17948f81fe46690cb86b4940ffbf0776dbf557df2fc998f68a836f4459fa4614"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n6-red.log",
+      "bytes": 3014,
+      "sha256": "63a6dfcfb3b797c974be0f53871de5a90549688e6ca70ddc0c5c08d086a88428"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-future-red-artifacts/.last-run.json",
+      "bytes": 145,
+      "sha256": "13bd485103f41863b04b95874ae3056cf681e77225b2eedfd0cc6564f109af44"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-future-red-artifacts/two-device-convergence-boo-11488-a-retained-future-timestamp-sync/error-context.md",
+      "bytes": 7760,
+      "sha256": "44c1943b39d76c59b991054a8731947b74e2491aed37efc7a28b052faab97250"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-future-red-artifacts/two-device-convergence-boo-11488-a-retained-future-timestamp-sync/test-failed-1.png",
+      "bytes": 155076,
+      "sha256": "a0fa0a53632d9d4f59e01ea0e35ac94db195adde562ee51b8bde3b1767a7e50b"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-future-red-artifacts/two-device-convergence-boo-11488-a-retained-future-timestamp-sync/test-failed-2.png",
+      "bytes": 155076,
+      "sha256": "a0fa0a53632d9d4f59e01ea0e35ac94db195adde562ee51b8bde3b1767a7e50b"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-future-red-artifacts/two-device-convergence-col-b48a3-a-retained-future-timestamp-sync/error-context.md",
+      "bytes": 7778,
+      "sha256": "93e4b389e9c43b916c78e5a4d4e2b716f7b6a850cf3d79f38ffe5b0d83c22ffe"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-future-red-artifacts/two-device-convergence-col-b48a3-a-retained-future-timestamp-sync/test-failed-1.png",
+      "bytes": 155076,
+      "sha256": "a0fa0a53632d9d4f59e01ea0e35ac94db195adde562ee51b8bde3b1767a7e50b"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-future-red-artifacts/two-device-convergence-col-b48a3-a-retained-future-timestamp-sync/test-failed-2.png",
+      "bytes": 155076,
+      "sha256": "a0fa0a53632d9d4f59e01ea0e35ac94db195adde562ee51b8bde3b1767a7e50b"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-future-red.json",
+      "bytes": 679,
+      "sha256": "ce44db88230220709aee303484b8b782c415def8075b205fed3075c116c6dbbf"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-future-red.log",
+      "bytes": 6463,
+      "sha256": "e65699b6abbfd35c1e15585bb1d95caa38040edeb27e2807b6e5815b306fb47e"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-green-candidate-1-artifacts/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-green-candidate-1-artifacts/two-device-convergence-boo-11488-a-retained-future-timestamp-sync/monotonic-timestamps.json",
+      "bytes": 387,
+      "sha256": "fedf6bdc5627e04a4c4349fc05c661eb853fe264966078f63321016bec805069"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-green-candidate-1-artifacts/two-device-convergence-col-b48a3-a-retained-future-timestamp-sync/monotonic-timestamps.json",
+      "bytes": 393,
+      "sha256": "21e382336bea86b372209319f658fb76e3907bee2cc2a29081bf4fd60d41eabb"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-green-candidate-1-artifacts/two-device-convergence-pla-a19b8-acing-playback-field-clocks-sync/state-receipt-clocks.json",
+      "bytes": 451,
+      "sha256": "cc5e71fcf69befa796b86c15c7e021c247b4e9381e03612b2c6e1f9dc6487fba"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-green-candidate-1.json",
+      "bytes": 781,
+      "sha256": "32f3f22f2d6336cb2c27cc9001dbe05390768df0743dcdbb4815caf436c5bc10"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-green-candidate-1.log",
+      "bytes": 1214,
+      "sha256": "751cccd02aabdd94d9bc8fa4bf3adfab66d1bcae027e32396a7b21785ea21eb0"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-state-red-artifacts/.last-run.json",
+      "bytes": 96,
+      "sha256": "02c512a97e5d0b3499057c9d2c58177abd78ddf6487f689076c2245b9fc97dfc"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-state-red-artifacts/two-device-convergence-pla-a19b8-acing-playback-field-clocks-sync/error-context.md",
+      "bytes": 9547,
+      "sha256": "8482143779220bb05417f129d3eafad6c2d02cc4412d975672931038259d6ad7"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-state-red-artifacts/two-device-convergence-pla-a19b8-acing-playback-field-clocks-sync/test-failed-1.png",
+      "bytes": 155076,
+      "sha256": "a0fa0a53632d9d4f59e01ea0e35ac94db195adde562ee51b8bde3b1767a7e50b"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-state-red-artifacts/two-device-convergence-pla-a19b8-acing-playback-field-clocks-sync/test-failed-2.png",
+      "bytes": 155076,
+      "sha256": "a0fa0a53632d9d4f59e01ea0e35ac94db195adde562ee51b8bde3b1767a7e50b"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-state-red.json",
+      "bytes": 678,
+      "sha256": "978bc70bdc53a0fa86d91754261e0c3f245b25363dcdfd282a27293641f1f872"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/n9-state-red.log",
+      "bytes": 4047,
+      "sha256": "ccafd60b017fda67f3cb3a606ae497dca0eaf18f8ba32e4e0d04fb74c9cc4420"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/owned-server.py",
+      "bytes": 2231,
+      "sha256": "e0606d3f757f6424c0df03342a5eae598b963ca7287200376eed90135c936135"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/parity-candidate-1-screenshots/library-offline.png",
+      "bytes": 1313813,
+      "sha256": "aa653a3807bb81fc525c9a2326ae7bf4695ba5f23e54d64451a92a9d9171bb86"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/parity-candidate-1-screenshots/library-online.png",
+      "bytes": 1313813,
+      "sha256": "aa653a3807bb81fc525c9a2326ae7bf4695ba5f23e54d64451a92a9d9171bb86"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/parity-candidate-1-screenshots/not-on-this-device.png",
+      "bytes": 811475,
+      "sha256": "3385fe335a037af4a802f70771008fc0c29b4342f02504242c9abe44fe1c80b5"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/parity-sync-candidate-1-artifacts/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/parity-sync-candidate-1-artifacts/player-back-deleting-a-mis-ba56d-ifferent-book-still-playing-parity/deletion-playback.mp3",
+      "bytes": 720642,
+      "sha256": "a94879da8071917c5485154aed9e8cbc93be473eb88b41110cfbb4d7aa30b312"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/parity-sync-candidate-1-artifacts/two-device-convergence-boo-11488-a-retained-future-timestamp-sync/monotonic-timestamps.json",
+      "bytes": 387,
+      "sha256": "39fbb2cd3695eff767897565a2036487b4ba9d068669e91d6577fd1440109b96"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/parity-sync-candidate-1-artifacts/two-device-convergence-col-b48a3-a-retained-future-timestamp-sync/monotonic-timestamps.json",
+      "bytes": 393,
+      "sha256": "66c73601a9984c24fa59aac0590fceafd131adc6b810adff4e2c50291c8e63c0"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/parity-sync-candidate-1-artifacts/two-device-convergence-pla-a19b8-acing-playback-field-clocks-sync/state-receipt-clocks.json",
+      "bytes": 451,
+      "sha256": "bdf47cc387bfc925b38a26dfe2c9648a76094d9cfc29defa7a41bdc5c935de9f"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/parity-sync-candidate-1.json",
+      "bytes": 680,
+      "sha256": "be5c1e18201487e569660a31694c4742a6f9a174be0cb9bb06fa55452d090498"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/parity-sync-candidate-1.log",
+      "bytes": 19489,
+      "sha256": "872568ec9a38431071d542b3440f52e9aa98f9dbe21100b1ec08c79ed2a48da6"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/prior-sync-repeat-candidate-1-artifacts/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/prior-sync-repeat-candidate-1.json",
+      "bytes": 742,
+      "sha256": "df89d69f6c00969f0fc086d7dd9ee7fd436e76e6f14a5d403b26bc4fb3ac7b92"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/prior-sync-repeat-candidate-1.log",
+      "bytes": 4989,
+      "sha256": "ebb5251718e9d341cf9ad3bd657a7e8d5531854a7b80ec091371ed64af0eb038"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/provenance-after-browser-v2.json",
+      "bytes": 467,
+      "sha256": "a2c60249b6bc5efa1b2c726f081d11b40241d4feb86c77f78c64340c21910b69"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/provenance-after-browser-v2.log",
+      "bytes": 198,
+      "sha256": "09576785cbbf65ad95791c3fbb1e0c07358a2e4a15ee6623c8014703f28bcf6a"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/provenance-after-browser.json",
+      "bytes": 440,
+      "sha256": "abd893b784871b4f2f7b81016de45d8c6882facb778aead93c6819305efb396f"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/provenance-after-browser.log",
+      "bytes": 786,
+      "sha256": "d8ea080d26bed8ab284dd4cf78b7afd54157b97e91c0a88029dd73c92ae38e92"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/provenance-candidate-1.json",
+      "bytes": 426,
+      "sha256": "b1d00c2dc021bbf1c7b56f30498f8d6d4970ccb977eee616984ae1ffded4b1d1"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/provenance-candidate-1.log",
+      "bytes": 198,
+      "sha256": "09576785cbbf65ad95791c3fbb1e0c07358a2e4a15ee6623c8014703f28bcf6a"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/quick-candidate-1.json",
+      "bytes": 489,
+      "sha256": "568544874b8995a116efcb9749f7470728d67ba74430ada81bf42a9ab08ff2e1"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/quick-candidate-1.log",
+      "bytes": 2871,
+      "sha256": "ec2a76a411bbed6b57b497065bae0201a0139e55053f80329e75e36ed2ca29b8"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/resume-candidate-1-artifacts/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/resume-candidate-1-rows.jsonl",
+      "bytes": 24920,
+      "sha256": "cd4904ac0a0b8908444d8a93b0e9d7417b02003ba8a0f8587904e25eabdabf72"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/resume-candidate-1.json",
+      "bytes": 864,
+      "sha256": "4542326d878561f47ff760f8f00761692f947bfa76e1614c97a11967091067d8"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/resume-candidate-1.log",
+      "bytes": 33331,
+      "sha256": "6251d92277e3144a252bac43328a9ff68d9a132dc51f58779a365bf00bf0820f"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/review-input.md",
+      "bytes": 28514,
+      "sha256": "c4ee22e4235392bb21bf5fa29681e94e85377fd4ae2e9102af239a13cce16792"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/seal-artifacts.py",
+      "bytes": 1434,
+      "sha256": "e937014738bf74155882d5ef966357e20d0cf03331c1bed2a20b3f29ea4afb3c"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/served-baseline.json",
+      "bytes": 10410,
+      "sha256": "3751bbe5c40a6e54564c76681f2c42fab72ec9d36a3a779d9eb0e00c24c3ff46"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/served-candidate-1-after-browser.json",
+      "bytes": 10409,
+      "sha256": "0d95eea4a83631c9011fa413d0840f06b9f6860ecb9a4d48486a73b3d0a52a04"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/served-candidate-1.json",
+      "bytes": 10409,
+      "sha256": "1345c6661c86c096bb610a73ae400c6f0389a822931ac82dcdde511b6a957694"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/server-baseline-live.log",
+      "bytes": 26726,
+      "sha256": "745b46e885b12e271746e0374b431e84be518b17eb6d099b3affdfcb87c27a6f"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/server-baseline.json",
+      "bytes": 420,
+      "sha256": "06cec63e04f2b9e8ec62aba050228399435346fc212ef660efe16ee0c2b68629"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/server-candidate-1-snapshot.log",
+      "bytes": 85153,
+      "sha256": "3ee845f7e9e232637f5bd7f148cc2c0ea9a34ad40506308bff5093f96018c734"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/server-candidate-1.json",
+      "bytes": 419,
+      "sha256": "de82eda1906bc1af48479ef10a31c7432039297805b4927725d9b7579c1a85a9"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/server-snapshot.json",
+      "bytes": 463,
+      "sha256": "ff2dba091ffb3bc491d5afbbba4a46eb1ea06a93d636848df2ba254a34bb666d"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/source-candidate-1-check.json",
+      "bytes": 443,
+      "sha256": "56358246cace09a5b5b157906a32cf4de191daf4b165112141fe81d2278e2170"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/source-candidate-1-check.log",
+      "bytes": 934,
+      "sha256": "b2969268541cca790edcf653d949ede193f16d6043bf0e1423a5fcfd35d26664"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/source-candidate-1.json",
+      "bytes": 342113,
+      "sha256": "9a83a3c54cb1e0b832ede65d291e6ffb54da3e2dc5de5784cb5861a57b1fc83c"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/source-summary-candidate-1.json",
+      "bytes": 426,
+      "sha256": "0d1caa758db98b4935cef585f3ef2eade30701e95ec1e8fdeb05df9e0308d00b"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/source-summary-candidate-1.log",
+      "bytes": 148,
+      "sha256": "08037a7efa787fbe8c157c35f14152b0b91fbd7e4b471baa860501cf1ab93466"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/start-baseline.json",
+      "bytes": 421,
+      "sha256": "c6d0d6d1735391184c5bb8bcd78af8b945f23b67d627a279333a864e8cccbf96"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/start-baseline.log",
+      "bytes": 420,
+      "sha256": "06cec63e04f2b9e8ec62aba050228399435346fc212ef660efe16ee0c2b68629"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/start-candidate-1.json",
+      "bytes": 427,
+      "sha256": "d37b279577aced4c32568eacda6f0842bae6fb473019a7b27ca81e813bd34141"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/start-candidate-1.log",
+      "bytes": 419,
+      "sha256": "de82eda1906bc1af48479ef10a31c7432039297805b4927725d9b7579c1a85a9"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/stop-baseline.json",
+      "bytes": 433,
+      "sha256": "6b3458dfd4fc6f6182b7eff462566ace6294fa80f8d975faabf6333e4a812836"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/stop-baseline.log",
+      "bytes": 123,
+      "sha256": "1e792a102543688e17c2e814e5cbb864adfc2ecf4ea98002e553a7ba7a022561"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/stop-previous-owned.json",
+      "bytes": 438,
+      "sha256": "4cf3dd2e858725d3fd9bfd51ebdd0340799dcbeefd5f4ed717cf811c3903ae73"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/stop-previous-owned.log",
+      "bytes": 122,
+      "sha256": "6bb5b04f5ae9b1172b1ccfacef80c319bdc3a08bb6a0236fa92849ed946f6357"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/summarize-source.mjs",
+      "bytes": 2585,
+      "sha256": "7c9755e4586829c15996e3174d235979936e1a284edaa93c9c0bd0c59aae604c"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/verify-final-handoff.mjs",
+      "bytes": 2112,
+      "sha256": "d5bf4004974f4dae576e18e8ef3a237c7f5b0df84e7f517bd91afafba6902bb8"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/verify-served-build-v2.mjs",
+      "bytes": 2090,
+      "sha256": "4d6017261f49f2e8d7c4f96103c6ea7be898049745775165cd1a72edf8560711"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/verify-served-build.mjs",
+      "bytes": 1946,
+      "sha256": "c5473d42fda780b9cb95c969195de44695a61d8c1ed67f6824ef82f2530802e5"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/visual-inspection.json",
+      "bytes": 1588,
+      "sha256": "60d1865ea3296f710d8cc58e7b8a1c192b42b1664abd5e98b02ca593e4c0bf77"
+    },
+    {
+      "file": ".data/objective/acceptance-fixes/with-test-env.mjs",
+      "bytes": 489,
+      "sha256": "fc8b3434de99e2c7714f06e04f5e7a9c6f1314ced4ad3736b549f79e01d170a6"
+    }
+  ]
+}

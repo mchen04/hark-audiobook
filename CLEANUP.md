@@ -30,7 +30,7 @@ None. Every case this diff adds can fail: the fake-clock budget cases, both fenc
 
 ## Checks
 
-Coordinator prechecks, synchronous, before this pass: `git diff --check` exit 0 on both trees; `pnpm install --frozen-lockfile` exit 0 on both; raw `pnpm verify:quick` (format, lint, `tsc --noEmit`, vitest, production build) exit 0 on the `e9feaee` baseline (88 files / 777 tests) and exit 0 here (89 files / 787 tests). Raw exit codes, not a diagnostic delta. Postchecks have NOT run: the coordinator runs the full quick gate, lint, typecheck and browser suites after I exit; I started none. The broader parity/sync/resume browser failures in the ledger remain unresolved, not green.
+Coordinator prechecks, synchronous, before this pass: `git diff --check` exit 0 on both trees; `pnpm install --frozen-lockfile` exit 0 on both; raw `pnpm verify:quick` (format, lint, `tsc --noEmit`, vitest, production build) exit 0 on the `e9feaee` baseline (88 files / 777 tests) and exit 0 on the cleanup input (89 files / 787 tests). At report creation the coordinator's postchecks had not run; the cleanup writer started none. Subsequently the coordinator's post-quick gate passed at `3209b06`. The independent additional review passed 787 units, quick, two 8/8 iPhone runs and 33/33 parity at that head, while reproducing the collection timestamp failure. These outcomes do not describe later repair candidates; consult the current evidence ledger.
 
 ## Commits
 
