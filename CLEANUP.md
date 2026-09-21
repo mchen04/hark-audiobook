@@ -1,11 +1,11 @@
 # Cleanup
 
-Run ID: a6a0664a65ae492da0be36785b280d59
+Run ID: 3f32a1a66921488692b2f9b752900101
 Status: complete
 
 ## Passes
 
-Two passes exist on this branch. The prior pass (Run ID `704dbec0…`, commits `b323d7e`/`166820e`/`3631a6b`) did the substantive deslop. This rerun is the one bounded pass allowed here: I re-read the whole diff against `0e1f17e` rather than trusting that record, and found nothing further that clearly warranted an application edit.
+One bounded pass over `e9feaee..HEAD` (5 commits, 12 files), read in full. The one application file, `src/components/player/local-media-gate.tsx`, stays byte-identical to the reviewed candidate: only its inline account/book-scoped autoplay guard is dense, and renaming it would invalidate the recorded served-build provenance for the one app file the reviewers hashed. Fence defenses and their tests are untouched.
 
 ## Rebase
 
@@ -13,41 +13,28 @@ Not needed; the coordinator checked ancestry.
 
 ## Removed
 
-Nothing this pass. I re-audited the diff for slop and confirmed the prior pass's three fixes still hold: the `!` assertion in `selectContinueBook`, the promise-reshaping `.then(() => undefined).catch(() => undefined)` in `use-library-books.ts`, and the inline nested `await (await import(...))` in `local-media-gate.tsx`. Remaining candidates were checked and rejected: `reload`'s `async` is required by `useBookImport`'s `() => Promise<void>` contract, and the added comments in `mirror.ts`, `rendition.ts` and the e2e specs carry non-obvious reasoning rather than restating code.
-
-I also deleted an empty untracked `src/app/(app)/narrating/` directory left behind in this checkout by the route removal. Git tracks no empty directories, so this is not part of any commit.
+- `src/lib/offline/mirror.test.ts`: the diff added a third copy of the 9-line `localStorage` register stub, identical to the adjacent fence test's. Both now call one `stubPlaybackStorage()`; the two stubs that genuinely differ (quota-throwing, read-only) are left alone.
+- `tests/e2e/retained-workflows.spec.ts`: dropped `expect(before.length).toBeGreaterThan(0)` — the `expect.poll(...).toBe(1)` two lines above pins that count, and `expect(after).toEqual(before)` carries the meaning.
 
 ## Tests deleted
 
-none — nothing qualified. Every new and reworked case has a real failing mode: `import-controller.test.ts` drives cancellation and late-completion races through deferred promises, `use-library-books.test.tsx` asserts snapshot reuse and call counts, and the `mirror`/`rendition`/`library-listing` suites assert values a regression would change. The `listMirrorBooks`-style names in `mirror.test.ts` and `library-listing.test.ts` are local shims over the new `readMirrorLibrary`, not calls to deleted exports.
+None. Every case this diff adds can fail: the fake-clock budget cases, both fence-admission boundaries, the cancel/autoplay component cases and the credential-mismatch and cross-origin privacy browser cases each have a distinct oracle. `tests/shared/sign-in-budget.ts` still serves parity, sync, resume and launch, so the retained suite's new reader orphans nothing.
 
 ## Docs updated
 
-none. I checked the diff's doc changes for staleness rather than assuming: every Markdown link target resolves (including the `development.md#what-a-green-run-does-not-prove` anchor), and no reference to the removed Lemonade, narration-preview or `/narrating` code survives in `src`, `tests`, `README.md` or `docs` outside the evidence ledger and the tests that assert their absence. The ledger's Lemonade mentions are raw recorded evidence and were left untouched.
+`docs/development.md` listed what the iPhone Playwright project covers; this diff added `tests/e2e/privacy-transport.spec.ts` under `tests/e2e`, so that sentence now names it and its loopback calibration scope. Nothing else went stale: the `.111` IP, the credential-preflight paragraph and the largest-file audit still match the code.
 
 ## Verified
 
-Synchronous and targeted only: `vitest run` on `import-controller.test.ts`, `use-library-books.test.tsx`, `rendition.test.ts` and `mirror.test.ts` — exit 0, 44 passed. This was not lint, not typecheck, not the full suite, and it does not establish that the repository is green.
+`vitest run` on the three touched unit files — exit 0, 44 passed. The extracted helper is load-bearing: with its `stubGlobal` body removed `mirror.test.ts` fails 7 of 35; restored, 35 pass. The prose and assertion edits are not executable here.
 
 ## Checks
 
-Bounded plan: read the coordinator's receipts, run one pass over the diff, small synchronous checks only, commit, report.
-
-Coordinator prechecks, raw exit codes as recorded in `cleanup-rerun/`, taken before this pass:
-
-| Precheck                                                                   | Base `0e1f17e` | Current        |
-| -------------------------------------------------------------------------- | -------------- | -------------- |
-| `pnpm install --frozen-lockfile`                                           | exit 0         | exit 0         |
-| `git diff --check`                                                         | exit 0         | exit 0         |
-| `pnpm verify:quick` (`format:check && lint && typecheck && test && build`) | exit 0 (37.2s) | exit 0 (35.2s) |
-
-These are raw exit codes, not a diagnostic delta. Postchecks have NOT run: the coordinator runs all planned verification after I exit. Nothing here re-establishes green for the commits below.
+Coordinator prechecks, synchronous, before this pass: `git diff --check` exit 0 on both trees; `pnpm install --frozen-lockfile` exit 0 on both; raw `pnpm verify:quick` (format, lint, `tsc --noEmit`, vitest, production build) exit 0 on the `e9feaee` baseline (88 files / 777 tests) and exit 0 here (89 files / 787 tests). Raw exit codes, not a diagnostic delta. Postchecks have NOT run: the coordinator runs the full quick gate, lint, typecheck and browser suites after I exit; I started none. The broader parity/sync/resume browser failures in the ledger remain unresolved, not green.
 
 ## Commits
 
-- `b323d7e` Deslop the library read, rendition selection and MP3 attach paths (prior pass)
-- `166820e`, `3631a6b` prior pass's report and its formatting fix
-- this commit, recording the rerun
+`e8afea7` — Deduplicate the fence storage stub and refresh e2e docs. This report is committed separately.
 
 ## Reverted
 
