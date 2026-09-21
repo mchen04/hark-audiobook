@@ -473,8 +473,9 @@ prune, unrelated checkout, real library or account cleanup is proposed.
 
 ## Bounded review-fix round — 21 September 2026
 
-Incoming review candidate: `996e173`, after external cleanup commits `b323d7e`
-and `166820e`, formatting correction `3631a6b`, and the recorded cleanup rerun.
+Incoming review candidate: `996e173`, after external cleanup implementation
+`b323d7e` (three application files), cleanup-report-only commit `166820e`,
+formatting correction `3631a6b`, and the recorded cleanup rerun.
 Forge reported its cleanup gate passed and the independent Claude review found
 seven minor findings, no blockers. This implementer read **all** of
 `../review/REVIEW.md`; its unchanged contents are also preserved in
@@ -501,10 +502,21 @@ commit history rather than embedding a self-referential commit hash here.
 | 6 — cancellation after commit       | Cancellation now enters checking and rereads durable local media. A late attachment completion cannot overwrite the resulting ready/missing/unavailable state.                            | Three component cases plus a real WebKit commit-boundary cancellation in both full runs. The latter uses actual parsing, IndexedDB, Cache Storage, service-worker ranges and decoder playback; no second file selection.                                                                             |
 | 7 — account-fenced healing          | Assert account writability at entry, after opening the DB, and before committing. Abort a partial transaction and consume its abort rejection if a fence arrives during the write.        | Deletion, sign-out and mid-write fence cases leave no healing rows and still allow the other account to heal. Hook regression covers rejected heals on mount, focus and route return; its existing catch keeps those failures handled. Existing independent playback-field clock tests remain.       |
 
+Correction following the independent re-review: the other-account healing
+claim in finding 7 covers a user-scoped deletion fence or **pending/request**
+sign-out fence. A **committed** sign-out fence blocks every account on the origin
+until a later sign-in. It does not allow the other account to heal.
+
 The mid-write and component failure scenarios use controlled unit boundaries;
 they are **not** described as live-browser proofs. The cancellation browser
-case schedules a real Cancel click at the actual post-commit library signal
-before the attachment promise returns. Its positive oracle requires that the
+case patches the page-wide `IDBObjectStore.prototype.put` and
+`BroadcastChannel.prototype.postMessage` methods, delegating to their originals.
+The first adds a download-transaction completion listener; the second calls
+the actual Cancel button at the post-commit library signal, before the
+attachment promise returns, then restores both prototypes. This schedules a
+deterministic microtask boundary; it does not demonstrate that an unaided human
+click can hit that window. The component test instead uses an ordinary
+`fireEvent.click` with a deferred storage promise. The browser's positive oracle requires that the
 download transaction completed. Both runs then obtained HTTP **206** with
 **1,024 bytes** from that committed audio URL, checked the player's URL, and
 observed real decoder time advance. No synthetic media events or fake media

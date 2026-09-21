@@ -12,8 +12,8 @@ vi.mock("@/lib/offline/media-store", () => ({ storeLocalBookMedia: storeMedia })
 vi.mock("@/lib/local-import", () => ({ parseLocalMp3: async () => ({ artwork: null }) }));
 vi.mock("@/components/book/use-delete-book", () => ({ useDeleteBook: () => ({}) }));
 vi.mock("@/components/player/full-player", () => ({
-  FullPlayer: ({ playerBook }: { playerBook: PlayerBook }) => (
-    <audio aria-label="Resolved media" src={playerBook.mediaUrl} />
+  FullPlayer: ({ playerBook, autoplay }: { playerBook: PlayerBook; autoplay: boolean }) => (
+    <audio aria-label="Resolved media" src={playerBook.mediaUrl} autoPlay={autoplay} />
   ),
 }));
 import { LocalMediaGate } from "./local-media-gate";
@@ -33,6 +33,18 @@ const book: PlayerBook = {
 };
 const media = { offlineMediaUrl: "/offline-media/committed", offlineCoverUrl: null };
 
+const props = {
+  userId: "user",
+  playerBook: book,
+  mediaFingerprint: null,
+  mediaFingerprintKind: null,
+  mediaRenditionKey: "source-v1",
+  byteSize: null,
+  autoplay: true,
+  details: null,
+  nextInCollection: null,
+};
+
 beforeEach(() => {
   readMedia.mockReset().mockResolvedValue(null);
   storeMedia.mockReset();
@@ -48,19 +60,7 @@ it.each(["committed", "missing", "unavailable"])(
         finish = resolve;
       }),
     );
-    const { container } = render(
-      <LocalMediaGate
-        userId="user"
-        playerBook={book}
-        mediaFingerprint={null}
-        mediaFingerprintKind={null}
-        mediaRenditionKey="source-v1"
-        byteSize={null}
-        autoplay={false}
-        details={null}
-        nextInCollection={null}
-      />,
-    );
+    const { container, rerender } = render(<LocalMediaGate {...props} />);
     await screen.findByRole("button", { name: "Attach MP3" });
     fireEvent.change(container.querySelector('input[type="file"]')!, {
       target: { files: [new File(["fixture"], "book.mp3", { type: "audio/mpeg" })] },
@@ -81,11 +81,39 @@ it.each(["committed", "missing", "unavailable"])(
         media.offlineMediaUrl,
       );
       expect(screen.queryByRole("button", { name: "Attach MP3" })).toBeNull();
+      expect((screen.getByLabelText("Resolved media") as HTMLAudioElement).autoplay).toBe(false);
+      for (const next of [
+        { playerBook: { ...book, id: "next-book" } },
+        { userId: "next-account" },
+      ]) {
+        rerender(<LocalMediaGate {...props} {...next} />);
+        await waitFor(() =>
+          expect((screen.getByLabelText("Resolved media") as HTMLAudioElement).autoplay).toBe(true),
+        );
+      }
     } else if (outcome === "unavailable") {
       expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
     } else {
       expect(screen.getByRole("button", { name: "Attach MP3" })).toBeTruthy();
     }
     expect(storeMedia).toHaveBeenCalledTimes(1);
+  },
+);
+
+it.each(["already saved", "attached normally"])(
+  "preserves collection autoplay when media is %s",
+  async (availability) => {
+    if (availability === "already saved") readMedia.mockResolvedValue(media);
+    storeMedia.mockResolvedValue(media);
+    const { container } = render(<LocalMediaGate {...props} />);
+    if (availability === "attached normally") {
+      await screen.findByRole("button", { name: "Attach MP3" });
+      fireEvent.change(container.querySelector('input[type="file"]')!, {
+        target: { files: [new File(["fixture"], "book.mp3", { type: "audio/mpeg" })] },
+      });
+    }
+    expect(((await screen.findByLabelText("Resolved media")) as HTMLAudioElement).autoplay).toBe(
+      true,
+    );
   },
 );

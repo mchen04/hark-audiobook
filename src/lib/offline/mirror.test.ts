@@ -4,7 +4,14 @@ import "fake-indexeddb/auto";
 import { IDBFactory as FakeIDBFactory, IDBObjectStore } from "fake-indexeddb";
 
 import { PENDING_ACCOUNT_DELETION_KEY } from "@/lib/app-keys";
-import { installAccountSignOutFence } from "@/lib/account-deletion-fence";
+import {
+  commitAccountSignOutFence,
+  installAccountSignOutFence,
+} from "@/lib/account-deletion-fence";
+import {
+  listProgressNormalizations,
+  persistProgressNormalization,
+} from "@/lib/offline-sync/normalizations";
 import { saveLocalPlaybackState } from "@/lib/playback-core";
 
 import { database } from "./db";
@@ -492,8 +499,8 @@ describe("tombstones", () => {
 });
 
 describe("healMirrorPlaybackFromLocal", () => {
-  it.each(["deletion", "sign-out", "during-write"])(
-    "refuses %s fences without partial writes or blocking another account",
+  it.each(["deletion", "sign-out", "during-write", "normalization", "committed-sign-out"])(
+    "refuses %s fences without partial writes and respects the fence's account scope",
     async (fence) => {
       const values = new Map<string, string>();
       vi.stubGlobal("localStorage", {
@@ -519,8 +526,19 @@ describe("healMirrorPlaybackFromLocal", () => {
         for (const userId of [USER_A, USER_B]) {
           saveLocalPlaybackState(userId, "book-1", { positionMs: 42000, occurredAt: Date.now() });
         }
+        if (fence === "normalization") {
+          await persistProgressNormalization(USER_A, "book-1", {
+            position: {
+              submitted: { value: 42000, occurredAt: 1 },
+              canonical: { value: 43000, occurredAt: 2 },
+            },
+          });
+          fenceAccount();
+        }
+        const localBefore = new Map(values);
         if (fence === "deletion") fenceAccount();
         if (fence === "sign-out") installAccountSignOutFence(USER_A);
+        if (fence === "committed-sign-out") commitAccountSignOutFence();
         if (fence === "during-write") {
           const put = IDBObjectStore.prototype.put;
           vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function (
@@ -536,6 +554,15 @@ describe("healMirrorPlaybackFromLocal", () => {
         await expect(healMirrorPlaybackFromLocal(USER_A)).rejects.toThrow(/deletion|sign.out/i);
         expect(await storeContents("playbackStates")).toEqual([]);
         expect(await storeContents("downloads")).toEqual([]);
+        if (fence === "normalization") {
+          expect(values).toEqual(localBefore);
+          expect(await listProgressNormalizations(USER_A)).toHaveLength(1);
+        }
+        if (fence === "committed-sign-out") {
+          await expect(healMirrorPlaybackFromLocal(USER_B)).rejects.toThrow(/sign.out/i);
+          expect(await storeContents("playbackStates")).toEqual([]);
+          return;
+        }
         await expect(healMirrorPlaybackFromLocal(USER_B)).resolves.toBe(1);
         expect(await storeContents("playbackStates")).toMatchObject([
           { userId: USER_B, positionMs: 42000 },

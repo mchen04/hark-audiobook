@@ -55,6 +55,22 @@ node scripts/test-db.mjs         # generates secrets, then starts, migrates, see
 Everything test-related reads `.env.test`, never `.env.local`. Override the
 file with `HARK_ENV_FILE=<path>` or `--env-file=<path>`.
 
+Keep that file with its disposable database: regenerating
+`HARK_TEST_ACCOUNT_PASSWORD` while retaining the database makes existing test
+accounts reject login. The retained-workflows helper verifies its single
+disposable account's password hash before resetting any fixture content. On a
+mismatch it stops with a credential-free diagnostic. Restore the matching env
+file backup, or point `HARK_ENV_FILE` at a separate new disposable database and
+matching credentials. This helper does not rotate credentials or reset volumes.
+
+Retained browser workflows reuse the fixed `.111` test IP and read the real
+database sign-in and signup buckets before each attempt. They wait for an
+exhausted bucket's remaining idle window and extend that test's timeout; the
+signup window can take ten minutes. They never clear buckets or rotate IPs.
+The bounded fake-clock budget tests cover exhaustion without that delay; two
+consecutive full browser runs exercise real authentication and account deletion.
+Other browser projects retain their existing per-project sign-in budgeting.
+
 `scripts/lib/assert-local-database.mjs` aborts the e2e config, the standalone
 test server, and the bootstrap script if `DATABASE_URL` ever points at a hosted
 provider such as Neon.

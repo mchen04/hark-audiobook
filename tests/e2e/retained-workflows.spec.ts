@@ -6,7 +6,12 @@ import postgres from "postgres";
 import { startControllableNetwork } from "../parity/harness/network";
 import { TEST_CLIENT_HEADERS } from "../shared/test-client-ip";
 import { testAccountPassword } from "../shared/test-account-password";
-import { awaitSignInBudget } from "../shared/sign-in-budget";
+import {
+  awaitRetainedAuthBudget,
+  findRetainedAccount,
+  RETAINED_CREDENTIAL_DIAGNOSTIC,
+  RETAINED_EMAIL,
+} from "../shared/retained-auth";
 import { closeSql, resetAccount, sql } from "../sync/harness/app";
 
 test.use({ extraHTTPHeaders: TEST_CLIENT_HEADERS.retained });
@@ -16,12 +21,12 @@ async function openAccount(page: Page, origin = "", waitUntilReady = true) {
   page.setDefaultTimeout(15000);
   // Reuse one disposable identity across runs. Only the account-deletion
   // journey removes it; resets leave auth sessions and real rate limits intact.
-  const email = "retained-workflows@hark.test";
+  const email = RETAINED_EMAIL;
   const password = testAccountPassword("retained-workflows");
-  const [existing] = await sql()`select id from "user" where email=${email}`;
+  const existing = await findRetainedAccount(password);
+  await retainedBudget(existing ? "sign-in" : "sign-up");
   if (existing) {
     await resetAccount(existing.id);
-    await awaitSignInBudget("retained");
   }
   console.log(`[retained] ${existing ? "reuse/sign-in" : "create disposable account"}`);
   await page.goto(`${origin}/${existing ? "login" : "register"}`);
@@ -44,6 +49,14 @@ async function openAccount(page: Page, origin = "", waitUntilReady = true) {
     await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
   }
   return { email, password };
+}
+
+async function retainedBudget(operation: "sign-in" | "sign-up") {
+  await awaitRetainedAuthBudget(operation, (waitMs) => {
+    // A real signup idle window can exceed the individual test's normal limit.
+    test.setTimeout(test.info().timeout + waitMs);
+    console.log(`[retained] waiting ${Math.ceil(waitMs / 1000)}s for the real ${operation} bucket`);
+  });
 }
 const chooser = (page: Page) =>
   page.locator('input[aria-label="Choose an audiobook or document to import"]');
@@ -194,6 +207,21 @@ test("retained player, organization, transcript, settings, export and deletion w
   await page.getByRole("button", { name: "Play", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Tiny Fixture Book", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+  await expect
+    .poll(() => page.locator("audio").evaluate((audio: HTMLAudioElement) => audio.currentTime))
+    .toBeGreaterThan(0);
+  writeFileSync(
+    info.outputPath("collection-autoplay.json"),
+    JSON.stringify(
+      {
+        navigatedToNextBook: true,
+        decoderAdvancedWithoutSecondPlayClick: true,
+        autoplayQuery: new URL(page.url()).searchParams.get("autoplay"),
+      },
+      null,
+      2,
+    ),
+  );
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   await shot(page, info, "collection-autoplay");
 
@@ -285,7 +313,9 @@ test("real document formats finish before playback, cancel safely and preserve l
     (request) => wire.push(request),
   );
   const browserRequests: string[] = [];
-  // Start before authentication; also cover requests to any other origin.
+  // Start before authentication. Cross-origin coverage is limited to events
+  // Playwright exposes: WebKit can omit Blob bodies and worker requests.
+  // privacy-transport.spec.ts measures those gaps with loopback wire controls.
   context.on("request", (request) => {
     browserRequests.push(request.url(), request.postDataBuffer()?.toString("utf8") ?? "");
   });
@@ -377,6 +407,8 @@ test("real document formats finish before playback, cancel safely and preserve l
           wireBodies: wire.filter((request) => request.body.length > 0).length,
           positiveControls: ["GET query", "JSON", "Blob", "multipart", "sendBeacon"],
           documentTextFound: false,
+          scope:
+            "App-origin wire URLs/bodies plus browser-exposed URLs/bodies; no claim for arbitrary cross-origin Blob or service-worker traffic, encoded/encrypted payloads or binary audio.",
         },
         null,
         2,
@@ -506,7 +538,7 @@ test("first sync distinguishes loading and unreachable from an empty library and
   }
 });
 
-test("cancelling after a real media commit recognizes the attachment without choosing it again", async ({
+test("cancelling after a real media commit recognizes the attachment and suppresses autoplay", async ({
   page,
 }, info) => {
   await openAccount(page);
@@ -520,16 +552,25 @@ test("cancelling after a real media commit recognizes the attachment without cho
   await expect(page.locator("article.book-item", { hasText: title })).toContainText(
     "Not on this device",
   );
-  await page.goto(href!);
+  await page.goto(`${href!}?autoplay=1`);
   await expect(page.getByRole("button", { name: "Attach MP3", exact: true })).toBeVisible();
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
-  // Schedule the real Cancel click at the media store's post-commit notification,
-  // before its promise returns to the gate. Storage, parsing and playback remain
-  // the production implementations; no records or audio are fabricated here.
+  // Page-wide prototype wrappers delegate to real IDBObjectStore.put and
+  // BroadcastChannel.postMessage. The first observes transaction completion;
+  // the second clicks Cancel in the post-commit/pre-promise-return microtask
+  // window and restores both originals. This makes a race deterministic, not
+  // a claim that an unaided human click can hit that window. No fake media.
   await page.evaluate((bookId) => {
-    const evidence = { cancelled: false, committedUrl: "" };
+    const evidence = { cancelled: false, committedUrl: "", playCalls: 0 };
     Object.assign(window, { attachmentCancellation: evidence });
+    // Delegates every actual play() invocation, including rejected attempts;
+    // paused alone could hide an autoplay attempt blocked by browser policy.
+    const play = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function () {
+      evidence.playCalls += 1;
+      return play.call(this);
+    };
     const put = IDBObjectStore.prototype.put;
     IDBObjectStore.prototype.put = function (value, key) {
       const request = put.call(this, value, key);
@@ -577,9 +618,9 @@ test("cancelling after a real media commit recognizes the attachment without cho
   await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Attach MP3", exact: true })).toHaveCount(0);
   const evidence = await page.evaluate(async () => {
-    const { cancelled, committedUrl } = (
+    const { cancelled, committedUrl, playCalls } = (
       window as unknown as {
-        attachmentCancellation: { cancelled: boolean; committedUrl: string };
+        attachmentCancellation: { cancelled: boolean; committedUrl: string; playCalls: number };
       }
     ).attachmentCancellation;
     const response = await fetch(committedUrl, { headers: { Range: "bytes=0-1023" } });
@@ -589,17 +630,85 @@ test("cancelling after a real media commit recognizes the attachment without cho
       mediaBytes: (await response.arrayBuffer()).byteLength,
       playerUsesCommittedMedia:
         document.querySelector("audio")?.getAttribute("src") === committedUrl,
+      pausedAfterCancel: document.querySelector("audio")?.paused,
+      timeAfterCancel: document.querySelector("audio")?.currentTime,
+      playCallsAfterCancel: playCalls,
     };
   });
   expect(evidence.mediaStatus).toBe(206);
   expect(evidence.mediaBytes).toBe(1024);
   expect(evidence.playerUsesCommittedMedia).toBe(true);
+  expect(evidence.pausedAfterCancel).toBe(true);
+  expect(evidence.timeAfterCancel).toBe(0);
+  expect(evidence.playCallsAfterCancel).toBe(0);
   await page.getByRole("button", { name: "Play", exact: true }).click();
   await expect
     .poll(() => page.locator("audio").evaluate((audio: HTMLAudioElement) => audio.currentTime))
     .toBeGreaterThan(0);
   await page.getByRole("button", { name: "Pause", exact: true }).click();
+  const playCallsAfterManualPlay = await page.evaluate(
+    () =>
+      (window as unknown as { attachmentCancellation: { playCalls: number } })
+        .attachmentCancellation.playCalls,
+  );
+  expect(playCallsAfterManualPlay).toBeGreaterThan(0);
   expect(pageErrors).toEqual([]);
   await shot(page, info, "committed-attachment-after-cancel");
-  writeFileSync(info.outputPath("committed-attachment.json"), JSON.stringify(evidence, null, 2));
+  writeFileSync(
+    info.outputPath("committed-attachment.json"),
+    JSON.stringify({ ...evidence, playCallsAfterManualPlay }, null, 2),
+  );
+});
+
+test("retained database password mismatch fails before fixture reset and correct credentials still work", async ({
+  page,
+  context,
+}, info) => {
+  await openAccount(page);
+  await chooser(page).setInputFiles("tests/fixtures/Downloads/Chapterline-iPhone-Test.mp3");
+  await expect(
+    page.getByRole("link", { name: "iPhone Downloads Test", exact: true }),
+  ).toBeVisible();
+  const password = testAccountPassword("retained-workflows");
+  const existing = await findRetainedAccount(password);
+  expect(existing).toBeTruthy();
+  const before = await sql()`select id from books where owner_id=${existing!.id} order by id`;
+  expect(before.length).toBeGreaterThan(0);
+  // Model regenerating .env.test against a retained DB without changing any
+  // actual credential, environment file or database record. Never persist it.
+  const mismatchedPassword = crypto.randomUUID();
+  await retainedBudget("sign-in");
+  const rejected = await context.request.post("/api/auth/sign-in/email", {
+    data: { email: RETAINED_EMAIL, password: mismatchedPassword },
+  });
+  expect(rejected.status()).toBe(401);
+  await expect(findRetainedAccount(mismatchedPassword)).rejects.toThrow(
+    RETAINED_CREDENTIAL_DIAGNOSTIC,
+  );
+  expect(RETAINED_CREDENTIAL_DIAGNOSTIC).not.toContain(mismatchedPassword);
+  const after = await sql()`select id from books where owner_id=${existing!.id} order by id`;
+  expect(after).toEqual(before);
+  await context.clearCookies();
+  await retainedBudget("sign-in");
+  await page.goto("/login");
+  await page.getByLabel("Email").fill(RETAINED_EMAIL);
+  await page.getByLabel(/Password/).fill(password);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(/\/library/);
+  await expect(page.locator("article.book-item")).toHaveCount(before.length);
+  writeFileSync(
+    info.outputPath("credential-mismatch.json"),
+    JSON.stringify(
+      {
+        mismatchHttpStatus: rejected.status(),
+        actionableDiagnostic: RETAINED_CREDENTIAL_DIAGNOSTIC,
+        fixtureBooksBefore: before.length,
+        fixtureBooksAfter: after.length,
+        originalCredentialsStillWork: true,
+        credentialOrLibraryResetOnMismatch: false,
+      },
+      null,
+      2,
+    ),
+  );
 });

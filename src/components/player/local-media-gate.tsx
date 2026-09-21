@@ -63,6 +63,9 @@ export function LocalMediaGate({
   const [state, setState] = useState<GateState>({ phase: "checking" });
   const [error, setError] = useState<string | null>(null);
   const [checkAttempt, setCheckAttempt] = useState(0);
+  const [cancelledBook, setCancelledBook] = useState<{ userId: string; bookId: string } | null>(
+    null,
+  );
   // The book must stay deletable even when this device lacks the audio,
   // otherwise a book imported elsewhere could never be removed from here.
   const { deleteBook, deleting, deleteLabel } = useDeleteBook(
@@ -213,7 +216,9 @@ export function LocalMediaGate({
       <FullPlayer
         playerBook={resolvedPlayerBook}
         historySnapshot={historySnapshot}
-        autoplay={autoplay}
+        autoplay={
+          autoplay && !(cancelledBook?.userId === userId && cancelledBook?.bookId === playerBook.id)
+        }
         details={details}
         mediaFingerprint={mediaFingerprint}
         mediaRenditionKey={mediaRenditionKey}
@@ -239,6 +244,7 @@ export function LocalMediaGate({
               onClick={() => {
                 attachmentRef.current?.abort();
                 attachmentRef.current = null;
+                setCancelledBook({ userId, bookId: playerBook.id });
                 setState({ phase: "checking" });
                 setCheckAttempt((attempt) => attempt + 1);
               }}
