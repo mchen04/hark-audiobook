@@ -97,6 +97,16 @@ and would stop protecting anything the moment collections became cursored.
 Tag vocabulary and collection lists are small and user-level, so they are pulled
 in full on every sync rather than cursored.
 
+A server `updatedAt` is a **receipt time, not a client event clock**. Every write
+path sets it with `monotonicTimestamp()` from
+`src/server/db/monotonic-timestamp.ts`, which evaluates
+`greatest(clock_timestamp(), previous + interval '1 microsecond')` in the same
+statement that holds the row lock. A new route that writes `new Date()` instead
+reintroduces a real sync bug: host and database clocks differ by tens of
+milliseconds here, so a receipt can land behind the cursor a device already
+stored, and that change never propagates. Client event clocks such as
+`eventOccurredAt` are unaffected and stay the conflict authority of section 7.
+
 ## 4. Local schema
 
 Two IndexedDB databases, kept separate on purpose: state and outbox have

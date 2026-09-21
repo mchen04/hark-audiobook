@@ -407,7 +407,9 @@ for (const parent of ["book", "collection"] as const) {
       expect(await pull(b.page)).toBe("applied");
       const cursorBefore = (await mirror(b.page)).syncMeta?.cursor;
       expect(cursorBefore).toBeTruthy();
-      for (const include of [true, false, true]) {
+      const edits = [true, false, true];
+      let mirroredEdits = 0;
+      for (const include of edits) {
         await commit(
           a.page,
           parent === "book"
@@ -445,6 +447,7 @@ for (const parent of ["book", "collection"] as const) {
             include ? [book.media] : [],
           );
         }
+        mirroredEdits += 1;
       }
       writeFileSync(
         info.outputPath("monotonic-timestamps.json"),
@@ -457,7 +460,7 @@ for (const parent of ["book", "collection"] as const) {
             strictlyIncreasing: stamps.every(
               (stamp, index) => index === 0 || stamp > stamps[index - 1]!,
             ),
-            incrementalMirrorMatchedEveryEdit: true,
+            incrementalMirrorMatchedEveryEdit: mirroredEdits === edits.length,
           },
           null,
           2,

@@ -721,7 +721,7 @@ test("retained database password mismatch fails before fixture reset and correct
   );
   expect(rejected instanceof Error).toBe(true);
   const diagnostic = (rejected as Error).message;
-  // Compare the actual rejection exactly. Boolean assertions also keep a
+  // Compare the actual rejection exactly. Boolean assertions also keep an
   // accidentally appended credential out of failure diffs and persisted logs.
   expect(diagnostic.includes(mismatchedPassword), "Diagnostic leaked attempted credential").toBe(
     false,
