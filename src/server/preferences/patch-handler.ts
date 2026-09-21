@@ -14,6 +14,7 @@ import { preferencesPatchSchema } from "@/server/api/mutation-schemas";
 import { withMutation } from "@/server/api/route-handler";
 import { expectRow } from "@/server/books/queries";
 import { db } from "@/server/db/client";
+import { monotonicTimestamp } from "@/server/db/monotonic-timestamp";
 import {
   preferenceWriteReceipts,
   session as authSession,
@@ -47,13 +48,13 @@ export function makePreferencesPatch({ strict }: { strict: boolean }) {
         return Response.json({ error: "Invalid preference write id." }, { status: 400 });
       }
       const policy = applyPreferenceWritePolicy(data, defaultsVersionHeader);
-      const update: Partial<typeof userPreferences.$inferInsert> = {
+      const update = {
         ...policy.patch,
-        updatedAt: new Date(),
+        updatedAt: monotonicTimestamp(userPreferences.updatedAt),
+        ...(policy.smartRewindExplicit !== undefined
+          ? { smartRewindExplicit: policy.smartRewindExplicit }
+          : {}),
       };
-      if (policy.smartRewindExplicit !== undefined) {
-        update.smartRewindExplicit = policy.smartRewindExplicit;
-      }
       const result = await db.transaction(async (transaction) => {
         // Serialize this write with revocation of the session that authorized it.
         // If sign-out deletes the row first, an already-authenticated request is

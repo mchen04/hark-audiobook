@@ -1,4 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { writeFileSync } from "node:fs";
 
 import {
   APP_ORIGIN,
@@ -18,7 +19,7 @@ import {
 } from "./harness/app";
 import { readBookIds, readCollectionIds, readTagIds, toDeviceState } from "./harness/state";
 
-/** `collections.updatedAt` straight from Postgres, as microsecond-comparable text. */
+/** `collections.updatedAt` straight from Postgres, serialized at millisecond precision. */
 async function collectionUpdatedAt(collectionId: string): Promise<string | null> {
   const [row] = await sql()<{ updated_at: Date }[]>`
     SELECT updated_at FROM collections WHERE id = ${collectionId}::uuid
@@ -370,6 +371,169 @@ test("two devices editing different books converge on the same state", async ({ 
     expect(collections.get("Converged")).toBe(collectionId);
     const serverBooks = await readBookIds(account.userId);
     expect([...serverBooks.keys()].sort()).toStrictEqual([left.media, right.media].sort());
+  } finally {
+    await a.context.close();
+    await b.context.close();
+  }
+});
+
+for (const parent of ["book", "collection"] as const) {
+  test(`${parent} sync timestamps advance beyond a retained future timestamp`, async ({
+    browser,
+  }, info) => {
+    const { account, a, b } = await setUpPair(browser);
+    try {
+      const book = await seedBook(account, a, b, `clock-${parent}`, "Clock Subject");
+      const collectionId = await createCollection(a.page, "Clock Shelf");
+      const table = parent === "book" ? "books" : "collections";
+      const owner = parent === "book" ? "owner_id" : "user_id";
+      const entityId = parent === "book" ? book.bookId : collectionId;
+      // Only this disposable fixture row moves. Neither database nor host clock
+      // is changed. A retained timestamp ahead of the current clock also pins
+      // monotonicity when an earlier server clock was fast or stepped backward.
+      await sql()`update ${sql()(table)} set updated_at = clock_timestamp() + interval '1 minute'
+        where id = ${entityId}::uuid and ${sql()(owner)} = ${account.userId}`;
+      const stamp = async () => {
+        const [row] = await sql()<{ value: string }[]>`select
+          to_char(updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as value
+          from ${sql()(table)} where id=${entityId}::uuid and ${sql()(owner)}=${account.userId}`;
+        return row!.value;
+      };
+      const stamps = [await stamp()];
+      expect(
+        Date.parse(stamps[0]!) - Date.now(),
+        "The skew fixture must still be ahead of the host",
+      ).toBeGreaterThan(30_000);
+      expect(await pull(b.page)).toBe("applied");
+      const cursorBefore = (await mirror(b.page)).syncMeta?.cursor;
+      expect(cursorBefore).toBeTruthy();
+      for (const include of [true, false, true]) {
+        await commit(
+          a.page,
+          parent === "book"
+            ? {
+                kind: "rename",
+                bookId: book.bookId,
+                fields: {
+                  title: "Clock Updated",
+                  tags: include ? ["clock-safe"] : [],
+                  archived: include,
+                },
+              }
+            : { kind: "collection", collectionId, bookId: book.bookId, include },
+        );
+        await drainOutbox(a.page);
+        const after = await stamp();
+        expect(
+          after > stamps.at(-1)!,
+          `${parent} receipt timestamp must strictly advance: ${stamps.at(-1)} -> ${after}`,
+        ).toBe(true);
+        stamps.push(after);
+        expect(await pull(b.page)).toBe("applied");
+        const state = toDeviceState(await mirror(b.page));
+        if (parent === "book") {
+          expect(state.booksByFingerprint.get(book.media)).toMatchObject({
+            title: "Clock Updated",
+            archived: include,
+            chapterCount: 2,
+          });
+          expect([...(state.tagsByFingerprint.get(book.media) ?? [])]).toEqual(
+            include ? ["clock-safe"] : [],
+          );
+        } else {
+          expect([...(state.collectionMembers.get("Clock Shelf") ?? [])]).toEqual(
+            include ? [book.media] : [],
+          );
+        }
+      }
+      writeFileSync(
+        info.outputPath("monotonic-timestamps.json"),
+        JSON.stringify(
+          {
+            parent,
+            fixtureScope: "One row owned by the disposable sync account; no clock change",
+            cursorBefore,
+            stamps,
+            strictlyIncreasing: stamps.every(
+              (stamp, index) => index === 0 || stamp > stamps[index - 1]!,
+            ),
+            incrementalMirrorMatchedEveryEdit: true,
+          },
+          null,
+          2,
+        ),
+      );
+    } finally {
+      await a.context.close();
+      await b.context.close();
+    }
+  });
+}
+
+test("playback and preference receipt clocks advance without replacing playback field clocks", async ({
+  browser,
+}, info) => {
+  const { account, a, b } = await setUpPair(browser);
+  try {
+    const book = await seedBook(account, a, b, "clock-state", "Clock State");
+    const progress = async (positionMs: number) => {
+      const eventOccurredAt = new Date().toISOString();
+      await commit(a.page, {
+        kind: "progress",
+        bookId: book.bookId,
+        positionMs,
+        playbackRate: 1.5,
+        completed: false,
+        eventOccurredAt,
+      });
+      await drainOutbox(a.page);
+      return eventOccurredAt;
+    };
+    const preferences = (skipBackMs: number) =>
+      a.page.evaluate(
+        async (skipBackMs) =>
+          (
+            await fetch("/api/preferences", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ skipBackMs }),
+            })
+          ).status,
+        skipBackMs,
+      );
+    await progress(10_000);
+    expect(await preferences(5_000)).toBe(200);
+    await sql()`update playback_states set updated_at=clock_timestamp() + interval '1 minute'
+      where user_id=${account.userId} and book_id=${book.bookId}::uuid`;
+    await sql()`update user_preferences set updated_at=clock_timestamp() + interval '1 minute'
+      where user_id=${account.userId}`;
+    const stamps = () => sql()<{ kind: string; stamp: string }[]>`
+      select 'playback' as kind, to_char(updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as stamp
+      from playback_states where user_id=${account.userId} and book_id=${book.bookId}::uuid
+      union all select 'preferences' as kind, to_char(updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as stamp
+      from user_preferences where user_id=${account.userId} order by kind`;
+    const before = await stamps();
+    expect(before).toHaveLength(2);
+    expect(await pull(b.page)).toBe("applied");
+    const eventOccurredAt = await progress(24_000);
+    expect(await preferences(10_000)).toBe(200);
+    const after = await stamps();
+    for (const row of after) {
+      expect
+        .soft(
+          row.stamp > before.find((prior) => prior.kind === row.kind)!.stamp,
+          `${row.kind} receipt clock must advance`,
+        )
+        .toBe(true);
+    }
+    expect(await pull(b.page)).toBe("applied");
+    expect(
+      (await mirror(b.page)).playbackStates.find((row) => row.bookId === book.bookId),
+    ).toMatchObject({ positionMs: 24_000, playbackRate: 1.5, eventOccurredAt });
+    writeFileSync(
+      info.outputPath("state-receipt-clocks.json"),
+      JSON.stringify({ before, after, eventOccurredAt, positionMs: 24_000 }, null, 2),
+    );
   } finally {
     await a.context.close();
     await b.context.close();

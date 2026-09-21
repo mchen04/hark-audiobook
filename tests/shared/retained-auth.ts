@@ -13,16 +13,59 @@ export const RETAINED_CREDENTIAL_DIAGNOSTIC =
 
 /** Read-only, restricted to this disposable identity, before any content reset. */
 export async function findRetainedAccount(password: string): Promise<{ id: string } | undefined> {
-  const [user] = await sql()<{ id: string }[]>`select id from "user" where email=${RETAINED_EMAIL}`;
+  let user: { id: string } | undefined;
+  let credential: { password: string | null } | undefined;
+  try {
+    [user] = await sql()<{ id: string }[]>`select id from "user" where email=${RETAINED_EMAIL}`;
+    if (user) {
+      [credential] = await sql()<{ password: string | null }[]>`
+        select password from account where user_id=${user.id} and provider_id='credential'
+      `;
+    }
+  } catch (error) {
+    throw operationFailure("database read", error);
+  }
   if (!user) return undefined;
-  const [credential] = await sql()<{ password: string | null }[]>`
-    select password from account where user_id=${user.id} and provider_id='credential'
-  `;
-  const matches = credential?.password
-    ? await verifyPassword({ hash: credential.password, password }).catch(() => false)
-    : false;
+  if (!credential?.password) {
+    throw new Error(
+      "Disposable retained-workflows identity exists but its email/password credential is missing. " +
+        "Inspect this disposable identity's provisioning; an env backup cannot repair a missing credential. " +
+        "Use HARK_ENV_FILE with a separate new disposable database and matching credentials if needed. " +
+        "No fixture reset was performed. Do not reset an existing database/volume or silently replace credentials.",
+    );
+  }
+  let matches: boolean;
+  try {
+    matches = await verifyPassword({ hash: credential.password, password });
+  } catch (error) {
+    throw operationFailure("credential verification", error);
+  }
   if (!matches) throw new Error(RETAINED_CREDENTIAL_DIAGNOSTIC);
   return user;
+}
+
+function operationFailure(stage: "database read" | "credential verification", error: unknown) {
+  // Raw driver/crypto messages and causes can contain connection strings,
+  // inputs or hashes. Retain only known diagnostic categories, never their text.
+  const code = error && typeof error === "object" && "code" in error ? error.code : null;
+  const knownCodes = ["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "28P01", "3D000", "42P01"];
+  const category =
+    typeof code === "string" && knownCodes.includes(code)
+      ? code
+      : error instanceof TypeError
+        ? "TypeError"
+        : error instanceof RangeError
+          ? "RangeError"
+          : "Error";
+  const action =
+    stage === "database read"
+      ? "Check the local test database, HARK_ENV_FILE connection and migrations."
+      : "Check the test runtime and disposable credential hash format; this is not a confirmed password mismatch.";
+  return new Error(
+    `Disposable retained-workflows ${stage} failed (${category}). ${action} ` +
+      "No fixture reset was performed. Do not reset an existing database/volume or replace credentials. " +
+      "Underlying error text and credentials are omitted.",
+  );
 }
 
 export async function awaitRetainedAuthBudget(

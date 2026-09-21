@@ -33,20 +33,7 @@ type GateState =
  * imported elsewhere, it asks for the original MP3 and verifies it is the
  * same file before storing it here.
  */
-export function LocalMediaGate({
-  userId,
-  playerBook,
-  mediaFingerprint,
-  mediaFingerprintKind,
-  mediaRenditionKey,
-  byteSize,
-  sourceFilename,
-  sourceMimeType,
-  historySnapshot,
-  autoplay,
-  details,
-  nextInCollection,
-}: {
+type LocalMediaGateProps = {
   userId: string;
   playerBook: PlayerBook;
   mediaFingerprint: string | null;
@@ -59,13 +46,39 @@ export function LocalMediaGate({
   autoplay: boolean;
   details: BookDetails | null;
   nextInCollection: NextInCollection | null;
-}) {
+};
+
+export function LocalMediaGate(props: LocalMediaGateProps) {
+  // Reset before React commits a different identity. An effect would be too
+  // late: it could mount the new book with the previous book/account's audio.
+  const identity = JSON.stringify([
+    props.userId,
+    props.playerBook.id,
+    props.mediaFingerprintKind,
+    props.mediaFingerprint,
+    props.mediaRenditionKey,
+  ]);
+  return <MediaForIdentity key={identity} {...props} />;
+}
+
+function MediaForIdentity({
+  userId,
+  playerBook,
+  mediaFingerprint,
+  mediaFingerprintKind,
+  mediaRenditionKey,
+  byteSize,
+  sourceFilename,
+  sourceMimeType,
+  historySnapshot,
+  autoplay,
+  details,
+  nextInCollection,
+}: LocalMediaGateProps) {
   const [state, setState] = useState<GateState>({ phase: "checking" });
   const [error, setError] = useState<string | null>(null);
   const [checkAttempt, setCheckAttempt] = useState(0);
-  const [cancelledBook, setCancelledBook] = useState<{ userId: string; bookId: string } | null>(
-    null,
-  );
+  const [autoplayCancelled, setAutoplayCancelled] = useState(false);
   // The book must stay deletable even when this device lacks the audio,
   // otherwise a book imported elsewhere could never be removed from here.
   const { deleteBook, deleting, deleteLabel } = useDeleteBook(
@@ -130,6 +143,7 @@ export function LocalMediaGate({
     event.target.value = "";
     if (!file) return;
 
+    setAutoplayCancelled(false);
     attachmentRef.current?.abort();
     const controller = new AbortController();
     attachmentRef.current = controller;
@@ -216,9 +230,7 @@ export function LocalMediaGate({
       <FullPlayer
         playerBook={resolvedPlayerBook}
         historySnapshot={historySnapshot}
-        autoplay={
-          autoplay && !(cancelledBook?.userId === userId && cancelledBook?.bookId === playerBook.id)
-        }
+        autoplay={autoplay && !autoplayCancelled}
         details={details}
         mediaFingerprint={mediaFingerprint}
         mediaRenditionKey={mediaRenditionKey}
@@ -244,7 +256,7 @@ export function LocalMediaGate({
               onClick={() => {
                 attachmentRef.current?.abort();
                 attachmentRef.current = null;
-                setCancelledBook({ userId, bookId: playerBook.id });
+                setAutoplayCancelled(true);
                 setState({ phase: "checking" });
                 setCheckAttempt((attempt) => attempt + 1);
               }}

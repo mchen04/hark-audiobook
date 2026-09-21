@@ -61,12 +61,21 @@ accounts reject login. The retained-workflows helper verifies its single
 disposable account's password hash before resetting any fixture content. On a
 mismatch it stops with a credential-free diagnostic. Restore the matching env
 file backup, or point `HARK_ENV_FILE` at a separate new disposable database and
-matching credentials. This helper does not rotate credentials or reset volumes.
+matching credentials. A user row with a missing email/password credential is
+reported separately as an incomplete disposable identity; restoring an env
+backup cannot repair that condition. Inspect that fixture's provisioning or
+use a separate new test database. Database-read and verifier failures name the
+operation and a safe error category; raw messages, passwords and hashes are
+omitted. This helper does not rotate credentials or reset volumes.
 
 Retained browser workflows reuse the fixed `.111` test IP and read the real
 database sign-in and signup buckets before each attempt. They wait for an
-exhausted bucket's remaining idle window and extend that test's timeout; the
-signup window can take ten minutes. They never clear buckets or rotate IPs.
+bucket's remaining idle window and extend that test's timeout. They leave two
+sign-in attempts and one signup attempt as headroom. Each call permits at most
+two waits totaling one real window plus 1,500 ms of slack (61.5 seconds for
+sign-in, 601.5 seconds for signup), then fails with a shared-IP/clock diagnosis.
+Run these suites serially; an unexpectedly busy or future-dated bucket needs
+inspection, not a reset. The helper never clears buckets or rotates IPs.
 The bounded fake-clock budget tests cover exhaustion without that delay; two
 consecutive full browser runs exercise real authentication and account deletion.
 Other browser projects retain their existing per-project sign-in budgeting.

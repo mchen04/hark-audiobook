@@ -1039,12 +1039,23 @@ Local source/test commits in this round:
 - `6aae383` — Await durable browser evidence before assertions
 - `31eae01` — Correct WebKit readiness and browser auth probes
 - `0bdf543` — Retain fence admission guards across later sign-ins
+- `e8afea7` — External cleanup: shared fence-test storage stub and browser documentation
+- `3209b06` — External cleanup report only
 
-The final documentation-only commit is identified in the post-commit receipt
-`.data/objective/residual-fixes-handoff.{json,log}` and the implementer's handoff.
-That check requires a clean worktree, identical tested app/harness source and
-all 60 served asset hashes. The owned final server remains on port 3000 for the
-coordinator; port 3100 is untouched.
+The historical documentation-only implementer handoff was **`a08d27c`**.
+`.data/objective/residual-fixes-handoff.{json,log}` proves identical tested
+app/harness source and 60 served asset hashes at that head only. Cleanup
+`e8afea7` subsequently changed harness source, and `3209b06` recorded its report.
+Those heads are not documentation-only descendants of the tested `0bdf543`
+source. The old `verify-handoff-v2.mjs` correctly rejects them and is not a
+current-candidate check. The external additional review supplies independent
+execution at `3209b06`: 787 units, full quick gate, two 8/8 iPhone runs and full
+33/33 parity; collection sync remained red. Its complete report is preserved in
+`.data/objective/acceptance-fixes/review-input.md`. The old source JSON and
+tests/harness counts remain historical measurements pinned to `0bdf543`;
+cleanup's current-at-`3209b06` counts were 36,755 physical / 33,279 code lines.
+Fresh implementation, source metrics and server provenance follow in the next
+round's section. Earlier receipts and metrics have not been rewritten.
 
 [residual-fixes-artifacts.json](residual-fixes-artifacts.json) indexes this round's
 raw receipts, failures, measurements, scripts and screenshots. The active
@@ -1061,7 +1072,6 @@ git diff --check e9feaee HEAD
 pnpm format:check
 python3 .data/objective/residual-fixes/check-historical-artifacts.py
 python3 .data/objective/residual-fixes/check-residual-artifacts.py
-node .data/objective/residual-fixes/verify-handoff-v2.mjs
 node .data/objective/residual-fixes/with-test-env.mjs node .data/objective/residual-fixes/check-db-clock.mjs
 ```
 

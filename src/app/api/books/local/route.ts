@@ -10,6 +10,7 @@ import { bookRegistrationSchema } from "@/server/api/mutation-schemas";
 import { withMutation } from "@/server/api/route-handler";
 import { getBookForUser } from "@/server/books/queries";
 import { db } from "@/server/db/client";
+import { monotonicTimestamp } from "@/server/db/monotonic-timestamp";
 import { books, chapters, mediaAssets } from "@/server/db/schema";
 import { validateUploadMetadata } from "@/server/media/filename";
 import { isSameLocalRegistration } from "@/server/media/local-registration-identity";
@@ -195,7 +196,10 @@ export const POST = withMutation(
           await insertChapterRows(duplicate.bookId, repairCandidate);
           await transaction
             .update(books)
-            .set({ chapterDiagnostic: data.chapterDiagnostic, updatedAt: new Date() })
+            .set({
+              chapterDiagnostic: data.chapterDiagnostic,
+              updatedAt: monotonicTimestamp(books.updatedAt),
+            })
             .where(eq(books.id, duplicate.bookId));
         }
         return { bookId: duplicate.bookId, created: false, repaired, repairBlocked: false };

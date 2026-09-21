@@ -208,14 +208,34 @@ test("retained player, organization, transcript, settings, export and deletion w
   await expect(page.getByRole("heading", { name: "Tiny Fixture Book", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
   await expect
+    .poll(() =>
+      page
+        .locator("audio")
+        .evaluate(
+          (audio: HTMLAudioElement) => !audio.paused && !audio.seeking && audio.readyState >= 3,
+        ),
+    )
+    .toBe(true);
+  // This book already has a saved position. Non-zero time alone could be a
+  // restored seek with a stalled decoder; measure advancement from this sample.
+  const autoplaySample = await page
+    .locator("audio")
+    .evaluate((audio: HTMLAudioElement) => audio.currentTime);
+  await expect
     .poll(() => page.locator("audio").evaluate((audio: HTMLAudioElement) => audio.currentTime))
-    .toBeGreaterThan(0);
+    .toBeGreaterThan(autoplaySample + 0.1);
+  const autoplayAdvanced = await page
+    .locator("audio")
+    .evaluate((audio: HTMLAudioElement) => audio.currentTime);
+  expect(autoplayAdvanced).toBeGreaterThan(autoplaySample + 0.1);
   writeFileSync(
     info.outputPath("collection-autoplay.json"),
     JSON.stringify(
       {
         navigatedToNextBook: true,
-        decoderAdvancedWithoutSecondPlayClick: true,
+        decoderAdvancedWithoutSecondPlayClick: autoplayAdvanced > autoplaySample + 0.1,
+        sampledPositionSeconds: autoplaySample,
+        advancedPositionSeconds: autoplayAdvanced,
         autoplayQuery: new URL(page.url()).searchParams.get("autoplay"),
       },
       null,
@@ -696,10 +716,19 @@ test("retained database password mismatch fails before fixture reset and correct
     { email: RETAINED_EMAIL, password: mismatchedPassword },
   );
   expect(rejectedStatus).toBe(401);
-  await expect(findRetainedAccount(mismatchedPassword)).rejects.toThrow(
-    RETAINED_CREDENTIAL_DIAGNOSTIC,
+  const rejected: unknown = await findRetainedAccount(mismatchedPassword).catch(
+    (error: unknown) => error,
   );
-  expect(RETAINED_CREDENTIAL_DIAGNOSTIC).not.toContain(mismatchedPassword);
+  expect(rejected instanceof Error).toBe(true);
+  const diagnostic = (rejected as Error).message;
+  // Compare the actual rejection exactly. Boolean assertions also keep a
+  // accidentally appended credential out of failure diffs and persisted logs.
+  expect(diagnostic.includes(mismatchedPassword), "Diagnostic leaked attempted credential").toBe(
+    false,
+  );
+  expect(diagnostic === RETAINED_CREDENTIAL_DIAGNOSTIC, "Unexpected credential diagnostic").toBe(
+    true,
+  );
   const after = await sql()`select id from books where owner_id=${existing!.id} order by id`;
   expect(after).toEqual(before);
   await context.clearCookies();
@@ -715,7 +744,7 @@ test("retained database password mismatch fails before fixture reset and correct
     JSON.stringify(
       {
         mismatchHttpStatus: rejectedStatus,
-        actionableDiagnostic: RETAINED_CREDENTIAL_DIAGNOSTIC,
+        actionableDiagnostic: diagnostic,
         fixtureBooksBefore: before.length,
         fixtureBooksAfter: after.length,
         originalCredentialsStillWork: true,

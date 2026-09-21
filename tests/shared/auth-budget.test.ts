@@ -11,7 +11,7 @@ it("allows unused and expired signup budgets without sleeping", async () => {
   const wait = vi.fn();
   for (const bucket of [
     undefined,
-    { count: 4, lastRequest: Date.now() },
+    { count: 3, lastRequest: Date.now() },
     { count: 5, lastRequest: Date.now() - 600_000 },
   ]) {
     await awaitAuthBudget("sign-up", async () => bucket, wait);
@@ -34,8 +34,8 @@ it.each([
     });
     await vi.advanceTimersByTimeAsync(windowMs - 10_000);
     expect(ready).toBe(false);
-    expect(wait).toHaveBeenCalledWith(windowMs - 10_000 + 100);
-    await vi.advanceTimersByTimeAsync(100);
+    expect(wait).toHaveBeenCalledWith(windowMs - 10_000 + 1_500);
+    await vi.advanceTimersByTimeAsync(1_500);
     await pending;
     expect(read).toHaveBeenCalledTimes(2);
     expect(ready).toBe(true);
@@ -53,6 +53,69 @@ it("rereads persistent storage after waiting instead of forgetting another consu
   const pending = awaitAuthBudget("sign-up", read, wait);
   await vi.runAllTimersAsync();
   await pending;
-  expect(wait.mock.calls).toEqual([[1_100], [599_000]]);
+  expect(wait.mock.calls).toEqual([[2_500], [599_000]]);
   expect(read).toHaveBeenCalledTimes(3);
+});
+
+it.each([
+  ["sign-in", 8, 60_000],
+  ["sign-up", 5, 600_000],
+] as const)(
+  "bounds repeated saturation of the %s bucket with an actionable failure",
+  async (operation, count, windowMs) => {
+    let result: unknown;
+    const wait = vi.fn();
+    void awaitAuthBudget(operation, async () => ({ count, lastRequest: Date.now() }), wait).then(
+      () => {
+        result = "ready";
+      },
+      (error: unknown) => {
+        result = error;
+      },
+    );
+    await vi.advanceTimersByTimeAsync(windowMs + 1_500);
+    expect(result instanceof Error).toBe(true);
+    expect((result as Error).message).toContain("wait limit exceeded");
+    expect((result as Error).message).toContain("Run suites serially");
+    expect(wait.mock.calls.reduce((sum, [ms]) => sum + ms, 0)).toBeLessThanOrEqual(
+      windowMs + 1_500,
+    );
+  },
+);
+
+it.each([
+  ["sign-in", 6],
+  ["sign-up", 4],
+] as const)(
+  "leaves headroom in the %s bucket without reserving or resetting it",
+  async (operation, count) => {
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce({ count, lastRequest: Date.now() })
+      .mockResolvedValue(undefined);
+    let ready = false;
+    const pending = awaitAuthBudget(operation, read, vi.fn()).then(() => {
+      ready = true;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ready).toBe(false);
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(ready).toBe(true);
+  },
+);
+
+it("rejects a far-future bucket before extending the runner deadline", async () => {
+  let result: unknown;
+  const wait = vi.fn();
+  void awaitAuthBudget(
+    "sign-up",
+    async () => ({ count: 5, lastRequest: Date.now() + 86_400_000 }),
+    wait,
+  ).catch((error: unknown) => {
+    result = error;
+  });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(result instanceof Error).toBe(true);
+  expect(wait).not.toHaveBeenCalled();
 });

@@ -5,6 +5,7 @@ import { bookPatchSchema } from "@/server/api/mutation-schemas";
 import { withMutation, withQuery } from "@/server/api/route-handler";
 import { getBookForUser, getOwnedBook } from "@/server/books/queries";
 import { db, type Transaction } from "@/server/db/client";
+import { monotonicTimestamp } from "@/server/db/monotonic-timestamp";
 import { books, bookTombstones } from "@/server/db/schema";
 import {
   applyTagEdge,
@@ -43,7 +44,7 @@ export const PATCH = withMutation(
               ? { seriesPosition: seriesPosition === null ? null : seriesPosition.toFixed(2) }
               : {}),
             ...(archived !== undefined ? { archivedAt: archived ? new Date() : null } : {}),
-            updatedAt: new Date(),
+            updatedAt: monotonicTimestamp(books.updatedAt),
           })
           .where(eq(books.id, params.bookId));
 
@@ -106,7 +107,7 @@ export const DELETE = withMutation({ params: paramsSchema }, async ({ session, p
       .values({ bookId: params.bookId, ownerId: session.user.id })
       .onConflictDoUpdate({
         target: bookTombstones.bookId,
-        set: { deletedAt: new Date() },
+        set: { deletedAt: monotonicTimestamp(bookTombstones.deletedAt) },
       });
     await deleteUnusedTags(transaction, session.user.id);
     await pruneExpiredTombstones(transaction, session.user.id);

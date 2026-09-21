@@ -1,6 +1,7 @@
 import { and, eq, lt, sql } from "drizzle-orm";
 
 import { db } from "@/server/db/client";
+import { monotonicTimestamp } from "@/server/db/monotonic-timestamp";
 import { books, mediaAssets, playbackDeviceSequences, playbackStates } from "@/server/db/schema";
 
 import { mergeProgressFields, type ProgressFieldState } from "./progress-policy";
@@ -125,7 +126,10 @@ export async function saveProgress(userId: string, input: ProgressInput) {
             playbackDeviceSequences.bookId,
             playbackDeviceSequences.deviceId,
           ],
-          set: { lastSequence: input.deviceSequence, updatedAt: new Date() },
+          set: {
+            lastSequence: input.deviceSequence,
+            updatedAt: monotonicTimestamp(playbackDeviceSequences.updatedAt),
+          },
           setWhere: lt(playbackDeviceSequences.lastSequence, input.deviceSequence),
         })
         .returning({ lastSequence: playbackDeviceSequences.lastSequence });
@@ -147,7 +151,7 @@ export async function saveProgress(userId: string, input: ProgressInput) {
         insert into ${playbackDeviceSequences} ("user_id", "book_id", "device_id", "last_sequence")
         values (${userId}, ${input.bookId}, ${input.deviceId}, ${input.deviceSequence})
         on conflict ("user_id", "book_id", "device_id") do update
-          set "last_sequence" = excluded."last_sequence", "updated_at" = now()
+          set "last_sequence" = excluded."last_sequence", "updated_at" = ${monotonicTimestamp(playbackDeviceSequences.updatedAt)}
           where ${playbackDeviceSequences}."last_sequence" < excluded."last_sequence"
         returning "last_sequence"
       )
@@ -162,7 +166,7 @@ export async function saveProgress(userId: string, input: ProgressInput) {
         ${merged.eventOccurredAt.toISOString()}::timestamptz,
         ${merged.playbackRateOccurredAt.toISOString()}::timestamptz,
         ${merged.completedOccurredAt.toISOString()}::timestamptz,
-        ${merged.stateOccurredAt.toISOString()}::timestamptz, now()
+        ${merged.stateOccurredAt.toISOString()}::timestamptz, clock_timestamp()
       from claimed
       on conflict ("user_id", "book_id") do update set
         "position_ms" = excluded."position_ms",
@@ -174,7 +178,7 @@ export async function saveProgress(userId: string, input: ProgressInput) {
         "playback_rate_occurred_at" = excluded."playback_rate_occurred_at",
         "completed_occurred_at" = excluded."completed_occurred_at",
         "state_occurred_at" = excluded."state_occurred_at",
-        "updated_at" = excluded."updated_at"
+        "updated_at" = ${monotonicTimestamp(playbackStates.updatedAt)}
       returning
         "user_id" as "userId",
         "book_id" as "bookId",

@@ -5,7 +5,7 @@ Status: complete
 
 ## Passes
 
-One bounded pass over `e9feaee..HEAD` (5 commits, 12 files), read in full. The one application file, `src/components/player/local-media-gate.tsx`, stays byte-identical to the reviewed candidate: only its inline account/book-scoped autoplay guard is dense, and renaming it would invalidate the recorded served-build provenance for the one app file the reviewers hashed. Fence defenses and their tests are untouched.
+One bounded pass over **`e9feaee..a08d27c`** (5 commits, 12 files), read in full. This is the historical input range, before cleanup commits `e8afea7` and `3209b06` extended it to 7 commits and 13 files. At that pass the one application file, `src/components/player/local-media-gate.tsx`, remained byte-identical to the reviewed candidate. Fence defenses and test cases were retained; the shared test stub was extracted as described below. Subsequent implementation and current provenance belong to the evidence ledger, not this historical report.
 
 ## Rebase
 
@@ -22,7 +22,7 @@ None. Every case this diff adds can fail: the fake-clock budget cases, both fenc
 
 ## Docs updated
 
-`docs/development.md` listed what the iPhone Playwright project covers; this diff added `tests/e2e/privacy-transport.spec.ts` under `tests/e2e`, so that sentence now names it and its loopback calibration scope. Nothing else went stale: the `.111` IP, the credential-preflight paragraph and the largest-file audit still match the code.
+`docs/development.md` listed what the iPhone Playwright project covers; this diff added `tests/e2e/privacy-transport.spec.ts` under `tests/e2e`, so that sentence now names it and its loopback calibration scope. The `.111` IP and credential-preflight paragraph were current at that pass. The separate largest-tracked-files audit recipe is in `docs/repository-anatomy.md`, not `docs/development.md`.
 
 ## Verified
 
