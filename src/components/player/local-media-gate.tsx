@@ -135,6 +135,25 @@ export function LocalMediaGate({
         setState({ phase: "attaching", percent, stage });
       }
     };
+    /** The MP3 keeps its own embedded artwork, so it is parsed before storing. */
+    async function attachLocalMp3(
+      source: File,
+      targetBook: Omit<PlayerBook, "mediaUrl" | "coverUrl">,
+      signal: AbortSignal,
+    ) {
+      const { parseLocalMp3 } = await import("@/lib/local-import");
+      const { artwork } = await parseLocalMp3(source, signal);
+      return storeLocalBookMedia(
+        userId,
+        targetBook,
+        source,
+        artwork,
+        (fraction) => reportAttachment(Math.round(fraction * 100), "Saving to this device"),
+        undefined,
+        signal,
+      );
+    }
+
     setError(null);
     reportAttachment(null, "Checking the source");
     try {
@@ -171,16 +190,7 @@ export function LocalMediaGate({
               },
             ),
           )
-        : await storeLocalBookMedia(
-            userId,
-            targetBook,
-            file,
-            (await (await import("@/lib/local-import")).parseLocalMp3(file, controller.signal))
-              .artwork,
-            (fraction) => reportAttachment(Math.round(fraction * 100), "Saving to this device"),
-            undefined,
-            controller.signal,
-          );
+        : await attachLocalMp3(file, targetBook, controller.signal);
       if (controller.signal.aborted || attachmentRef.current !== controller) return;
       setState({
         phase: "ready",

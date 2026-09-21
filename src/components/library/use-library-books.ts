@@ -330,12 +330,12 @@ export function useLibraryBooks(
 const activeHeals = new Map<string, Promise<void>>();
 
 async function readLibrary(userId: string, heal: boolean): Promise<LibraryListing> {
+  // Never fatal to a read: a device that cannot write the mirror can still show
+  // what the mirror already holds.
   if (heal)
-    await singleFlight(activeHeals, userId, () =>
-      healMirrorPlaybackFromLocal(userId)
-        .then(() => undefined)
-        .catch(() => undefined),
-    );
+    await singleFlight(activeHeals, userId, async () => {
+      await healMirrorPlaybackFromLocal(userId).catch(() => 0);
+    });
   const [mirror, records] = await Promise.all([
     readMirrorLibrary(userId),
     listVisibleStoredOfflineBooks(userId),

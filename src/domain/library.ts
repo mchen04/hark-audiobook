@@ -55,17 +55,18 @@ function matchesLibraryStatus(book: LibraryBook, status: LibraryStatus): boolean
 }
 
 export function selectContinueBook(books: LibraryBook[]): LibraryBook | null {
-  let best: LibraryBook | null = null;
+  let best: { book: LibraryBook; listenedAt: string } | null = null;
   for (const book of books) {
-    if (!matchesLibraryStatus(book, "in-progress") || !book.progressUpdatedAt) continue;
+    const listenedAt = book.progressUpdatedAt;
+    if (!listenedAt || !matchesLibraryStatus(book, "in-progress")) continue;
     if (
       !best ||
-      book.progressUpdatedAt > best.progressUpdatedAt! ||
-      (book.progressUpdatedAt === best.progressUpdatedAt && book.id > best.id)
+      listenedAt > best.listenedAt ||
+      (listenedAt === best.listenedAt && book.id > best.book.id)
     )
-      best = book;
+      best = { book, listenedAt };
   }
-  return best;
+  return best?.book ?? null;
 }
 
 function libraryComparator(sort: LibrarySort): (left: LibraryBook, right: LibraryBook) => number {
