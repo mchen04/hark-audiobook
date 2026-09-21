@@ -532,12 +532,12 @@ export async function getSyncMeta(userId: string): Promise<MirrorSyncMeta | unde
  * surfaces disagreeing is its own bug.
  */
 export async function healMirrorPlaybackFromLocal(userId: string): Promise<number> {
-  // Normalization hits take the fenced account write lock themselves. The
-  // remaining writes share one IDB transaction, guarded before it can commit.
+  assertAccountWritable(userId);
   await applyPendingProgressNormalizationsForUser(userId);
   const local = listLocalPlaybackStates(userId);
   if (!local.length) return 0;
   const db = await database();
+  assertAccountWritable(userId);
   const transaction = db.transaction(["playbackStates", "downloads"], "readwrite");
   const states = transaction.objectStore("playbackStates");
   const downloads = transaction.objectStore("downloads");

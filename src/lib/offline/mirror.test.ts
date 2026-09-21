@@ -7,6 +7,7 @@ import { PENDING_ACCOUNT_DELETION_KEY } from "@/lib/app-keys";
 import {
   commitAccountSignOutFence,
   installAccountSignOutFence,
+  reopenAccountAfterSignIn,
 } from "@/lib/account-deletion-fence";
 import {
   listProgressNormalizations,
@@ -15,6 +16,7 @@ import {
 import { saveLocalPlaybackState } from "@/lib/playback-core";
 
 import { database } from "./db";
+import * as mirrorDatabase from "./db";
 import {
   applyPullBatch,
   readMirrorLibrary,
@@ -499,6 +501,63 @@ describe("tombstones", () => {
 });
 
 describe("healMirrorPlaybackFromLocal", () => {
+  it.each(["entry", "database-open"])(
+    "a heal fenced at %s cannot inherit permission from a later sign-in",
+    async (boundary) => {
+      const values = new Map<string, string>();
+      vi.stubGlobal("localStorage", {
+        get length() {
+          return values.size;
+        },
+        key: (index: number) => [...values.keys()][index] ?? null,
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => void values.set(key, value),
+        removeItem: (key: string) => void values.delete(key),
+      });
+      const db = await database();
+      try {
+        // A surviving local register must not authorize a stale writer across
+        // the account boundary, even when a subsequent sign-in reopens it.
+        saveLocalPlaybackState(USER_A, "book-1", { positionMs: 42000, occurredAt: Date.now() });
+        if (boundary === "entry") {
+          commitAccountSignOutFence();
+          const healing = healMirrorPlaybackFromLocal(USER_A).catch((error: unknown) => error);
+          await reopenAccountAfterSignIn(USER_B);
+          expect(await healing).toMatchObject({ message: expect.stringMatching(/sign.out/i) });
+        } else {
+          let opened!: (value: typeof db) => void;
+          const open = vi.spyOn(mirrorDatabase, "database").mockReturnValueOnce(
+            new Promise((resolve) => {
+              opened = resolve;
+            }),
+          );
+          const healing = healMirrorPlaybackFromLocal(USER_A).catch((error: unknown) => error);
+          await vi.waitFor(() => expect(open).toHaveBeenCalledTimes(1));
+          commitAccountSignOutFence();
+          const get = IDBObjectStore.prototype.get;
+          vi.spyOn(IDBObjectStore.prototype, "get").mockImplementation(function (
+            this: IDBObjectStore,
+            key,
+          ) {
+            const request = get.call(this, key);
+            // If the fenced job is admitted to the transaction, a later
+            // sign-in can clear the fence before the final commit assertion.
+            if (this.name === "playbackStates") void reopenAccountAfterSignIn(USER_B);
+            return request;
+          });
+          opened(db);
+          expect(await healing).toMatchObject({ message: expect.stringMatching(/sign.out/i) });
+        }
+        expect(await db.getAll("playbackStates")).toEqual([]);
+        expect(await db.getAll("downloads")).toEqual([]);
+      } finally {
+        db.close();
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
   it.each(["deletion", "sign-out", "during-write", "normalization", "committed-sign-out"])(
     "refuses %s fences without partial writes and respects the fence's account scope",
     async (fence) => {
