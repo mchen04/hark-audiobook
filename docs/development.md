@@ -149,7 +149,9 @@ Browser verification uses the repository's Playwright tooling against a producti
 build. It does not require computer-use or node_repl MCP servers. The iPhone
 project includes real MP3 transport, settings, organization, transcript, data
 export/deletion, document format narration, cancellation and legacy-rendition
-checks. Large traces and generated fixtures belong in ignored output folders.
+checks, plus `tests/e2e/privacy-transport.spec.ts`, which calibrates what the
+browser can observe about cross-origin requests between two loopback origins it
+owns. Large traces and generated fixtures belong in ignored output folders.
 
 On Node 26, use `NODE_OPTIONS=--no-experimental-webstorage pnpm test`: its
 experimental global localStorage otherwise masks jsdom's storage in several

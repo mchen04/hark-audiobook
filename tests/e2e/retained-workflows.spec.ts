@@ -680,7 +680,6 @@ test("retained database password mismatch fails before fixture reset and correct
     .poll(async () => (await sql()`select id from books where owner_id=${existing!.id}`).length)
     .toBe(1);
   const before = await sql()`select id from books where owner_id=${existing!.id} order by id`;
-  expect(before.length).toBeGreaterThan(0);
   // Model regenerating .env.test against a retained DB without changing any
   // actual credential, environment file or database record. Never persist it.
   const mismatchedPassword = crypto.randomUUID();

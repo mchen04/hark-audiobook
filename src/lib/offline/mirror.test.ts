@@ -500,20 +500,26 @@ describe("tombstones", () => {
   });
 });
 
+/** The register-backed stub both fence cases read and write through. */
+function stubPlaybackStorage(): Map<string, string> {
+  const values = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    get length() {
+      return values.size;
+    },
+    key: (index: number) => [...values.keys()][index] ?? null,
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => void values.set(key, value),
+    removeItem: (key: string) => void values.delete(key),
+  });
+  return values;
+}
+
 describe("healMirrorPlaybackFromLocal", () => {
   it.each(["entry", "database-open"])(
     "a heal fenced at %s cannot inherit permission from a later sign-in",
     async (boundary) => {
-      const values = new Map<string, string>();
-      vi.stubGlobal("localStorage", {
-        get length() {
-          return values.size;
-        },
-        key: (index: number) => [...values.keys()][index] ?? null,
-        getItem: (key: string) => values.get(key) ?? null,
-        setItem: (key: string, value: string) => void values.set(key, value),
-        removeItem: (key: string) => void values.delete(key),
-      });
+      stubPlaybackStorage();
       const db = await database();
       try {
         // A surviving local register must not authorize a stale writer across
@@ -561,16 +567,7 @@ describe("healMirrorPlaybackFromLocal", () => {
   it.each(["deletion", "sign-out", "during-write", "normalization", "committed-sign-out"])(
     "refuses %s fences without partial writes and respects the fence's account scope",
     async (fence) => {
-      const values = new Map<string, string>();
-      vi.stubGlobal("localStorage", {
-        get length() {
-          return values.size;
-        },
-        key: (index: number) => [...values.keys()][index] ?? null,
-        getItem: (key: string) => values.get(key) ?? null,
-        setItem: (key: string, value: string) => void values.set(key, value),
-        removeItem: (key: string) => void values.delete(key),
-      });
+      const values = stubPlaybackStorage();
       const fenceAccount = () =>
         values.set(
           PENDING_ACCOUNT_DELETION_KEY,
