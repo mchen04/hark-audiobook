@@ -619,7 +619,7 @@ test("cancelling after a real media commit recognizes the attachment and suppres
   await expect(page.getByRole("button", { name: "Attach MP3", exact: true })).toHaveCount(0);
   await expect
     .poll(() => page.locator("audio").evaluate((audio: HTMLAudioElement) => audio.readyState))
-    .toBeGreaterThanOrEqual(2);
+    .toBeGreaterThanOrEqual(1); // preload="metadata" does not promise decoded data before Play.
   const evidence = await page.evaluate(async () => {
     const attachment = (
       window as unknown as {
@@ -685,10 +685,18 @@ test("retained database password mismatch fails before fixture reset and correct
   // actual credential, environment file or database record. Never persist it.
   const mismatchedPassword = crypto.randomUUID();
   await retainedBudget("sign-in");
-  const rejected = await context.request.post("/api/auth/sign-in/email", {
-    data: { email: RETAINED_EMAIL, password: mismatchedPassword },
-  });
-  expect(rejected.status()).toBe(401);
+  const rejectedStatus = await page.evaluate(
+    async (credentials) =>
+      (
+        await fetch("/api/auth/sign-in/email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(credentials),
+        })
+      ).status,
+    { email: RETAINED_EMAIL, password: mismatchedPassword },
+  );
+  expect(rejectedStatus).toBe(401);
   await expect(findRetainedAccount(mismatchedPassword)).rejects.toThrow(
     RETAINED_CREDENTIAL_DIAGNOSTIC,
   );
@@ -707,7 +715,7 @@ test("retained database password mismatch fails before fixture reset and correct
     info.outputPath("credential-mismatch.json"),
     JSON.stringify(
       {
-        mismatchHttpStatus: rejected.status(),
+        mismatchHttpStatus: rejectedStatus,
         actionableDiagnostic: RETAINED_CREDENTIAL_DIAGNOSTIC,
         fixtureBooksBefore: before.length,
         fixtureBooksAfter: after.length,
