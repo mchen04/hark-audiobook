@@ -617,12 +617,16 @@ test("cancelling after a real media commit recognizes the attachment and suppres
     .toBe(true);
   await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Attach MP3", exact: true })).toHaveCount(0);
+  await expect
+    .poll(() => page.locator("audio").evaluate((audio: HTMLAudioElement) => audio.readyState))
+    .toBeGreaterThanOrEqual(2);
   const evidence = await page.evaluate(async () => {
-    const { cancelled, committedUrl, playCalls } = (
+    const attachment = (
       window as unknown as {
         attachmentCancellation: { cancelled: boolean; committedUrl: string; playCalls: number };
       }
     ).attachmentCancellation;
+    const { cancelled, committedUrl } = attachment;
     const response = await fetch(committedUrl, { headers: { Range: "bytes=0-1023" } });
     return {
       cancelled,
@@ -632,7 +636,7 @@ test("cancelling after a real media commit recognizes the attachment and suppres
         document.querySelector("audio")?.getAttribute("src") === committedUrl,
       pausedAfterCancel: document.querySelector("audio")?.paused,
       timeAfterCancel: document.querySelector("audio")?.currentTime,
-      playCallsAfterCancel: playCalls,
+      playCallsAfterCancel: attachment.playCalls,
     };
   });
   expect(evidence.mediaStatus).toBe(206);
@@ -672,6 +676,9 @@ test("retained database password mismatch fails before fixture reset and correct
   const password = testAccountPassword("retained-workflows");
   const existing = await findRetainedAccount(password);
   expect(existing).toBeTruthy();
+  await expect
+    .poll(async () => (await sql()`select id from books where owner_id=${existing!.id}`).length)
+    .toBe(1);
   const before = await sql()`select id from books where owner_id=${existing!.id} order by id`;
   expect(before.length).toBeGreaterThan(0);
   // Model regenerating .env.test against a retained DB without changing any
