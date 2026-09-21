@@ -61,6 +61,7 @@ function phase(name, launchLog) {
     },
     launch: launch(`${name}/${launchLog}`),
     library: {
+      setupStepElapsedMs: library.steps[0].elapsedMs,
       searchMedianMs: median(library.search.map((s) => s.searchMs)),
       searchClearMedianMs: median(library.search.map((s) => s.roundtripMs)),
       idbTransactionsPerSearchClear: library.search.map((s) => s.transactions),
@@ -97,6 +98,8 @@ const checks = [
   "final/launch-final",
   "final/browser-library-final",
   "final/browser-core-final",
+  "final/browser-library-cold-repeat-1",
+  "final/browser-library-cold-repeat-2",
 ].map((prefix) => {
   const result = json(`${prefix}.json`);
   return {
@@ -114,6 +117,10 @@ const report = {
   baseline: phase("baseline", "launch-pinned.log"),
   final: phase("final", "launch-final.log"),
   checks,
+  coldSetupFollowups: [1, 2].map((n) => ({
+    raw: `${root}/final/library-cold-repeat-${n}/measurements.json`,
+    elapsedMs: json(`final/library-cold-repeat-${n}/measurements.json`).steps[0].elapsedMs,
+  })),
   limitations: [
     "Desktop Chromium/WebKit with mobile emulation; no physical iOS proof.",
     "Launch: 24 persistent Chromium launches, frozen 16ms CPU calibration reference; WebKit capability probe fails.",

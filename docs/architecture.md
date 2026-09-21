@@ -328,17 +328,16 @@ renders no user rows.
   Reaching it rewrites the address bar to `/library` with the history API; the
   library is already on screen either way.
 
-Measured by `pnpm test:e2e:launch` on a 1,000-book library: warm-launch p95 is
-291-370ms across fast, slow, 3000ms-cold-database and offline, a 70-73ms spread
-over two consecutive clean runs, with zero server document hits and zero
-Postgres queries on every launch. Those recorded runs used a literal 4x CPU
-throttle whose fixed proof loop cost 16ms; current runs calibrate each host to
-that same 16ms budget rather than to a host-relative multiplier, so the frozen
-500ms p95 and 150ms spread bars mean the same thing on a shared CI runner. The
-recorded pre-change baseline in `tests/perf/BASELINE.md` is 92 / 509 / 3104 /
-
-> =15007ms with a 14915ms spread. Hit counts and a query counter, not timings,
-> are what decide whether the document came from cache.
+Measured by `pnpm test:e2e:launch` on mbp-old with 1,000 books: warm-launch p95
+is 223–232 ms across fast, slow, 3000 ms cold-database and offline, an 8 ms
+spread, with zero server document hits and Postgres queries before paint.
+The comparable `0e1f17e` baseline measured 245–253 ms. Each run calibrates
+Chromium to the same 16 ms reference workload; this is desktop emulation,
+not physical iOS. Exact commands, all 24 samples per phase, CPU calibration
+and browser capability probes are in the [evidence ledger](evidence/architecture-ledger.md).
+The earlier pre-local-launch experiment remains in `tests/perf/BASELINE.md`
+as historical evidence. Hit counts and a query counter, not timings alone,
+decide whether the document came from cache.
 
 ## One library UI
 

@@ -91,12 +91,12 @@ afterwards, in the background.
 before it is projected onto the mirror, so a crash can leave a queued write with
 no visible change, but never a visible change with no queued write.
 
-**Launch does not wait for the network.** Warm-launch p95 measures 291–370ms
-across fast, slow, 3000ms-cold-database, and offline profiles — a 70–73ms spread
-— with zero server document hits and zero Postgres queries. Measured on a
-1,000-book library under a calibrated 16ms CPU budget; see
-[`tests/perf/BASELINE.md`](tests/perf/BASELINE.md) for the proven-red baseline
-this replaced.
+**Launch does not wait for the network.** On mbp-old, warm-launch p95 measured
+223–232 ms across fast, slow, 3000 ms cold-database, and offline profiles, with
+zero server document hits and zero Postgres queries before paint. This uses a
+1,000-book library and Chromium calibrated to a 16 ms reference workload; it is
+not a physical iPhone measurement. See the [evidence ledger](docs/evidence/architecture-ledger.md)
+for the comparable baseline, raw results, and browser limitations.
 
 **Narration is a local model, not an API call.** Hark extracts the document
 text, then runs Kestrel Fast in a Web Worker through ONNX Runtime — WebGPU where

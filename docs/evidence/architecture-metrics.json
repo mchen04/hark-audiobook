@@ -1,0 +1,487 @@
+{
+  "hostname": "mbp-old",
+  "baseline": {
+    "commit": "0e1f17eb18ce6a07c6d55c1790c860099a490932",
+    "source": {
+      "method": "App src TS/TSX excluding test/spec plus public/sw.js; token-occupied code lines exclude comments/blank lines; ESLint classic complexity per function including short-circuit and optional paths. CSS, tests, generated separately. Bundle is all build static JS/CSS/WASM, not initial transfer.",
+      "app": {
+        "files": 185,
+        "physical": 28134,
+        "nonblank": 26191,
+        "code": 23950
+      },
+      "testsAndHarness": {
+        "files": 130,
+        "physical": 35655,
+        "nonblank": 32450,
+        "code": 32148
+      },
+      "css": {
+        "files": 7,
+        "physical": 3249,
+        "nonblank": 2822,
+        "code": 2731
+      },
+      "generatedDrizzleJson": {
+        "files": 30,
+        "physical": 58251,
+        "nonblank": 58251,
+        "code": 58251
+      },
+      "complexity": {
+        "functions": 1810,
+        "total": 5623,
+        "max": 70,
+        "above10": 84
+      },
+      "retainedLibraryComplexity": 357,
+      "retainedLibraryComplexityFiles": [
+        "src/components/library/use-library-books.ts",
+        "src/lib/offline/mirror.ts",
+        "src/domain/library.ts",
+        "src/lib/offline/library-revision.ts"
+      ],
+      "bundle": {
+        "files": 63,
+        "bytes": 28550966,
+        "gzip": 7559946
+      }
+    },
+    "launch": {
+      "raw": ".data/objective/baseline/launch-pinned.log",
+      "profiles": [
+        {
+          "profile": "A",
+          "description": "fast (0ms)",
+          "p50Ms": 244,
+          "p95Ms": 253,
+          "maxMs": 253,
+          "timeouts": 0,
+          "documentHits": 0,
+          "apiHits": 0,
+          "assetHits": 0,
+          "postgresQueries": 0,
+          "marker": "books",
+          "cards": 50
+        },
+        {
+          "profile": "B",
+          "description": "slow (400ms)",
+          "p50Ms": 243,
+          "p95Ms": 245,
+          "maxMs": 245,
+          "timeouts": 0,
+          "documentHits": 0,
+          "apiHits": 0,
+          "assetHits": 0,
+          "postgresQueries": 0,
+          "marker": "books",
+          "cards": 50
+        },
+        {
+          "profile": "C",
+          "description": "cold database (3000ms)",
+          "p50Ms": 243,
+          "p95Ms": 247,
+          "maxMs": 247,
+          "timeouts": 0,
+          "documentHits": 0,
+          "apiHits": 0,
+          "assetHits": 0,
+          "postgresQueries": 0,
+          "marker": "books",
+          "cards": 50
+        },
+        {
+          "profile": "D",
+          "description": "offline",
+          "p50Ms": 241,
+          "p95Ms": 250,
+          "maxMs": 250,
+          "timeouts": 0,
+          "documentHits": 0,
+          "apiHits": 0,
+          "assetHits": 0,
+          "postgresQueries": 0,
+          "marker": "books",
+          "cards": 50
+        }
+      ]
+    },
+    "library": {
+      "setupStepElapsedMs": 5686.427791,
+      "searchMedianMs": 47.35099999999966,
+      "searchClearMedianMs": 138.23370899999918,
+      "idbTransactionsPerSearchClear": [6, 6, 6, 6, 6, 6, 6],
+      "initialScriptInitiatorDecodedBytes": 1273385,
+      "initialAllJsDecodedBytes": 1306238,
+      "mainPageHeapAtStartup": 11590416,
+      "mainPageHeapAfterSearch": 25650020,
+      "errors": []
+    },
+    "core": {
+      "steps": [
+        {
+          "name": "register-and-empty-library",
+          "outcome": "pass",
+          "elapsedMs": 657.406709
+        },
+        {
+          "name": "invalid-mp3-error",
+          "outcome": "pass",
+          "elapsedMs": 131.8628329999999
+        },
+        {
+          "name": "mp3-import",
+          "outcome": "pass",
+          "elapsedMs": 257.082584
+        },
+        {
+          "name": "playback-and-resume",
+          "outcome": "pass",
+          "elapsedMs": 722.5832499999999
+        },
+        {
+          "name": "offline-relaunch-and-play",
+          "outcome": "pass",
+          "elapsedMs": 720.362584
+        },
+        {
+          "name": "live-document-narration",
+          "outcome": "pass",
+          "elapsedMs": 9655.932125
+        }
+      ],
+      "warmReloadsMs": [
+        38.63158300000032, 46.36137500000041, 41.13970800000061, 37.48949999999968,
+        42.050624999999854
+      ],
+      "errors": []
+    }
+  },
+  "final": {
+    "commit": "49640719f519d2913a76f1c9b97d5a810c12dad3",
+    "source": {
+      "method": "App src TS/TSX excluding test/spec plus public/sw.js; token-occupied code lines exclude comments/blank lines; ESLint classic complexity per function including short-circuit and optional paths. CSS, tests, generated separately. Bundle is all build static JS/CSS/WASM, not initial transfer.",
+      "app": {
+        "files": 178,
+        "physical": 27254,
+        "nonblank": 25397,
+        "code": 23210
+      },
+      "testsAndHarness": {
+        "files": 128,
+        "physical": 35752,
+        "nonblank": 32592,
+        "code": 32332
+      },
+      "css": {
+        "files": 7,
+        "physical": 3149,
+        "nonblank": 2735,
+        "code": 2645
+      },
+      "generatedDrizzleJson": {
+        "files": 30,
+        "physical": 58251,
+        "nonblank": 58251,
+        "code": 58251
+      },
+      "complexity": {
+        "functions": 1744,
+        "total": 5448,
+        "max": 70,
+        "above10": 79
+      },
+      "retainedLibraryComplexity": 327,
+      "retainedLibraryComplexityFiles": [
+        "src/components/library/use-library-books.ts",
+        "src/lib/offline/mirror.ts",
+        "src/domain/library.ts",
+        "src/lib/offline/library-revision.ts"
+      ],
+      "bundle": {
+        "files": 60,
+        "bytes": 28540225,
+        "gzip": 7555714
+      }
+    },
+    "launch": {
+      "raw": ".data/objective/final/launch-final.log",
+      "profiles": [
+        {
+          "profile": "A",
+          "description": "fast (0ms)",
+          "p50Ms": 215,
+          "p95Ms": 224,
+          "maxMs": 224,
+          "timeouts": 0,
+          "documentHits": 0,
+          "apiHits": 0,
+          "assetHits": 0,
+          "postgresQueries": 0,
+          "marker": "books",
+          "cards": 50
+        },
+        {
+          "profile": "B",
+          "description": "slow (400ms)",
+          "p50Ms": 216,
+          "p95Ms": 223,
+          "maxMs": 223,
+          "timeouts": 0,
+          "documentHits": 0,
+          "apiHits": 0,
+          "assetHits": 0,
+          "postgresQueries": 0,
+          "marker": "books",
+          "cards": 50
+        },
+        {
+          "profile": "C",
+          "description": "cold database (3000ms)",
+          "p50Ms": 221,
+          "p95Ms": 225,
+          "maxMs": 225,
+          "timeouts": 0,
+          "documentHits": 0,
+          "apiHits": 0,
+          "assetHits": 0,
+          "postgresQueries": 0,
+          "marker": "books",
+          "cards": 50
+        },
+        {
+          "profile": "D",
+          "description": "offline",
+          "p50Ms": 219,
+          "p95Ms": 232,
+          "maxMs": 232,
+          "timeouts": 0,
+          "documentHits": 0,
+          "apiHits": 0,
+          "assetHits": 0,
+          "postgresQueries": 0,
+          "marker": "books",
+          "cards": 50
+        }
+      ]
+    },
+    "library": {
+      "setupStepElapsedMs": 8099.51925,
+      "searchMedianMs": 8.901165999999648,
+      "searchClearMedianMs": 45.88945899999999,
+      "idbTransactionsPerSearchClear": [0, 0, 0, 0, 0, 0, 0],
+      "initialScriptInitiatorDecodedBytes": 986680,
+      "initialAllJsDecodedBytes": 1019533,
+      "mainPageHeapAtStartup": 19262984,
+      "mainPageHeapAfterSearch": 20581972,
+      "errors": []
+    },
+    "core": {
+      "steps": [
+        {
+          "name": "register-and-empty-library",
+          "outcome": "pass",
+          "elapsedMs": 453.06316699999996
+        },
+        {
+          "name": "invalid-mp3-error",
+          "outcome": "pass",
+          "elapsedMs": 164.574708
+        },
+        {
+          "name": "mp3-import",
+          "outcome": "pass",
+          "elapsedMs": 155.851583
+        },
+        {
+          "name": "playback-and-resume",
+          "outcome": "pass",
+          "elapsedMs": 682.071708
+        },
+        {
+          "name": "offline-relaunch-and-play",
+          "outcome": "pass",
+          "elapsedMs": 765.0082919999998
+        },
+        {
+          "name": "live-document-narration",
+          "outcome": "pass",
+          "elapsedMs": 7592.330833
+        }
+      ],
+      "warmReloadsMs": [
+        39.84666600000128, 29.68420900000092, 29.52704199999971, 30.415208000000348,
+        34.16045800000029
+      ],
+      "errors": []
+    }
+  },
+  "checks": [
+    {
+      "record": ".data/objective/baseline/build.json",
+      "hostname": "mbp-old",
+      "code": 0,
+      "elapsedMs": 21272,
+      "startedAt": "2026-09-21T17:10:00.223Z",
+      "finishedAt": "2026-09-21T17:10:21.498Z"
+    },
+    {
+      "record": ".data/objective/baseline/unit.json",
+      "hostname": "mbp-old",
+      "code": 1,
+      "elapsedMs": 9527,
+      "startedAt": "2026-09-21T17:08:35.830Z",
+      "finishedAt": "2026-09-21T17:08:45.359Z"
+    },
+    {
+      "record": ".data/objective/baseline/unit-node26-compatible.json",
+      "hostname": "mbp-old",
+      "code": 0,
+      "elapsedMs": 13917,
+      "startedAt": "2026-09-21T17:10:01.410Z",
+      "finishedAt": "2026-09-21T17:10:15.329Z"
+    },
+    {
+      "record": ".data/objective/baseline/launch-pinned.json",
+      "hostname": "mbp-old",
+      "code": 0,
+      "elapsedMs": 38700,
+      "startedAt": "2026-09-21T17:13:08.134Z",
+      "finishedAt": "2026-09-21T17:13:46.835Z"
+    },
+    {
+      "record": ".data/objective/baseline/browser-library.json",
+      "hostname": "mbp-old",
+      "code": 0,
+      "elapsedMs": 7712,
+      "startedAt": "2026-09-21T17:13:56.051Z",
+      "finishedAt": "2026-09-21T17:14:03.765Z"
+    },
+    {
+      "record": ".data/objective/baseline/browser-core-v4.json",
+      "hostname": "mbp-old",
+      "code": 0,
+      "elapsedMs": 14099,
+      "startedAt": "2026-09-21T17:16:40.002Z",
+      "finishedAt": "2026-09-21T17:16:54.103Z"
+    },
+    {
+      "record": ".data/objective/final/verify-quick-final.json",
+      "hostname": "mbp-old",
+      "code": 0,
+      "elapsedMs": 35288,
+      "startedAt": "2026-09-21T18:20:11.866Z",
+      "finishedAt": "2026-09-21T18:20:47.157Z"
+    },
+    {
+      "record": ".data/objective/final/integrity-complete.json",
+      "hostname": "mbp-old",
+      "code": 1,
+      "elapsedMs": 1957002,
+      "startedAt": "2026-09-21T17:41:50.790Z",
+      "finishedAt": "2026-09-21T18:14:27.818Z"
+    },
+    {
+      "record": ".data/objective/final/cache-invalidation-settled-red.json",
+      "hostname": "mbp-old",
+      "code": 1,
+      "elapsedMs": 21079,
+      "startedAt": "2026-09-21T18:15:37.913Z",
+      "finishedAt": "2026-09-21T18:15:58.994Z"
+    },
+    {
+      "record": ".data/objective/final/integrity-final.json",
+      "hostname": "mbp-old",
+      "code": 0,
+      "elapsedMs": 921225,
+      "startedAt": "2026-09-21T18:23:27.865Z",
+      "finishedAt": "2026-09-21T18:38:49.101Z"
+    },
+    {
+      "record": ".data/objective/final/iphone-final.json",
+      "hostname": "mbp-old",
+      "code": 1,
+      "elapsedMs": 46094,
+      "startedAt": "2026-09-21T18:38:55.707Z",
+      "finishedAt": "2026-09-21T18:39:41.803Z"
+    },
+    {
+      "record": ".data/objective/final/iphone-autoplay-corrected.json",
+      "hostname": "mbp-old",
+      "code": 0,
+      "elapsedMs": 9785,
+      "startedAt": "2026-09-21T18:40:04.925Z",
+      "finishedAt": "2026-09-21T18:40:14.719Z"
+    },
+    {
+      "record": ".data/objective/final/resume-composed-repeat.json",
+      "hostname": "mbp-old",
+      "code": 0,
+      "elapsedMs": 144744,
+      "startedAt": "2026-09-21T18:40:40.063Z",
+      "finishedAt": "2026-09-21T18:43:04.810Z"
+    },
+    {
+      "record": ".data/objective/final/launch-final.json",
+      "hostname": "mbp-old",
+      "code": 0,
+      "elapsedMs": 26600,
+      "startedAt": "2026-09-21T18:44:08.841Z",
+      "finishedAt": "2026-09-21T18:44:35.443Z"
+    },
+    {
+      "record": ".data/objective/final/browser-library-final.json",
+      "hostname": "mbp-old",
+      "code": 0,
+      "elapsedMs": 9432,
+      "startedAt": "2026-09-21T18:45:21.065Z",
+      "finishedAt": "2026-09-21T18:45:30.499Z"
+    },
+    {
+      "record": ".data/objective/final/browser-core-final.json",
+      "hostname": "mbp-old",
+      "code": 0,
+      "elapsedMs": 11286,
+      "startedAt": "2026-09-21T18:45:40.975Z",
+      "finishedAt": "2026-09-21T18:45:52.264Z"
+    },
+    {
+      "record": ".data/objective/final/browser-library-cold-repeat-1.json",
+      "hostname": "mbp-old",
+      "code": 0,
+      "elapsedMs": 6477,
+      "startedAt": "2026-09-21T18:47:24.545Z",
+      "finishedAt": "2026-09-21T18:47:31.024Z"
+    },
+    {
+      "record": ".data/objective/final/browser-library-cold-repeat-2.json",
+      "hostname": "mbp-old",
+      "code": 0,
+      "elapsedMs": 6447,
+      "startedAt": "2026-09-21T18:47:41.863Z",
+      "finishedAt": "2026-09-21T18:47:48.312Z"
+    }
+  ],
+  "coldSetupFollowups": [
+    {
+      "raw": ".data/objective/final/library-cold-repeat-1/measurements.json",
+      "elapsedMs": 5153.281292
+    },
+    {
+      "raw": ".data/objective/final/library-cold-repeat-2/measurements.json",
+      "elapsedMs": 5067.118333
+    }
+  ],
+  "limitations": [
+    "Desktop Chromium/WebKit with mobile emulation; no physical iOS proof.",
+    "Launch: 24 persistent Chromium launches, frozen 16ms CPU calibration reference; WebKit capability probe fails.",
+    "Core and search elapsed times include Playwright and screenshots where present; identical baseline/final script.",
+    "Tiny document narration includes uncached model weights; not a long-document or thermal benchmark.",
+    "Main-page heap snapshots have no forced GC and exclude workers, WASM and process memory; no memory reduction claim.",
+    "Decoded resource bodies are not compressed network transfer; all-build bundle includes lazy runtimes.",
+    "Two genuine hidden/background T1 rows remain uncovered; other resume rows distinguish synthetic lifecycle events and real process kills.",
+    "Full final integrity matrix uses trace=off after the recorded traced run; assertions and drift thresholds are unchanged."
+  ]
+}
