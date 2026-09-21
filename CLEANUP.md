@@ -33,10 +33,10 @@ Synchronous, scoped to the edited paths: `vitest run` on `mirror.test.ts`, `libr
 
 Plan: read the receipts, one pass, small synchronous checks only, commit, report. Below are the coordinator's raw exit codes from `cleanup-evidence/` — not a diagnostic delta — recorded before this pass's commits.
 
-| Precheck | Base `0e1f17e` | Current |
-| --- | --- | --- |
-| `pnpm install --frozen-lockfile` | exit 0 | exit 0 |
-| `git diff --check` | exit 0 | exit 0 |
+| Precheck                                                                   | Base `0e1f17e` | Current        |
+| -------------------------------------------------------------------------- | -------------- | -------------- |
+| `pnpm install --frozen-lockfile`                                           | exit 0         | exit 0         |
+| `git diff --check`                                                         | exit 0         | exit 0         |
 | `pnpm verify:quick` (`format:check && lint && typecheck && test && build`) | exit 0 (38.5s) | exit 0 (33.2s) |
 
 Postchecks have NOT run; the coordinator runs them after I exit. Nothing here re-establishes green for `b323d7e` or claims the repository is green.
