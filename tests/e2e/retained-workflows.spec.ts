@@ -165,7 +165,7 @@ test("retained player, organization, transcript, settings, export and deletion w
   await page.getByRole("button", { name: "Close details" }).click();
   await page.goto(bookUrl!);
   await expect(page.getByText(/Up next in Evening/)).toBeVisible();
-  await position(page).fill("89500");
+  await position(page).fill("89000");
   await page.getByRole("button", { name: "Play", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Tiny Fixture Book", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
