@@ -265,6 +265,9 @@ test("real document formats finish before playback, cancel safely and preserve l
     buffer: Buffer.from("A long book to cancel. ".repeat(1000)),
   });
   await expect(page.getByRole("button", { name: "Cancel import", exact: true })).toBeVisible();
+  await expect(page.locator(".narrating-book [role=status]")).toContainText("Narrating chapter", {
+    timeout: 120000,
+  });
   await expect(page.locator(".narrating-book a")).toHaveCount(0);
   await expect(page.locator("article.book-item")).toHaveCount(0);
   await shot(page, info, "narration-cancel");
@@ -329,6 +332,30 @@ test("real document formats finish before playback, cancel safely and preserve l
   } finally {
     await sql.end();
   }
+});
+
+test("library filters include committed edits from another tab", async ({
+  page,
+  context,
+}, info) => {
+  await register(page, "fresh-filters");
+  await chooser(page).setInputFiles("tests/fixtures/Downloads/Chapterline-iPhone-Test.mp3");
+  const title = "iPhone Downloads Test";
+  await page.getByRole("link", { name: title, exact: true }).click();
+  const library = await context.newPage();
+  await library.goto("/library");
+  await expect(library.getByRole("link", { name: title, exact: true })).toBeVisible();
+  // Let the normal post-paint pull settle before the edit, otherwise that pull
+  // can accidentally refresh a stale cache and make this regression vacuous.
+  await library.waitForTimeout(2000);
+  await page.getByRole("button", { name: "Details", exact: true }).click();
+  await page.getByLabel("Tags (comma separated)").fill("Updated");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(page.getByRole("status")).toContainText("Saved to this device");
+  await library.getByRole("searchbox", { name: "Search your library" }).fill("Updated");
+  await expect(library.getByRole("link", { name: title, exact: true })).toBeVisible();
+  await shot(library, info, "filter-after-another-tab-edit");
+  await library.close();
 });
 
 test("first sync distinguishes loading and unreachable from an empty library and recovers", async ({

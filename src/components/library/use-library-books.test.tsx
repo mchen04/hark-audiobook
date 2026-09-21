@@ -2,6 +2,7 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { LibraryBook } from "@/domain/library";
+import { notifyLibraryChanged } from "@/lib/offline/library-revision";
 
 const reader = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/offline/mirror", () => ({
@@ -63,4 +64,29 @@ it("never exposes the previous account while another snapshot is loading", async
   reader.mockReturnValue(new Promise(() => {}));
   rerender("b");
   expect(result.current.snapshot).toBeNull();
+});
+
+it("rereads committed changes before applying the next filter", async () => {
+  const { result, rerender } = renderHook((f) => useLibraryBooks("a", f), {
+    initialProps: filters,
+  });
+  await waitFor(() => expect(result.current.snapshot?.books).toHaveLength(1));
+  reader.mockResolvedValue({ books: [{ ...book, tags: ["Updated"] }], tags: ["Updated"] });
+  notifyLibraryChanged();
+  rerender({ ...filters, query: "Updated" });
+  await waitFor(() => expect(result.current.snapshot?.books).toHaveLength(1));
+  expect(reader).toHaveBeenCalledTimes(2);
+});
+
+it("refreshes the local snapshot after returning from an offline player route", async () => {
+  const { result, rerender } = renderHook(
+    (id: string | null) => useLibraryBooks("a", filters, id),
+    {
+      initialProps: "a-book" as string | null,
+    },
+  );
+  await waitFor(() => expect(result.current.snapshot?.books).toHaveLength(1));
+  reader.mockResolvedValue({ books: [{ ...book, positionMs: 42000 }], tags: ["Calm"] });
+  rerender(null);
+  await waitFor(() => expect(result.current.snapshot?.books[0]?.positionMs).toBe(42000));
 });

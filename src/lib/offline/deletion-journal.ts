@@ -10,6 +10,7 @@ import {
   type OfflineDb,
 } from "./db";
 import { journalOfflineBookDeletion } from "./deletion-fence";
+import { notifyLibraryChanged } from "./library-revision";
 import { deleteBookTranscript } from "./transcript-store";
 
 const CACHE_DELETE_CONCURRENCY = 8;
@@ -130,6 +131,7 @@ async function completeOfflineDeletion(db: OfflineDb, key: string): Promise<void
     }
   }
   await db.delete("downloads", key);
+  notifyLibraryChanged();
   if (pending) {
     // Account purge may have deleted this row while Cache Storage or history
     // cleanup was awaited. Re-read and complete it in one transaction: a

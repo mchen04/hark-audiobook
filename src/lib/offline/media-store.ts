@@ -18,6 +18,7 @@ import {
   deleteJournaledMedia,
 } from "./deletion-journal";
 import { getStoredOfflineBook } from "./library";
+import { notifyLibraryChanged } from "./library-revision";
 
 const MEDIA_CHUNK_BYTES = 4 * 1024 * 1024;
 // Overlaps file reads with cache commits while keeping at most ~12MB of audio
@@ -343,6 +344,7 @@ async function commitChunkedMedia(
         if (url) await deleteJournaledCacheEntry(db, cache, url).catch(() => false);
       }
     }
+    notifyLibraryChanged();
     return record;
   } catch (error) {
     const current = await db.get("downloads", key).catch(() => undefined);

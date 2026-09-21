@@ -1,9 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 
 import {
   ACCOUNT_A,
   cutNetwork,
   ensureAccount,
+  importThroughUi,
   network,
   openDevice,
   restoreNetwork,
@@ -273,10 +276,33 @@ test("a cold offline route waits for its on-device book before deciding it is mi
 test("deleting a missing book does not unload the different book still playing", async () => {
   const page = await launchLibrary();
   try {
-    await page.getByRole("link", { name: ON_DEVICE_BOOK.title, exact: true }).click();
+    // The shared eight-second clip can finish during the real confirmation
+    // clicks. Give this journey its own long decoder-backed playback witness.
+    const fixture = test.info().outputPath("deletion-playback.mp3");
+    const title = "Deletion playback witness";
+    execFileSync("ffmpeg", [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "sine=frequency=220:duration=90",
+      "-metadata",
+      `title=${title}`,
+      "-c:a",
+      "libmp3lame",
+      "-b:a",
+      "64k",
+      "-y",
+      fixture,
+    ]);
+    await importThroughUi(page, "deletion-playback.mp3", readFileSync(fixture));
+    await page.getByRole("link", { name: title, exact: true }).click();
     await expect(page.getByRole("button", { name: "Play" })).toBeVisible({ timeout: 60_000 });
     await page.getByRole("button", { name: "Play" }).click();
     await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+    const source = await page.locator("audio").getAttribute("src");
 
     await leavePlayerFromTopbar(page);
     await expectLibraryOnScreen(page);
@@ -292,6 +318,7 @@ test("deleting a missing book does not unload the different book still playing",
     await expect(page.getByRole("complementary", { name: "Now playing" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
     await expect(page.locator("audio")).toHaveCount(1);
+    await expect(page.locator("audio")).toHaveAttribute("src", source!);
     expect(await page.locator("audio").evaluate((audio: HTMLAudioElement) => audio.paused)).toBe(
       false,
     );

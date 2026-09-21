@@ -962,6 +962,7 @@ const MEDIA_TICK_BLOCK_SCRIPT = `
 // ---------------------------------------------------------------------------
 
 export type Fixture = {
+  repeatByIndex: Record<number, number>;
   userId: string;
   origin: string;
   net: ControllableNetwork;
@@ -1753,6 +1754,7 @@ export async function resumeFixture(
     `;
 
     fixture = {
+      repeatByIndex,
       userId,
       origin: net.origin,
       net,
@@ -3073,13 +3075,12 @@ export async function measure(spec: ScenarioSpec): Promise<Row> {
         await session.page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
         await session.page.waitForTimeout(300);
         lifecycle = await readLifecycle(session.page);
-        truePositionMs = sample.positionMs + (Date.now() - sampleReturnedAt) * rate;
       } else {
         lifecycle = await readLifecycle(session.page);
-        truePositionMs = sample.positionMs + (Date.now() - sampledAt) * rate;
       }
+      truePositionMs = sample.positionMs;
       // Whether the audio is still running at the instant of the kill decides
-      // whether the extrapolation above is honest, so it is asserted, not
+      // whether advancing its timestamp is honest, so it is observed, not
       // assumed: an element that stopped somewhere in the navigation would make
       // `truePositionMs` overshoot and manufacture a "resumed behind" reading.
       const playingAtTermination = await session.page.evaluate(() => {
@@ -3088,6 +3089,7 @@ export async function measure(spec: ScenarioSpec): Promise<Row> {
           present: !!audio,
           paused: audio?.paused ?? true,
           at: (audio?.currentTime ?? 0) * 1000,
+          pageNowMs: Date.now(),
         };
       });
       if (!playingAtTermination.present || playingAtTermination.paused) {
@@ -3161,6 +3163,19 @@ export async function measure(spec: ScenarioSpec): Promise<Row> {
         }
       }
       const killedPids = hardKill();
+      if (playingAtTermination.present && !playingAtTermination.paused) {
+        // Navigation and the process-table scan do not stop the decoder. The
+        // former estimate stopped before this live read and the actual kill,
+        // manufacturing an ahead failure (12,450 ms estimated versus 12,665 ms
+        // already observed in the element). Use the latest independent audio
+        // sample and the same actual kill instant as the plain pagehide path.
+        const sampleAgeMs = Math.max(0, lastKillAtMs - playingAtTermination.pageNowMs);
+        truePositionMs = playingAtTermination.at + sampleAgeMs * rate;
+        notes.push(
+          `live element at ${Math.round(playingAtTermination.at)}ms, sampled ` +
+            `${sampleAgeMs}ms before SIGKILL; extrapolated at ${rate}x to the kill instant`,
+        );
+      }
       await expectPageDead(session.page, killedPids);
       killed = true;
     } else if (spec.termination === "reload") {
@@ -4601,7 +4616,11 @@ export async function measureTwoDeviceResume(spec: {
     await pageB.setInputFiles('input[aria-label="Choose an audiobook or document to import"]', {
       name: `${bookTitle}.mp3`,
       mimeType: "audio/mpeg",
-      buffer: buildLongMp3(FIXTURE_REPEAT, 64 + spec.bookIndex * 16, bookTitle),
+      buffer: buildLongMp3(
+        active!.repeatByIndex[spec.bookIndex] ?? FIXTURE_REPEAT,
+        64 + spec.bookIndex * 16,
+        bookTitle,
+      ),
     });
     await expect
       .poll(
@@ -4637,6 +4656,10 @@ export async function measureTwoDeviceResume(spec: {
     await playForReal(pageB, playMsB);
     await pauseThroughUi(pageB);
     const deviceBListenedToMs = Math.round(await readAudioPositionMs(pageB));
+    expect(
+      deviceBListenedToMs,
+      `${spec.scenario}: the fixture ended; this row must measure a mid-book resume`,
+    ).toBeLessThan(durationMs - BOOK_END_EPSILON_FOR_FIXTURE_MS);
     const ticksB = await pageB.evaluate(() => {
       const probe = (window as unknown as { __resumeProbe?: { ticks: number } }).__resumeProbe;
       return probe?.ticks ?? 0;

@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { filterLibraryBooks, type LibraryBook } from "@/domain/library";
 import { afterLaunchPaint } from "@/lib/launch-revalidation";
 import type { OfflineBook } from "@/lib/offline/db";
 import { removeOfflineBook } from "@/lib/offline/deletion-journal";
 import { listOfflineBooks, listVisibleStoredOfflineBooks } from "@/lib/offline/library";
+import { libraryRevision } from "@/lib/offline/library-revision";
 import {
   applyPullBatch,
   getSyncMeta,
@@ -111,11 +112,21 @@ function firstSyncStatusOf(
   return "waiting";
 }
 
-export function useLibraryBooks(userId: string | null, filters: LibraryFilters) {
+export function useLibraryBooks(
+  userId: string | null,
+  filters: LibraryFilters,
+  routeBookId: string | null = null,
+) {
   const { query, status, tag, sort, onDevice } = filters;
   const [source, setSource] = useState<(LibraryListing & { userId: string }) | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const [nonce, setNonce] = useState(0);
+  const loaded = useRef<{
+    userId: string;
+    nonce: number;
+    routeBookId: string | null;
+    revision: number;
+  } | null>(null);
   const [reconnects, setReconnects] = useState(0);
   const [firstSync, setFirstSync] = useState<FirstSync>("unknown");
   /**
@@ -129,14 +140,21 @@ export function useLibraryBooks(userId: string | null, filters: LibraryFilters) 
 
   const reread = useCallback(() => setNonce((current) => current + 1), []);
 
-  // Read once per visit/refresh. Search, facets and sorting derive from this
-  // account-scoped snapshot without reopening or cloning IndexedDB records.
+  // Unchanged filters use the account snapshot. A committed mutation marks it
+  // dirty (also across tabs), so the next control interaction reads fresh rows.
+  // Route returns and explicit refreshes also heal this device's saved position.
   useEffect(() => {
     if (!userId) return;
+    const prior = loaded.current;
+    const refresh =
+      prior?.userId !== userId || prior.nonce !== nonce || prior.routeBookId !== routeBookId;
+    const revision = libraryRevision();
+    if (!refresh && prior.revision === revision) return;
     let active = true;
-    void readLibrary(userId)
+    void readLibrary(userId, refresh)
       .then((next) => {
         if (active) {
+          loaded.current = { userId, nonce, routeBookId, revision };
           setSource({ ...next, userId });
           setUnavailable(false);
         }
@@ -147,7 +165,7 @@ export function useLibraryBooks(userId: string | null, filters: LibraryFilters) 
     return () => {
       active = false;
     };
-  }, [userId, nonce]);
+  }, [userId, nonce, routeBookId, query, status, tag, sort, onDevice]);
 
   const snapshot = useMemo(() => {
     if (!source || source.userId !== userId) return null;
@@ -240,8 +258,12 @@ export function useLibraryBooks(userId: string | null, filters: LibraryFilters) 
   useEffect(() => {
     const onOnline = () => setReconnects((current) => current + 1);
     window.addEventListener("online", onOnline);
-    return () => window.removeEventListener("online", onOnline);
-  }, []);
+    window.addEventListener("focus", reread);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("focus", reread);
+    };
+  }, [reread]);
 
   const retry = useCallback(() => {
     setUnavailable(false);
@@ -307,12 +329,13 @@ export function useLibraryBooks(userId: string | null, filters: LibraryFilters) 
 // A refresh heals the durable position once; filter keystrokes never write.
 const activeHeals = new Map<string, Promise<void>>();
 
-async function readLibrary(userId: string): Promise<LibraryListing> {
-  await singleFlight(activeHeals, userId, () =>
-    healMirrorPlaybackFromLocal(userId)
-      .then(() => undefined)
-      .catch(() => undefined),
-  );
+async function readLibrary(userId: string, heal: boolean): Promise<LibraryListing> {
+  if (heal)
+    await singleFlight(activeHeals, userId, () =>
+      healMirrorPlaybackFromLocal(userId)
+        .then(() => undefined)
+        .catch(() => undefined),
+    );
   const [mirror, records] = await Promise.all([
     readMirrorLibrary(userId),
     listVisibleStoredOfflineBooks(userId),

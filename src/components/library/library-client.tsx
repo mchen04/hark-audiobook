@@ -102,7 +102,11 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
   }, []);
 
   const { snapshot, preparing, firstSyncStatus, unavailable, reload, retry, removeDownload } =
-    useLibraryBooks(userId, { query: deferredQuery, status, tag: activeTag, sort, onDevice });
+    useLibraryBooks(
+      userId,
+      { query: deferredQuery, status, tag: activeTag, sort, onDevice },
+      fallbackBookId,
+    );
 
   // The page owns its one alert region; the import hook and the download
   // remover both report into it.
@@ -660,7 +664,7 @@ const BookItem = memo(function BookItem({
         {!record && (
           <span className="book-offdevice">
             <CloudSlash size={12} aria-hidden="true" />
-            Not on device
+            <span>Not on device</span>
           </span>
         )}
       </Link>

@@ -735,6 +735,15 @@
   background: color-mix(in srgb, var(--danger) 88%, black);
 }
 
+/* Small list covers keep the icon; the row spells out the missing-source state. */
+.book-grid-list .book-cover > .book-offdevice {
+  font-size: var(--text-xs);
+}
+
+.book-grid-list .book-offdevice > span {
+  display: none;
+}
+
 /* Same footprint as the play button, deliberately not the same affordance. */
 .book-play-unavailable,
 .continue-unavailable {
@@ -760,7 +769,7 @@
   min-width: 0;
 }
 
-.narrating-title {
+.narrating-copy .narrating-title {
   display: block;
   overflow: hidden;
   color: var(--text);
@@ -773,11 +782,8 @@
 
 .narrating-copy p {
   margin: 0;
-  overflow: hidden;
   color: var(--text-muted);
   font-size: var(--text-sm);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .narrating-book .book-cover {

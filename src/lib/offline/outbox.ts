@@ -28,6 +28,7 @@ import {
   type OfflineDatabase,
 } from "./db";
 import { ensurePermanentOfflineBookDeletion } from "./deletion-fence";
+import { notifyLibraryChanged } from "./library-revision";
 
 /**
  * Journal intent, then act.
@@ -108,6 +109,7 @@ async function applyMirrorPatch(userId: string, patch: MirrorPatch): Promise<voi
     await patch(transaction);
     assertAccountWritable(userId);
     await transaction.done;
+    notifyLibraryChanged();
   } catch (error) {
     abortQuietly(transaction);
     throw error;

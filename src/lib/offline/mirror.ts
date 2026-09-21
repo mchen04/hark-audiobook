@@ -7,6 +7,7 @@ import {
 } from "@/lib/account-deletion-fence";
 import { selectContinueBook, type LibraryBook } from "@/domain/library";
 import type { PlayerBook } from "@/domain/player";
+import { notifyLibraryChanged } from "./library-revision";
 import type { MediaFingerprintKind } from "@/lib/media-fingerprint";
 import { listLocalPlaybackStates } from "@/lib/playback-core";
 import {
@@ -128,6 +129,7 @@ export async function applyPullBatch(userId: string, batch: PullBatch): Promise<
 
     assertAccountWritable(userId);
     await transaction.done;
+    notifyLibraryChanged();
   } catch (error) {
     abortQuietly(transaction);
     throw error;
