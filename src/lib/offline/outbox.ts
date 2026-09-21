@@ -581,7 +581,7 @@ async function patchBook(
   await store.put({ ...next, searchText: searchTextFor(next) });
 }
 
-/** Matches `mirror.ts#searchTextFor`; a rename must stay searchable immediately. */
+/** Matches the mirror writer for older open bundles that still read this field. */
 function searchTextFor(book: MirrorBook): string {
   return [book.title, book.author, book.narrator || "", book.series || ""].join(" ").toLowerCase();
 }

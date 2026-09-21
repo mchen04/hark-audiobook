@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { LibraryBook } from "@/domain/library";
 import { notifyLibraryChanged } from "@/lib/offline/library-revision";
 
 const reader = vi.hoisted(() => vi.fn());
+const heal = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/offline/mirror", () => ({
   readMirrorLibrary: reader,
-  healMirrorPlaybackFromLocal: async () => 0,
+  healMirrorPlaybackFromLocal: heal,
   getSyncMeta: async () => ({ cursor: "2026-09-21T00:00:00.000Z" }),
 }));
 vi.mock("@/lib/offline/library", () => ({ listVisibleStoredOfflineBooks: async () => [] }));
@@ -38,8 +39,26 @@ const filters: LibraryFilters = {
   onDevice: false,
 };
 beforeEach(() => {
+  heal.mockReset().mockResolvedValue(0);
   reader.mockReset();
   reader.mockResolvedValue({ books: [book], tags: ["Calm"], continueBook: null });
+});
+
+it("a rejected account-fenced heal still allows safe reads on mount, focus and route return", async () => {
+  heal.mockRejectedValue(new Error("Account deletion is in progress"));
+  const { result, rerender } = renderHook(
+    (id: string | null) => useLibraryBooks("a", filters, id),
+    { initialProps: "a-book" as string | null },
+  );
+  await waitFor(() => expect(result.current.snapshot?.books).toHaveLength(1));
+  const initialCalls = reader.mock.calls.length;
+  act(() => window.dispatchEvent(new Event("focus")));
+  await waitFor(() => expect(reader.mock.calls.length).toBeGreaterThan(initialCalls));
+  const focusCalls = reader.mock.calls.length;
+  rerender(null);
+  await waitFor(() => expect(reader.mock.calls.length).toBeGreaterThan(focusCalls));
+  expect(result.current.snapshot?.books).toHaveLength(1);
+  expect(heal).toHaveBeenCalled();
 });
 
 it("search, tag, sort and device facets reuse the visit snapshot", async () => {

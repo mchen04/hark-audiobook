@@ -239,7 +239,8 @@ export function LocalMediaGate({
               onClick={() => {
                 attachmentRef.current?.abort();
                 attachmentRef.current = null;
-                setState({ phase: "missing" });
+                setState({ phase: "checking" });
+                setCheckAttempt((attempt) => attempt + 1);
               }}
             >
               Cancel attachment

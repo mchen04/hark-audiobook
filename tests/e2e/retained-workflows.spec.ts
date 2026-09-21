@@ -4,20 +4,45 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { zipSync, strToU8 } from "fflate";
 import postgres from "postgres";
 import { startControllableNetwork } from "../parity/harness/network";
+import { TEST_CLIENT_HEADERS } from "../shared/test-client-ip";
+import { testAccountPassword } from "../shared/test-account-password";
+import { awaitSignInBudget } from "../shared/sign-in-budget";
+import { closeSql, resetAccount, sql } from "../sync/harness/app";
 
-test.use({ extraHTTPHeaders: { "x-forwarded-for": "198.51.100.111" } });
+test.use({ extraHTTPHeaders: TEST_CLIENT_HEADERS.retained });
+test.afterAll(closeSql);
 
-async function register(page: Page, prefix: string) {
+async function openAccount(page: Page, origin = "", waitUntilReady = true) {
   page.setDefaultTimeout(15000);
-  const email = `${prefix}-${Date.now()}@hark.test`;
-  const password = `Disposable-${Date.now()}!`;
-  await page.goto("/register");
-  await page.getByLabel("Name").fill("Disposable workflow account");
+  // Reuse one disposable identity across runs. Only the account-deletion
+  // journey removes it; resets leave auth sessions and real rate limits intact.
+  const email = "retained-workflows@hark.test";
+  const password = testAccountPassword("retained-workflows");
+  const [existing] = await sql()`select id from "user" where email=${email}`;
+  if (existing) {
+    await resetAccount(existing.id);
+    await awaitSignInBudget("retained");
+  }
+  console.log(`[retained] ${existing ? "reuse/sign-in" : "create disposable account"}`);
+  await page.goto(`${origin}/${existing ? "login" : "register"}`);
+  if (!existing) await page.getByLabel("Name").fill("Disposable workflow account");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel(/Password/).fill(password);
-  await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page.locator('[data-launch-ready="empty"]')).toBeVisible();
-  await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
+  const responsePromise = page.waitForResponse((response) =>
+    response.url().includes(`/api/auth/${existing ? "sign-in" : "sign-up"}/email`),
+  );
+  await page.getByRole("button", { name: existing ? "Sign in" : "Create account" }).click();
+  const response = await responsePromise;
+  expect(
+    response.status(),
+    "Authentication rate-limited: wait for the real database-backed window; do not reset it",
+  ).not.toBe(429);
+  expect(response.ok(), `Authentication returned HTTP ${response.status()}`).toBe(true);
+  await expect(page).toHaveURL(/\/library/);
+  if (waitUntilReady) {
+    await expect(page.locator('[data-launch-ready="empty"]')).toBeVisible();
+    await page.evaluate(() => navigator.serviceWorker.ready.then(() => true));
+  }
   return { email, password };
 }
 const chooser = (page: Page) =>
@@ -66,7 +91,7 @@ test("retained player, organization, transcript, settings, export and deletion w
   page,
 }, info) => {
   test.setTimeout(180000);
-  const account = await register(page, "retained");
+  const account = await openAccount(page);
   await shot(page, info, "empty");
   const audio = chapteredAudio(info);
   await chooser(page).setInputFiles(audio);
@@ -254,83 +279,156 @@ test("real document formats finish before playback, cancel safely and preserve l
   context,
 }, info) => {
   test.setTimeout(300000);
-  const account = await register(page, "documents");
-  const sentBodies: string[] = [];
+  const wire: Array<{ method: string; url: string; body: Buffer }> = [];
+  const net = await startControllableNetwork(
+    process.env.PLAYWRIGHT_BASE_URL || "http://localhost:3000",
+    (request) => wire.push(request),
+  );
+  const browserRequests: string[] = [];
+  // Start before authentication; also cover requests to any other origin.
   context.on("request", (request) => {
-    if (request.method() !== "GET") sentBodies.push(request.postData() ?? "");
+    browserRequests.push(request.url(), request.postDataBuffer()?.toString("utf8") ?? "");
   });
-  await chooser(page).setInputFiles({
-    name: "cancel.txt",
-    mimeType: "text/plain",
-    buffer: Buffer.from("A long book to cancel. ".repeat(1000)),
-  });
-  await expect(page.getByRole("button", { name: "Cancel import", exact: true })).toBeVisible();
-  await expect(page.locator(".narrating-book [role=status]")).toContainText("Narrating chapter", {
-    timeout: 120000,
-  });
-  await expect(page.locator(".narrating-book a")).toHaveCount(0);
-  await expect(page.locator("article.book-item")).toHaveCount(0);
-  await shot(page, info, "narration-cancel");
-  await page.getByRole("button", { name: "Cancel import", exact: true }).click();
-  await expect(page.locator(".narrating-book")).toHaveCount(0);
-  await expect(page.locator('[data-launch-ready="empty"]')).toBeVisible();
-
-  const timings: Array<{ name: string; ms: number }> = [];
-  for (const [index, file] of documentFiles().entries()) {
-    await test.step(`real local narration: ${file.name}`, async () => {
-      const start = Date.now();
-      await chooser(page).setInputFiles(file);
-      await expect(page.locator(".narrating-book")).toBeVisible();
-      await expect(page.locator(".narrating-book a")).toHaveCount(0);
-      await expect(page.locator("article.book-item")).toHaveCount(index);
-      await expect(page.locator("article.book-item")).toHaveCount(index + 1, { timeout: 120000 });
-      timings.push({ name: file.name, ms: Date.now() - start });
-    });
-  }
-  writeFileSync(info.outputPath("narration-times.json"), JSON.stringify(timings, null, 2));
-  expect(sentBodies.join("\n")).not.toContain("A calm voice reads this book");
-  await shot(page, info, "six-document-formats");
-  const txt = page.getByRole("link", { name: "Objective TXT", exact: true });
-  const href = await txt.getAttribute("href");
-  await txt.click();
-  await page.getByRole("button", { name: "Play", exact: true }).click();
-  await expect
-    .poll(() => page.locator("audio").evaluate((a: HTMLAudioElement) => a.currentTime))
-    .toBeGreaterThan(0);
-  await page.getByRole("button", { name: "Pause", exact: true }).click();
-
-  // Migration fixture only: relabel this disposable completed rendition as
-  // legacy metadata. This is not a claim to have run the removed engine.
-  const sql = postgres(process.env.DATABASE_URL!, { max: 1 });
   try {
-    const [owner] = await sql`select id from "user" where email=${account.email}`;
-    const bookId = href!.split("/").pop()!;
-    const before = await sql`select * from chapters where book_id=${bookId} order by position`;
-    await sql`update media_assets set rendition_key=replace(rendition_key,'kestrel-fast-v1','lemonade-kokoro-v1') where book_id=${bookId} and owner_id=${owner!.id}`;
-    await page.goto(href!);
+    const account = await openAccount(page, net.origin);
+    // Real GET/POST requests against a read-only endpoint prove URL and raw-body
+    // capture, including transports WebKit's postData() cannot reliably expose.
+    await page.evaluate(async () => {
+      await fetch(`/api/sync/pull?privacy_control=${encodeURIComponent("privacy positive url")}`);
+      const form = new FormData();
+      form.append("control", "privacy-positive-multipart");
+      for (const body of [
+        JSON.stringify({ control: "privacy-positive-json" }),
+        new Blob(["privacy-positive-blob"]),
+        form,
+      ]) {
+        await fetch("/api/sync/pull", { method: "POST", body });
+      }
+      if (!navigator.sendBeacon("/api/sync/pull", "privacy-positive-beacon")) {
+        throw new Error("Privacy positive-control beacon was not queued");
+      }
+    });
+    await expect
+      .poll(() => wire.some((request) => request.body.includes("privacy-positive-beacon")))
+      .toBe(true);
+    expect(
+      wire.some(
+        (request) =>
+          request.method === "GET" &&
+          decodeURIComponent(request.url).includes("privacy positive url"),
+      ),
+    ).toBe(true);
+    for (const kind of ["json", "blob", "multipart", "beacon"]) {
+      expect(
+        wire.some((request) => request.body.includes(`privacy-positive-${kind}`)),
+        `${kind} positive control reached the socket`,
+      ).toBe(true);
+    }
+    await chooser(page).setInputFiles({
+      name: "cancel.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("A long book to cancel. ".repeat(1000)),
+    });
+    await expect(page.getByRole("button", { name: "Cancel import", exact: true })).toBeVisible();
+    await expect(page.locator(".narrating-book [role=status]")).toContainText("Narrating chapter", {
+      timeout: 120000,
+    });
+    await expect(page.locator(".narrating-book a")).toHaveCount(0);
+    await expect(page.locator("article.book-item")).toHaveCount(0);
+    await shot(page, info, "narration-cancel");
+    await page.getByRole("button", { name: "Cancel import", exact: true }).click();
+    await expect(page.locator(".narrating-book")).toHaveCount(0);
+    await expect(page.locator('[data-launch-ready="empty"]')).toBeVisible();
+
+    const timings: Array<{ name: string; ms: number }> = [];
+    for (const [index, file] of documentFiles().entries()) {
+      await test.step(`real local narration: ${file.name}`, async () => {
+        const start = Date.now();
+        await chooser(page).setInputFiles(file);
+        await expect(page.locator(".narrating-book")).toBeVisible();
+        await expect(page.locator(".narrating-book a")).toHaveCount(0);
+        await expect(page.locator("article.book-item")).toHaveCount(index);
+        await expect(page.locator("article.book-item")).toHaveCount(index + 1, { timeout: 120000 });
+        timings.push({ name: file.name, ms: Date.now() - start });
+      });
+    }
+    writeFileSync(info.outputPath("narration-times.json"), JSON.stringify(timings, null, 2));
+    const captured = [
+      ...browserRequests,
+      ...wire.flatMap((request) => [request.url, request.body.toString("utf8")]),
+    ];
+    for (const value of captured) {
+      expect(value).not.toContain("A calm voice reads this book");
+      // A GET could percent-encode the source; inspect decoded content as well.
+      let decoded = value;
+      try {
+        decoded = decodeURIComponent(value.replaceAll("+", " "));
+      } catch {
+        /* Raw binary bodies need not be URI encoded. */
+      }
+      expect(decoded).not.toContain("A calm voice reads this book");
+    }
+    writeFileSync(
+      info.outputPath("privacy-capture.json"),
+      JSON.stringify(
+        {
+          browserObservations: browserRequests.length,
+          wireRequests: wire.length,
+          wireBodies: wire.filter((request) => request.body.length > 0).length,
+          positiveControls: ["GET query", "JSON", "Blob", "multipart", "sendBeacon"],
+          documentTextFound: false,
+        },
+        null,
+        2,
+      ),
+    );
+    await shot(page, info, "six-document-formats");
+    const txt = page.getByRole("link", { name: "Objective TXT", exact: true });
+    const href = await txt.getAttribute("href");
+    await txt.click();
     await page.getByRole("button", { name: "Play", exact: true }).click();
-    await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+    await expect
+      .poll(() => page.locator("audio").evaluate((a: HTMLAudioElement) => a.currentTime))
+      .toBeGreaterThan(0);
     await page.getByRole("button", { name: "Pause", exact: true }).click();
-    await page.goto("/library");
-    await page
-      .getByRole("button", { name: "Remove download of Objective TXT", exact: true })
-      .click();
-    await expect(page.locator("article.book-item", { hasText: "Objective TXT" })).toContainText(
-      "Not on this device",
-    );
-    await page.goto(href!);
-    await expect(
-      page.getByText(/This saved narration was made with an older engine/),
-    ).toBeVisible();
-    await expect(page.getByRole("button", { name: "Attach document", exact: true })).toBeDisabled();
-    await shot(page, info, "legacy-rendition-refused");
-    expect(await sql`select * from chapters where book_id=${bookId} order by position`).toEqual(
-      before,
-    );
-    const [media] = await sql`select rendition_key from media_assets where book_id=${bookId}`;
-    expect(media!.rendition_key).toMatch(/^lemonade-kokoro-v1:/);
+
+    // Migration fixture only: relabel this disposable completed rendition as
+    // legacy metadata. This is not a claim to have run the removed engine.
+    const sql = postgres(process.env.DATABASE_URL!, { max: 1 });
+    try {
+      const [owner] = await sql`select id from "user" where email=${account.email}`;
+      const bookId = href!.split("/").pop()!;
+      const before = await sql`select * from chapters where book_id=${bookId} order by position`;
+      await sql`update media_assets set rendition_key=replace(rendition_key,'kestrel-fast-v1','lemonade-kokoro-v1') where book_id=${bookId} and owner_id=${owner!.id}`;
+      await page.goto(`${net.origin}${href!}`);
+      await page.getByRole("button", { name: "Play", exact: true }).click();
+      await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+      await page.getByRole("button", { name: "Pause", exact: true }).click();
+      await page.goto(`${net.origin}/library`);
+      await page
+        .getByRole("button", { name: "Remove download of Objective TXT", exact: true })
+        .click();
+      await expect(page.locator("article.book-item", { hasText: "Objective TXT" })).toContainText(
+        "Not on this device",
+      );
+      await page.goto(`${net.origin}${href!}`);
+      await expect(
+        page.getByText(/This saved narration was made with an older engine/),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "Attach document", exact: true }),
+      ).toBeDisabled();
+      await shot(page, info, "legacy-rendition-refused");
+      expect(await sql`select * from chapters where book_id=${bookId} order by position`).toEqual(
+        before,
+      );
+      const [media] = await sql`select rendition_key from media_assets where book_id=${bookId}`;
+      expect(media!.rendition_key).toMatch(/^lemonade-kokoro-v1:/);
+    } finally {
+      await sql.end();
+    }
   } finally {
-    await sql.end();
+    await net.close();
   }
 });
 
@@ -338,7 +436,7 @@ test("library filters include committed edits from another tab", async ({
   page,
   context,
 }, info) => {
-  await register(page, "fresh-filters");
+  await openAccount(page);
   await chooser(page).setInputFiles("tests/fixtures/Downloads/Chapterline-iPhone-Test.mp3");
   const title = "iPhone Downloads Test";
   await page.getByRole("link", { name: title, exact: true }).click();
@@ -368,11 +466,7 @@ test("first sync distinguishes loading and unreachable from an empty library and
   );
   const held = net.holdNextResponse("GET", "/api/sync/pull");
   try {
-    await page.goto(`${net.origin}/register`);
-    await page.getByLabel("Name").fill("Disposable loading state");
-    await page.getByLabel("Email").fill(`loading-${Date.now()}@hark.test`);
-    await page.getByLabel(/Password/).fill(`Loading-state-${Date.now()}!`);
-    await page.getByRole("button", { name: "Create account" }).click();
+    await openAccount(page, net.origin, false);
     expect(await held.upstreamStatus).toBe(200);
     await expect(page.getByRole("heading", { name: "Setting up your library" })).toBeVisible();
     await expect(page.locator("[data-launch-ready]")).toHaveCount(0);
@@ -410,4 +504,102 @@ test("first sync distinguishes loading and unreachable from an empty library and
     held.release();
     await net.close();
   }
+});
+
+test("cancelling after a real media commit recognizes the attachment without choosing it again", async ({
+  page,
+}, info) => {
+  await openAccount(page);
+  const source = "tests/fixtures/Downloads/Chapterline-iPhone-Test.mp3";
+  const title = "iPhone Downloads Test";
+  await chooser(page).setInputFiles(source);
+  const link = page.getByRole("link", { name: title, exact: true });
+  await expect(link).toBeVisible();
+  const href = await link.getAttribute("href");
+  await page.getByRole("button", { name: `Remove download of ${title}`, exact: true }).click();
+  await expect(page.locator("article.book-item", { hasText: title })).toContainText(
+    "Not on this device",
+  );
+  await page.goto(href!);
+  await expect(page.getByRole("button", { name: "Attach MP3", exact: true })).toBeVisible();
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  // Schedule the real Cancel click at the media store's post-commit notification,
+  // before its promise returns to the gate. Storage, parsing and playback remain
+  // the production implementations; no records or audio are fabricated here.
+  await page.evaluate((bookId) => {
+    const evidence = { cancelled: false, committedUrl: "" };
+    Object.assign(window, { attachmentCancellation: evidence });
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (value, key) {
+      const request = put.call(this, value, key);
+      if (this.name === "downloads" && value.book?.id === bookId && value.offlineMediaUrl) {
+        this.transaction.addEventListener(
+          "complete",
+          () => {
+            evidence.committedUrl = value.offlineMediaUrl;
+          },
+          { once: true },
+        );
+      }
+      return request;
+    };
+    const postMessage = BroadcastChannel.prototype.postMessage;
+    BroadcastChannel.prototype.postMessage = function (message) {
+      if (
+        this.name === "chapterline:library-changed" &&
+        evidence.committedUrl &&
+        !evidence.cancelled
+      ) {
+        const cancel = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+          (button) => button.textContent?.trim() === "Cancel attachment",
+        );
+        if (cancel) {
+          evidence.cancelled = true;
+          cancel.click();
+          IDBObjectStore.prototype.put = put;
+          BroadcastChannel.prototype.postMessage = postMessage;
+        }
+      }
+      return postMessage.call(this, message);
+    };
+  }, href!.split("/").pop()!);
+  await page.locator('.local-media-gate input[type="file"]').setInputFiles(source);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as unknown as { attachmentCancellation: { cancelled: boolean } })
+            .attachmentCancellation.cancelled,
+      ),
+    )
+    .toBe(true);
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Attach MP3", exact: true })).toHaveCount(0);
+  const evidence = await page.evaluate(async () => {
+    const { cancelled, committedUrl } = (
+      window as unknown as {
+        attachmentCancellation: { cancelled: boolean; committedUrl: string };
+      }
+    ).attachmentCancellation;
+    const response = await fetch(committedUrl, { headers: { Range: "bytes=0-1023" } });
+    return {
+      cancelled,
+      mediaStatus: response.status,
+      mediaBytes: (await response.arrayBuffer()).byteLength,
+      playerUsesCommittedMedia:
+        document.querySelector("audio")?.getAttribute("src") === committedUrl,
+    };
+  });
+  expect(evidence.mediaStatus).toBe(206);
+  expect(evidence.mediaBytes).toBe(1024);
+  expect(evidence.playerUsesCommittedMedia).toBe(true);
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await expect
+    .poll(() => page.locator("audio").evaluate((audio: HTMLAudioElement) => audio.currentTime))
+    .toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  expect(pageErrors).toEqual([]);
+  await shot(page, info, "committed-attachment-after-cancel");
+  writeFileSync(info.outputPath("committed-attachment.json"), JSON.stringify(evidence, null, 2));
 });

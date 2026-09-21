@@ -532,94 +532,102 @@ export async function getSyncMeta(userId: string): Promise<MirrorSyncMeta | unde
  * surfaces disagreeing is its own bug.
  */
 export async function healMirrorPlaybackFromLocal(userId: string): Promise<number> {
+  assertAccountWritable(userId);
   await applyPendingProgressNormalizationsForUser(userId);
   const local = listLocalPlaybackStates(userId);
   if (!local.length) return 0;
   const db = await database();
+  assertAccountWritable(userId);
   const transaction = db.transaction(["playbackStates", "downloads"], "readwrite");
   const states = transaction.objectStore("playbackStates");
   const downloads = transaction.objectStore("downloads");
   let healed = 0;
 
-  for (const { bookId, state } of local) {
-    const key = mirrorKey(userId, bookId);
-    const [existing, download] = await Promise.all([states.get(key), downloads.get(key)]);
-    const localRateClock = state.playbackRateOccurredAt ?? state.writtenAt ?? state.occurredAt;
-    const localCompletedClock = state.completedOccurredAt ?? state.writtenAt ?? state.occurredAt;
-    const existingRateClock = momentOf(
-      existing?.playbackRateOccurredAt ?? existing?.stateOccurredAt ?? existing?.eventOccurredAt,
-    );
-    const existingCompletedClock = momentOf(
-      existing?.completedOccurredAt ?? existing?.stateOccurredAt ?? existing?.eventOccurredAt,
-    );
-    const positionWins = state.occurredAt > momentOf(existing?.eventOccurredAt);
-    const playbackRateWins =
-      typeof state.playbackRate === "number" && localRateClock > existingRateClock;
-    const completedWins =
-      typeof state.completed === "boolean" && localCompletedClock > existingCompletedClock;
-    if (!positionWins && !playbackRateWins && !completedWins) continue;
+  try {
+    for (const { bookId, state } of local) {
+      const key = mirrorKey(userId, bookId);
+      const [existing, download] = await Promise.all([states.get(key), downloads.get(key)]);
+      const localRateClock = state.playbackRateOccurredAt ?? state.writtenAt ?? state.occurredAt;
+      const localCompletedClock = state.completedOccurredAt ?? state.writtenAt ?? state.occurredAt;
+      const existingRateClock = momentOf(
+        existing?.playbackRateOccurredAt ?? existing?.stateOccurredAt ?? existing?.eventOccurredAt,
+      );
+      const existingCompletedClock = momentOf(
+        existing?.completedOccurredAt ?? existing?.stateOccurredAt ?? existing?.eventOccurredAt,
+      );
+      const positionWins = state.occurredAt > momentOf(existing?.eventOccurredAt);
+      const playbackRateWins =
+        typeof state.playbackRate === "number" && localRateClock > existingRateClock;
+      const completedWins =
+        typeof state.completed === "boolean" && localCompletedClock > existingCompletedClock;
+      if (!positionWins && !playbackRateWins && !completedWins) continue;
 
-    const eventOccurredAt = positionWins
-      ? new Date(state.occurredAt).toISOString()
-      : (existing?.eventOccurredAt ?? new Date(state.occurredAt).toISOString());
-    const playbackRateOccurredAt = playbackRateWins
-      ? new Date(localRateClock).toISOString()
-      : (existing?.playbackRateOccurredAt ?? existing?.stateOccurredAt ?? eventOccurredAt);
-    const completedOccurredAt = completedWins
-      ? new Date(localCompletedClock).toISOString()
-      : (existing?.completedOccurredAt ?? existing?.stateOccurredAt ?? eventOccurredAt);
-    const record: MirrorPlaybackState = {
-      key,
-      userId,
-      bookId,
-      positionMs: positionWins ? state.positionMs : (existing?.positionMs ?? state.positionMs),
-      playbackRate: playbackRateWins
-        ? (state.playbackRate ?? existing?.playbackRate ?? 1)
-        : (existing?.playbackRate ?? state.playbackRate ?? 1),
-      completed: completedWins
-        ? (state.completed ?? existing?.completed ?? false)
-        : (existing?.completed ?? state.completed ?? false),
-      deviceId: existing?.deviceId ?? "",
-      deviceSequence: existing?.deviceSequence ?? 0,
-      eventOccurredAt,
-      playbackRateOccurredAt,
-      completedOccurredAt,
-      stateOccurredAt: laterClock(playbackRateOccurredAt, completedOccurredAt),
-      updatedAt: new Date(
-        Math.max(
-          Date.parse(eventOccurredAt),
-          Date.parse(playbackRateOccurredAt),
-          Date.parse(completedOccurredAt),
-        ),
-      ).toISOString(),
-    };
-    await states.put(record);
-    if (download) {
-      await downloads.put({
-        ...download,
-        book: {
-          ...download.book,
-          ...(positionWins
-            ? {
-                initialPositionMs: record.positionMs,
-                initialProgressOccurredAt: eventOccurredAt,
-              }
-            : {}),
-          ...(playbackRateWins ? { initialPlaybackRate: record.playbackRate } : {}),
-          ...(playbackRateWins ? { initialPlaybackRateOccurredAt: playbackRateOccurredAt } : {}),
-          ...(completedWins
-            ? {
-                completed: record.completed,
-                initialCompletedOccurredAt: completedOccurredAt,
-              }
-            : {}),
-        },
-      });
+      const eventOccurredAt = positionWins
+        ? new Date(state.occurredAt).toISOString()
+        : (existing?.eventOccurredAt ?? new Date(state.occurredAt).toISOString());
+      const playbackRateOccurredAt = playbackRateWins
+        ? new Date(localRateClock).toISOString()
+        : (existing?.playbackRateOccurredAt ?? existing?.stateOccurredAt ?? eventOccurredAt);
+      const completedOccurredAt = completedWins
+        ? new Date(localCompletedClock).toISOString()
+        : (existing?.completedOccurredAt ?? existing?.stateOccurredAt ?? eventOccurredAt);
+      const record: MirrorPlaybackState = {
+        key,
+        userId,
+        bookId,
+        positionMs: positionWins ? state.positionMs : (existing?.positionMs ?? state.positionMs),
+        playbackRate: playbackRateWins
+          ? (state.playbackRate ?? existing?.playbackRate ?? 1)
+          : (existing?.playbackRate ?? state.playbackRate ?? 1),
+        completed: completedWins
+          ? (state.completed ?? existing?.completed ?? false)
+          : (existing?.completed ?? state.completed ?? false),
+        deviceId: existing?.deviceId ?? "",
+        deviceSequence: existing?.deviceSequence ?? 0,
+        eventOccurredAt,
+        playbackRateOccurredAt,
+        completedOccurredAt,
+        stateOccurredAt: laterClock(playbackRateOccurredAt, completedOccurredAt),
+        updatedAt: new Date(
+          Math.max(
+            Date.parse(eventOccurredAt),
+            Date.parse(playbackRateOccurredAt),
+            Date.parse(completedOccurredAt),
+          ),
+        ).toISOString(),
+      };
+      await states.put(record);
+      if (download) {
+        await downloads.put({
+          ...download,
+          book: {
+            ...download.book,
+            ...(positionWins
+              ? {
+                  initialPositionMs: record.positionMs,
+                  initialProgressOccurredAt: eventOccurredAt,
+                }
+              : {}),
+            ...(playbackRateWins ? { initialPlaybackRate: record.playbackRate } : {}),
+            ...(playbackRateWins ? { initialPlaybackRateOccurredAt: playbackRateOccurredAt } : {}),
+            ...(completedWins
+              ? {
+                  completed: record.completed,
+                  initialCompletedOccurredAt: completedOccurredAt,
+                }
+              : {}),
+          },
+        });
+      }
+      healed += 1;
     }
-    healed += 1;
+    assertAccountWritable(userId);
+    await transaction.done;
+    return healed;
+  } catch (error) {
+    abortQuietly(transaction);
+    throw error;
   }
-  await transaction.done;
-  return healed;
 }
 
 function momentOf(isoTimestamp: string | null | undefined): number {

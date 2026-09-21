@@ -97,9 +97,9 @@ export type MirrorBook = {
   updatedAt: string;
   media: MirrorMediaAsset | null;
   /**
-   * Lowercased `title author narrator series`, matching the concatenation the
-   * server searches. Derived, and written in exactly one place
-   * (`mirror.ts#toMirrorBook`), so a keystroke costs one `includes` per book.
+   * Lowercased `title author narrator series`, maintained by mirror writers for
+   * older open bundles sharing this database. Current library filtering derives
+   * its search text from live fields in `domain/library.ts`.
    */
   searchText: string;
 };
