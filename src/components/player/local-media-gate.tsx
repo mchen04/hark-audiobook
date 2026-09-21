@@ -10,9 +10,12 @@ import { FullPlayer } from "@/components/player/full-player";
 import type { PlaybackHistorySnapshot } from "@/domain/playback-history";
 import type { NextInCollection, PlayerBook } from "@/domain/player";
 import { isAbortError } from "@/lib/abort";
+import {
+  canRegenerateRendition,
+  UNAVAILABLE_RENDITION_MESSAGE,
+} from "@/lib/document-import/rendition";
 import { formatBytes } from "@/lib/format-bytes";
 import { type MediaFingerprintKind, fingerprintMedia } from "@/lib/media-fingerprint";
-import { parseLocalMp3 } from "@/lib/local-import";
 import { getOfflineBook } from "@/lib/offline/library";
 import { storeLocalBookMedia } from "@/lib/offline/media-store";
 import { DOCUMENT_FILE_ACCEPT, isDocumentSource, MP3_FILE_ACCEPT } from "@/lib/source-formats";
@@ -72,6 +75,7 @@ export function LocalMediaGate({
   const inputRef = useRef<HTMLInputElement>(null);
   const attachmentRef = useRef<AbortController | null>(null);
   const documentSource = isDocumentSource(sourceFilename || "", sourceMimeType);
+  const unavailableRendition = documentSource && !canRegenerateRendition(mediaRenditionKey);
   const readyMediaUrl = state.phase === "ready" ? state.mediaUrl : null;
   const readyCoverUrl = state.phase === "ready" ? state.coverUrl : null;
   const readyCoverThumbUrl = state.phase === "ready" ? state.coverThumbUrl : null;
@@ -171,7 +175,8 @@ export function LocalMediaGate({
             userId,
             targetBook,
             file,
-            (await parseLocalMp3(file, controller.signal)).artwork,
+            (await (await import("@/lib/local-import")).parseLocalMp3(file, controller.signal))
+              .artwork,
             (fraction) => reportAttachment(Math.round(fraction * 100), "Saving to this device"),
             undefined,
             controller.signal,
@@ -214,9 +219,22 @@ export function LocalMediaGate({
         <p className="gate-author">{playerBook.author}</p>
         {state.phase === "checking" && <p>Checking this device for the audio…</p>}
         {state.phase === "attaching" && (
-          <p>
-            {state.stage}…{state.percent !== null ? ` ${state.percent}%` : ""}
-          </p>
+          <>
+            <p role="status">
+              {state.stage}…{state.percent !== null ? ` ${state.percent}%` : ""}
+            </p>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                attachmentRef.current?.abort();
+                attachmentRef.current = null;
+                setState({ phase: "missing" });
+              }}
+            >
+              Cancel attachment
+            </button>
+          </>
         )}
         {state.phase === "unavailable" && (
           <>
@@ -243,12 +261,17 @@ export function LocalMediaGate({
         )}
         {state.phase === "missing" && (
           <>
-            <p>
-              The audio for this book is stored on your devices, not in the cloud — and this device
-              does not currently have it. Attach the original {documentSource ? "document" : "MP3"}
-              {byteSize ? ` (${formatBytes(byteSize)})` : ""} to listen here. Your reading position
-              and playback history are already synced.
-            </p>
+            {unavailableRendition ? (
+              <p role="status">{UNAVAILABLE_RENDITION_MESSAGE}</p>
+            ) : (
+              <p>
+                The audio for this book is stored on your devices, not in the cloud — and this
+                device does not currently have it. Attach the original{" "}
+                {documentSource ? "document" : "MP3"}
+                {byteSize ? ` (${formatBytes(byteSize)})` : ""} to listen here. Your reading
+                position and playback history are already synced.
+              </p>
+            )}
             <input
               ref={inputRef}
               className="visually-hidden"
@@ -261,6 +284,7 @@ export function LocalMediaGate({
             <button
               type="button"
               className="primary-button"
+              disabled={unavailableRendition}
               onClick={() => inputRef.current?.click()}
             >
               <UploadSimple size={17} aria-hidden="true" />

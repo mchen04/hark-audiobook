@@ -1,6 +1,6 @@
 # Development
 
-Last reviewed: 2026-08-13
+Last reviewed: 2026-09-21
 
 Local setup, the test database, every command, and what a green run does and
 does not prove.
@@ -10,6 +10,7 @@ does not prove.
 - Node.js >= 20.19
 - pnpm 9.6
 - Docker, for the local test database
+- FFmpeg, for generated MP3 contract and browser fixtures
 
 ## Setup
 
@@ -128,6 +129,22 @@ Three limits are worth stating before reading a green run as more than it is.
   book stays visible with its metadata and asks for the original MP3 or document
   again.
 
-Browser-level UI verification uses `agent-browser` against the production build,
-exercising register, import, play, offline, and resume across phone, tablet, and
-desktop viewports.
+Browser verification uses the repository's Playwright tooling against a production
+build. It does not require computer-use or node_repl MCP servers. The iPhone
+project includes real MP3 transport, settings, organization, transcript, data
+export/deletion, document format narration, cancellation and legacy-rendition
+checks. Large traces and generated fixtures belong in ignored output folders.
+
+On Node 26, use `NODE_OPTIONS=--no-experimental-webstorage pnpm test`: its
+experimental global localStorage otherwise masks jsdom's storage in several
+existing tests. CI uses Node 22. This flag changes the test host, not browser
+storage behavior.
+
+For the objective checkout's isolated database and browser paths, exact commands
+and raw outcomes are in [the evidence ledger](evidence/architecture-ledger.md).
+`node scripts/record-check.mjs <output-prefix> <command> [args...]` preserves
+commands, elapsed time, exit status and raw output. Source counts use
+`node scripts/measure-source.mjs <output.json>` after a production build.
+`node scripts/measure-browser.mjs baseline|final core|library` runs the comparable
+real Chromium PWA measurements; `library` expects the launch benchmark's seeded
+1,000-book test account.

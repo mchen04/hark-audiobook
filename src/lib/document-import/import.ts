@@ -14,7 +14,7 @@ import { createAccountWriteScope, withAccountWriteLock } from "@/lib/account-del
 import { throwIfAborted } from "@/lib/abort";
 import { KESTREL_DOWNLOAD_BYTES } from "@/lib/kestrel/assets";
 import { KESTREL_SAMPLE_RATE } from "@/lib/kestrel/dsp";
-import { createNarrationEngine } from "@/lib/kestrel/engine";
+import { KestrelClient } from "@/lib/kestrel/client";
 import { registerLocalBook, type LocalBookRegistration } from "@/lib/local-import";
 import { fingerprintMedia } from "@/lib/media-fingerprint";
 import { formatDurationRounded } from "@/lib/format-time";
@@ -30,10 +30,11 @@ import {
 import { documentMimeType, extractDocument } from "./extract";
 import {
   assertSameRenditionTimeline,
-  engineForRenditionKey,
+  canRegenerateRendition,
   GENERATED_MP3_BITRATE,
-  narratorLabelFor,
-  renditionKeyFor,
+  NARRATOR_LABEL,
+  NARRATION_RENDITION_KEY,
+  UNAVAILABLE_RENDITION_MESSAGE,
 } from "./rendition";
 
 const CHAPTER_SILENCE_SAMPLES = Math.round(0.4 * KESTREL_SAMPLE_RATE);
@@ -51,12 +52,6 @@ export type DocumentImportTarget = {
 export type DocumentImportOptions = {
   target?: DocumentImportTarget;
   signal?: AbortSignal;
-  /**
-   * Every chunk of narration as it is produced, so the library can play a book
-   * that is still being made. Purely observational: the import does not wait on
-   * it and ignores what it does.
-   */
-  onNarrationAudio?: (audio: Float32Array, sampleRate: number) => void;
 };
 
 /** Turns a document into a normal, chaptered, offline Hark audiobook. */
@@ -85,13 +80,10 @@ async function importLocalDocumentWithinFence(
   onProgress: DocumentImportProgress,
   options: DocumentImportOptions,
 ): Promise<OfflineBook> {
-  const { target, signal, onNarrationAudio } = options;
+  const { target, signal } = options;
   throwIfAborted(signal);
-  const requiredEngine = target ? engineForRenditionKey(target.renditionKey) : null;
-  if (target && !requiredEngine) {
-    throw new Error(
-      "This book was narrated by a narration engine this build no longer has. Import the document as a new book to preserve its timing.",
-    );
+  if (target && !canRegenerateRendition(target.renditionKey)) {
+    throw new Error(UNAVAILABLE_RENDITION_MESSAGE);
   }
   onProgress(2, "Reading the document on this device");
   const document = await extractDocument(file, signal);
@@ -123,7 +115,7 @@ async function importLocalDocumentWithinFence(
       estimatedAudioBytes,
       slot,
     );
-    const engine = await createNarrationEngine(requiredEngine ?? undefined);
+    const engine = new KestrelClient();
     const cancelNarration = () => engine.close();
     signal?.addEventListener("abort", cancelNarration, { once: true });
     let output: Output<Mp3OutputFormat, AppendOnlyStreamTarget> | null = null;
@@ -137,9 +129,7 @@ async function importLocalDocumentWithinFence(
       );
       onProgress(
         12,
-        engine.id === "lemonade"
-          ? `Narrating through Lemonade on this device · about ${estimatedLength} of audio`
-          : `Loading Kestrel on this device (${formatModelSize()}) · about ${estimatedLength} of audio`,
+        `Loading Kestrel on this device (${formatModelSize()}) · about ${estimatedLength} of audio`,
       );
       await engine.initialize((progress) => {
         if (progress.stage !== "model") return;
@@ -166,7 +156,7 @@ async function importLocalDocumentWithinFence(
         albumArtist: document.author,
         album: document.title,
         genre: "Audiobook",
-        comment: `Narrated privately on-device by Hark with ${narratorLabelFor(engine.id)}.`,
+        comment: `Narrated privately on-device by Hark with ${NARRATOR_LABEL}.`,
       });
       await output.start();
 
@@ -203,7 +193,6 @@ async function importLocalDocumentWithinFence(
             throw new Error("The narration engine returned invalid audio.");
           }
           await addAudio(audioSource, synthesis.audio, totalSamples);
-          onNarrationAudio?.(synthesis.audio, synthesis.sampleRate);
           totalSamples += synthesis.audio.length;
           completedCharacters += text.length;
           meter.record(text.length, Date.now() - chunkStartedAt);
@@ -249,10 +238,10 @@ async function importLocalDocumentWithinFence(
           durationMs,
           fingerprint,
           fingerprintKind: "sha256-v1",
-          renditionKey: renditionKeyFor(engine.id),
+          renditionKey: NARRATION_RENDITION_KEY,
           title: document.title,
           author: document.author,
-          narrator: narratorLabelFor(engine.id),
+          narrator: NARRATOR_LABEL,
           chapterDiagnostic: null,
           chapters: chapters.map((chapter) => ({
             position: chapter.position,

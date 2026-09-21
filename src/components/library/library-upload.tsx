@@ -9,7 +9,6 @@ import {
   type ImportState,
   importSnapshot,
   runImport,
-  startListeningToImport,
   subscribeToImport,
 } from "@/lib/document-import/import-controller";
 import { BOOK_FILE_ACCEPT } from "@/lib/source-formats";
@@ -21,8 +20,7 @@ export type UploadState = ImportState;
  * the device before entering the same offline media store.
  *
  * The import itself lives outside React, in `import-controller`. This hook only
- * subscribes to it, so leaving the library — to open the book being narrated,
- * for instance — no longer destroys the import.
+ * subscribes to it, so visiting another screen does not destroy the import.
  */
 export function useBookImport(
   userId: string | null,
@@ -69,7 +67,7 @@ export function useBookImport(
     />
   );
 
-  return { fileInput, upload, chooseFile, startListening: startListeningToImport };
+  return { fileInput, upload, chooseFile };
 }
 
 /**

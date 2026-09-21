@@ -2,8 +2,9 @@
 
 ## Status
 
-Decision record started 2026-07-09; last reconciled with the code on 2026-08-13
-after the full-codebase UI, offline, sync, and authentication audit.
+Decision record started 2026-07-09; narration and library-read architecture
+reconciled on 2026-09-21. Measurements and verification are in
+[evidence/architecture-ledger.md](evidence/architecture-ledger.md).
 Update this document whenever executable reality changes.
 
 `docs/local-first.md` is the design contract for that pass — what is mirrored,
@@ -42,15 +43,14 @@ The app accepts an MP3 directly or narrates PDF, EPUB, DOCX, TXT, Markdown, and 
 - `music-metadata` parsing MP3s and ID3 chapters in the browser at import
 - PDF.js and bounded format adapters for local document extraction
 - Kestrel Fast in a module worker through ONNX Runtime WebGPU/WASM, with a
-  pinned, content-addressed and SHA-256-verified model/runtime bundle; AMD's
-  Lemonade server preferred over it when present on loopback
+  pinned, content-addressed and SHA-256-verified model/runtime bundle
 - Mediabunny plus LAME for progressive generated-MP3 encoding
 - Cache Storage for the device-local audio, covers, and the launch shell
 - IndexedDB for the device-authoritative library mirror and the mutation outbox
 - A native, versioned service worker for the launch shell, range serving, and
   the update lifecycle
 - Vitest for unit/integration logic, Playwright for the WebKit PWA flow and the
-  launch/parity/sync projects, and `agent-browser` for end-to-end UI verification
+  launch/parity/sync projects and end-to-end UI verification
 - GitHub Actions runs the non-browser gate and every executable Playwright gate
   in isolated jobs backed by local Postgres; browser failures retain visual traces
 - A docker-compose Postgres 18 on `127.0.0.1:54329` for every test suite, with a
@@ -142,12 +142,8 @@ critical path.
    rejected as malformed), and a streaming whole-file
    SHA-256 identifies the exact bytes without buffering the book in memory.
 2. Document import routes the source to a lazy PDF/EPUB/DOCX/text adapter, then
-   a book-scoped narration engine synthesizes it. When AMD's Lemonade server is
-   running on the same machine it is used — stock Kokoro on an NPU, GPU, or CPU
-   over loopback — and otherwise a Kestrel worker synthesizes through WebGPU or
-   WASM. The engine is chosen once per book and names itself in the rendition
-   key, because the two builds do not produce interchangeable samples; the
-   reasoning and its consequences are in `docs/lemonade.md`. Public
+   one book-scoped Kestrel worker synthesizes through WebGPU or WASM. There is
+   no alternate local server or live preview player. Public
    weights, ONNX graphs, voice data, FFT runtime, PDF worker, and ONNX Runtime
    browser module are pinned by one manifest. That manifest keeps the model
    commit separate from the hashed exporter script and its exact
@@ -158,8 +154,15 @@ critical path.
    abortable. The deterministic extraction/sentence-splitter revisions are part
    of rendition identity. Generated PCM is encoded
    progressively into the same chunked MP3 store, so neither a source-sized nor
-   audiobook-sized audio buffer is required. Navigation/account changes abort
-   extraction, hashing, worker, encoder, and partial storage as one import job.
+   audiobook-sized audio buffer is required. Progress and cancellation stay in
+   the library; only the completely committed rendition is playable. Client
+   navigation preserves an import. Cancellation, page termination and account
+   changes stop extraction, hashing, worker, encoder and partial storage.
+   Unsupported rendition keys (including legacy Lemonade) are rejected before
+   regeneration; already-saved completed audio remains playable. The current
+   Kestrel key and exact timeline validator are unchanged. The legacy database
+   fingerprint arbiter still prevents importing the identical source under a
+   different rendition; no index or user data is removed by this change.
 3. `POST /api/books/local` registers metadata only — validated title/author,
    duration, byte size, fingerprint, and the full chapter list (revalidated
    server-side, batch-inserted, capped at 10,000 chapters). The expand migration
@@ -213,8 +216,13 @@ pending deletion journal comes through intact.
 - `src/lib/offline/mirror.ts` owns it. A pulled batch lands as one transaction
   across every affected store, and the new cursor is part of the same commit,
   so the cursor can never be observed ahead of the data it describes.
-- `use-library-books.ts` reads the mirror for metadata and `downloads` for the
-  audio this device actually holds, and joins them. There is no "am I online?"
+- `use-library-books.ts` reads one account-scoped mirror snapshot and `downloads`
+  per visit/refresh, and joins them. Search, sorting and facets reuse it without
+  IndexedDB reads. `domain/library.ts` defines filtering and ordering once for
+  mirrored and device-only books. Sync, import, retry and removal refresh the
+  snapshot; switching accounts hides the previous snapshot immediately. Completed
+  imports refresh locally before a background pull, so a stalled sync cannot
+  hide audio that is already saved. There is no "am I online?"
   branch on that path: search, status/tag filters, the "On this device" facet,
   sort and the continue card are all local computations.
 - Cache Storage still holds the imported MP3 bytes and covers; localStorage
@@ -366,8 +374,8 @@ playable; byte size and "remove the download" survive in the merged view.
   re-render the player tree; chapter selection binary-searches on the hot path.
   The provider is the single sink for progress-conflict reconciliation.
 - `src/lib/document-import/`: the format adapters, the chunker, `rendition.ts`
-  (engine-aware rendition identity), `narration-estimate.ts` (length and
-  remaining time) and `narration-preview.ts` (listening during the import).
+  (exact supported rendition identity), `narration-estimate.ts` (length and
+  remaining time) and the account-owned import controller (progress/cancellation).
 - `src/lib/offline/` (`db`, `media-store`, `deletion-journal`, `library`,
   `account-purge`) + `local-import.ts`: the device-local media store and the
   in-browser import pipeline; `mirror.ts` + `sync-protocol.ts`: the library

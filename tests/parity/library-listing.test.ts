@@ -1,8 +1,9 @@
+import { filterLibraryBooks, type LibraryQuery } from "@/domain/library";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "fake-indexeddb/auto";
 import { IDBFactory as FakeIDBFactory } from "fake-indexeddb";
 
-import { applyPullBatch, getMirrorContinueBook, listMirrorBooks } from "@/lib/offline/mirror";
+import { applyPullBatch, readMirrorLibrary } from "@/lib/offline/mirror";
 import type { PullBatch, PulledBook, PulledPlaybackState } from "@/lib/offline/sync-protocol";
 import { libraryCursorValue, librarySortsAscending } from "@/server/books/library-cursor";
 
@@ -22,6 +23,14 @@ import { libraryCursorValue, librarySortsAscending } from "@/server/books/librar
  * with coalesce defaults and the `|| ' ' ||` separators intact, so a change on
  * either side of the contract fails this file.
  */
+
+// Helpers stay in the oracle: production uses one read for all three views.
+async function listMirrorBooks(userId: string, query: LibraryQuery = {}) {
+  return filterLibraryBooks((await readMirrorLibrary(userId)).books, query);
+}
+async function getMirrorContinueBook(userId: string) {
+  return (await readMirrorLibrary(userId)).continueBook;
+}
 
 const USER = "user-parity";
 

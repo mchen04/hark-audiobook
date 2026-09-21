@@ -5,7 +5,7 @@ import {
   isAccountDeletionFenced,
   subscribeAccountDeletionFence,
 } from "@/lib/account-deletion-fence";
-import type { LibraryBook } from "@/domain/library";
+import { selectContinueBook, type LibraryBook } from "@/domain/library";
 import type { PlayerBook } from "@/domain/player";
 import type { MediaFingerprintKind } from "@/lib/media-fingerprint";
 import { listLocalPlaybackStates } from "@/lib/playback-core";
@@ -73,17 +73,6 @@ const MIRROR_STORES: MirrorStoreName[] = [
 ];
 
 type MirrorTransaction = IDBPTransaction<OfflineDatabase, MirrorStoreName[], "readwrite">;
-
-/** Mirrors `LibrarySort` in `server/books/library-cursor.ts`; the same four orders. */
-type MirrorSort = "activity" | "added" | "title" | "author";
-type MirrorStatus = "all" | "in-progress" | "not-started" | "finished" | "archived";
-
-export type MirrorLibraryQuery = {
-  query?: string;
-  status?: MirrorStatus;
-  tag?: string;
-  sort?: MirrorSort;
-};
 
 export type MirrorPlayerBook = {
   playerBook: PlayerBook;
@@ -641,19 +630,12 @@ function laterClock(left: string, right: string): string {
   return Date.parse(left) >= Date.parse(right) ? left : right;
 }
 
-type LibrarySnapshot = {
-  books: MirrorBook[];
-  statesByBook: Map<string, MirrorPlaybackState>;
-  tagsByBook: Map<string, string[]>;
-  tagNames: string[];
-};
-
-/**
- * Four indexed reads for the whole library, then everything else in memory. A
- * thousand books cost four key-range scans instead of a lookup per row, which
- * is what keeps search and filtering a per-keystroke operation.
- */
-async function readLibrarySnapshot(userId: string): Promise<LibrarySnapshot> {
+/** One coherent account snapshot per library refresh. Filters need no IDB reads. */
+export async function readMirrorLibrary(userId: string): Promise<{
+  books: LibraryBook[];
+  tags: string[];
+  continueBook: LibraryBook | null;
+}> {
   const db = await database();
   const transaction = db.transaction(["books", "playbackStates", "bookTags", "tags"], "readonly");
   const [books, states, edges, tags] = await Promise.all([
@@ -675,11 +657,14 @@ async function readLibrarySnapshot(userId: string): Promise<LibrarySnapshot> {
   }
   for (const names of tagsByBook.values()) names.sort(byName);
 
+  const statesByBook = new Map(states.map((state) => [state.bookId, state]));
+  const rows = books.map((book) =>
+    toLibraryBook(book, statesByBook.get(book.bookId), tagsByBook.get(book.bookId) ?? []),
+  );
   return {
-    books,
-    statesByBook: new Map(states.map((state) => [state.bookId, state])),
-    tagsByBook,
-    tagNames: tags.map((tag) => tag.name).sort(byName),
+    books: rows,
+    tags: tags.map((tag) => tag.name).sort(byName),
+    continueBook: selectContinueBook(rows),
   };
 }
 
@@ -766,32 +751,6 @@ export async function getMirrorPlayerBook(
   };
 }
 
-/** The library list: search, status facet, tag facet and sort, all on device. */
-export async function listMirrorBooks(
-  userId: string,
-  input: MirrorLibraryQuery = {},
-): Promise<LibraryBook[]> {
-  const snapshot = await readLibrarySnapshot(userId);
-  const status = input.status || "all";
-  const needle = input.query?.trim().toLowerCase();
-
-  const rows: LibraryBook[] = [];
-  for (const book of snapshot.books) {
-    const state = snapshot.statesByBook.get(book.bookId);
-    if (!matchesStatus(book, state, status)) continue;
-    const tags = snapshot.tagsByBook.get(book.bookId) || [];
-    if (input.tag && !tags.includes(input.tag)) continue;
-    if (needle && !matchesQuery(book, tags, needle)) continue;
-    rows.push(toLibraryBook(book, state, tags));
-  }
-  return rows.sort(comparatorFor(input.sort || "activity"));
-}
-
-/** Every tag name in the account's vocabulary, for the filter chips. */
-export async function listMirrorTagNames(userId: string): Promise<string[]> {
-  return (await readLibrarySnapshot(userId)).tagNames;
-}
-
 /**
  * This account's collections, with the membership of one book marked.
  *
@@ -822,72 +781,4 @@ export async function listMirrorCollections(
       includesBook: includes.has(collection.collectionId),
     }))
     .sort((left, right) => byName(left.name, right.name));
-}
-
-/**
- * The continue card: the most recently progressed book that is neither
- * archived, finished, nor untouched — the same rule as `getLibraryOverview`.
- */
-export async function getMirrorContinueBook(userId: string): Promise<LibraryBook | null> {
-  const snapshot = await readLibrarySnapshot(userId);
-  let best: { book: MirrorBook; state: MirrorPlaybackState } | null = null;
-  for (const book of snapshot.books) {
-    const state = snapshot.statesByBook.get(book.bookId);
-    if (!state || !matchesStatus(book, state, "in-progress")) continue;
-    if (!best || outranksForContinue(book, state, best.book, best.state)) best = { book, state };
-  }
-  if (!best) return null;
-  return toLibraryBook(best.book, best.state, snapshot.tagsByBook.get(best.book.bookId) || []);
-}
-
-function outranksForContinue(
-  book: MirrorBook,
-  state: MirrorPlaybackState,
-  bestBook: MirrorBook,
-  bestState: MirrorPlaybackState,
-): boolean {
-  if (state.updatedAt !== bestState.updatedAt) return state.updatedAt > bestState.updatedAt;
-  return book.bookId > bestBook.bookId;
-}
-
-function matchesStatus(
-  book: MirrorBook,
-  state: MirrorPlaybackState | undefined,
-  status: MirrorStatus,
-): boolean {
-  const archived = book.archivedAt !== null;
-  if (status === "archived") return archived;
-  if (archived) return false;
-  const completed = state?.completed || false;
-  const positionMs = state?.positionMs || 0;
-  if (status === "finished") return completed;
-  if (status === "in-progress") return !completed && positionMs > 0;
-  if (status === "not-started") return !completed && positionMs === 0;
-  return true;
-}
-
-function matchesQuery(book: MirrorBook, tags: string[], needle: string): boolean {
-  if (book.searchText.includes(needle)) return true;
-  return tags.some((tag) => tag.toLowerCase().includes(needle));
-}
-
-function comparatorFor(sort: MirrorSort): (left: LibraryBook, right: LibraryBook) => number {
-  if (sort === "title" || sort === "author") {
-    return (left, right) =>
-      left[sort].toLowerCase().localeCompare(right[sort].toLowerCase()) ||
-      left.id.localeCompare(right.id);
-  }
-  if (sort === "added") {
-    return (left, right) =>
-      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id);
-  }
-  return (left, right) =>
-    activityAt(right).localeCompare(activityAt(left)) || right.id.localeCompare(left.id);
-}
-
-/** The later of the last metadata edit and the last listen, as the server sorts. */
-function activityAt(book: LibraryBook): string {
-  return book.progressUpdatedAt && book.progressUpdatedAt > book.updatedAt
-    ? book.progressUpdatedAt
-    : book.updatedAt;
 }

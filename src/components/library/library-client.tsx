@@ -32,7 +32,7 @@ import { asOfflinePlayerBook } from "@/lib/offline/library";
 import { getMirrorPlayerBook, type MirrorPlayerBook } from "@/lib/offline/mirror";
 import { listBookIdsWithTranscripts } from "@/lib/offline/transcript-store";
 
-import { startListeningToImport } from "@/lib/document-import/import-controller";
+import { abortImport } from "@/lib/document-import/import-controller";
 
 import { UploadBanners, useBookImport, type UploadState } from "./library-upload";
 import { type SortOrder, type StatusFilter } from "./library-view";
@@ -275,7 +275,11 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
           </button>
         </div>
       </section>
-    ) : null;
+    ) : (
+      <section className="library-content" aria-busy="true">
+        <p role="status">Opening your library…</p>
+      </section>
+    );
   }
 
   // The device has nothing mirrored and has never completed a pull. Saying
@@ -513,7 +517,7 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
           <div>
             {upload || shown.length ? (
               <div className={`book-grid ${view === "list" ? "book-grid-list" : ""}`}>
-                {upload && <NarratingItem upload={upload} compact={view === "list"} />}
+                {upload && <NarratingItem upload={upload} />}
                 {shown.map((book) => (
                   <BookItem
                     book={book}
@@ -525,7 +529,7 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
                   />
                 ))}
               </div>
-            ) : upload ? null : (
+            ) : (
               <div className="no-results">
                 <MagnifyingGlass size={30} weight="duotone" aria-hidden="true" />
                 <h2>
@@ -533,7 +537,7 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
                 </h2>
                 <p>
                   {onDevice && device.size === 0
-                    ? "Open a book and choose Download to keep its audio on this device."
+                    ? "Open a book and attach its original source to listen on this device."
                     : "Try another search, status, or tag."}
                 </p>
                 <button
@@ -741,64 +745,30 @@ const BookItem = memo(function BookItem({
   );
 });
 
-/**
- * The book being narrated right now, shown in the library before it exists as a
- * book at all.
- *
- * It is rendered outside the frozen part of the library on purpose. An import
- * is aborted when this screen unmounts, so tapping a real book mid-import would
- * destroy the narration in progress — which is why everything that navigates
- * stays inert. This card navigates nowhere: it plays what has been narrated so
- * far, straight from the engine's own samples.
- */
-function NarratingItem({ upload, compact }: { upload: UploadState; compact: boolean }) {
-  // Nothing here answers to a finished book's name. A link called exactly the
-  // book's title would be a second thing claiming to be that book: anything
-  // waiting for the book to appear would be satisfied by the narration that has
-  // not produced it yet.
-  const label = `Play ${upload.title}, narrating now`;
+/** Progress has no player route until the complete audiobook is committed. */
+function NarratingItem({ upload }: { upload: UploadState }) {
   return (
-    <article className={`narrating-book ${compact ? "narrating-book-compact" : ""}`}>
-      {upload.narrated ? (
-        <Link
-          href="/narrating"
-          className="book-cover narrating-cover"
-          prefetch={false}
-          onClick={startListeningToImport}
-          aria-label={label}
-        >
-          <NarratingCoverArt percent={upload.percent} />
-        </Link>
-      ) : (
-        <div className="book-cover narrating-cover">
-          <NarratingCoverArt percent={upload.percent} />
-        </div>
-      )}
+    <article className="narrating-book">
+      <div className="book-cover narrating-cover">
+        <NarratingCoverArt percent={upload.percent} />
+      </div>
       <div className="narrating-copy">
-        {upload.narrated ? (
-          <Link
-            href="/narrating"
-            className="narrating-title"
-            prefetch={false}
-            onClick={startListeningToImport}
-            aria-label={label}
-          >
-            {upload.title}
-          </Link>
-        ) : (
-          <p className="narrating-title">{upload.title}</p>
-        )}
-        <p>{upload.listening ? "Playing as it is narrated" : upload.stage}</p>
+        <p className="narrating-title">{upload.title}</p>
+        <p role="status">{upload.stage}</p>
         <div
           className="narrating-progress"
           role="progressbar"
           aria-valuenow={upload.percent}
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-label={`Narrating ${upload.title}`}
+          aria-label={`${upload.narrated ? "Narrating" : "Importing"} ${upload.title}`}
         >
           <span style={{ width: `${upload.percent}%` }} />
         </div>
+        {upload.narrated && <p>Ready to listen when narration finishes. Keep Hark open.</p>}
+        <button type="button" className="secondary-button" onClick={abortImport}>
+          Cancel import
+        </button>
       </div>
     </article>
   );

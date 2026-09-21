@@ -1,3 +1,4 @@
+import { filterLibraryBooks, type LibraryQuery } from "@/domain/library";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "fake-indexeddb/auto";
 import { IDBFactory as FakeIDBFactory } from "fake-indexeddb";
@@ -8,15 +9,24 @@ import { saveLocalPlaybackState } from "@/lib/playback-core";
 import { database } from "./db";
 import {
   applyPullBatch,
-  getMirrorContinueBook,
+  readMirrorLibrary,
   getMirrorPlayerBook,
   getSyncMeta,
   healMirrorPlaybackFromLocal,
-  listMirrorBooks,
-  listMirrorTagNames,
   purgeUser,
 } from "./mirror";
 import type { PullBatch, PulledBook } from "./sync-protocol";
+
+// Helpers stay in the oracle: production uses one read for all three views.
+async function listMirrorBooks(userId: string, query: LibraryQuery = {}) {
+  return filterLibraryBooks((await readMirrorLibrary(userId)).books, query);
+}
+async function getMirrorContinueBook(userId: string) {
+  return (await readMirrorLibrary(userId)).continueBook;
+}
+async function listMirrorTagNames(userId: string) {
+  return (await readMirrorLibrary(userId)).tags;
+}
 
 const USER_A = "user-a";
 const USER_B = "user-b";

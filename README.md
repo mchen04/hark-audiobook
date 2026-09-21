@@ -107,20 +107,15 @@ thereafter. No text is sent anywhere. Sources are capped before parsing (96 MiB
 PDF, 48 MiB EPUB/DOCX, 8 MiB text/Markdown, 2 MiB HTML, and two million
 extracted characters).
 
-**Lemonade narrates it faster, still locally.** If [AMD's Lemonade
-server](https://lemonade-server.ai) is running on the same machine, Hark
-narrates through it instead of in the page, putting Kokoro on a Ryzen AI NPU,
-a GPU, or the CPU. It is detected on loopback, so nothing leaves the machine and
-no configuration is needed; if it is absent — every phone, for one — narration
-falls back to the browser engine unchanged. See
-[docs/lemonade.md](docs/lemonade.md).
+**Finish narration, then listen.** Document imports show progress, an estimated
+length and remaining time, and a Cancel import control. Keep Hark open while it
+works. The completed MP3 enters the normal player only after its audio and
+chapter timeline are committed. You can continue listening to an already
+completed book during an import.
 
-**You do not wait for the whole book.** The length is arithmetic from the
-character count, so the import says "about 9h 30m of audio" before a single
-sample exists, then counts down as it narrates. The document appears in the library
-straight away as a narrating entry, and about twenty seconds in it offers
-**Listen now** — playing what exists while the rest is still being made.
-Narration runs several times faster than listening, so it stays ahead.
+Saved audio from older narration engines remains playable. If that audio is
+missing, Hark refuses to regenerate an unsupported rendition against its old
+chapter timing; it never silently substitutes a different voice engine.
 
 ## Testing
 
@@ -130,9 +125,11 @@ pnpm verify:browser   # iPhone WebKit, offline parity, sync, resume, launch perf
 pnpm verify           # both
 ```
 
-737 unit tests run in about 3 seconds. Five Playwright projects cover the
-browser matrix. What a green run does and does not prove is written down in
-[docs/development.md](docs/development.md#what-a-green-run-does-not-prove).
+Unit tests cover storage, parsing, playback and sync contracts. Playwright drives
+the production PWA with real audio and local document narration. Exact commands,
+results, measurements and coverage for the September 2026 simplification are in
+[the evidence ledger](docs/evidence/architecture-ledger.md). Platform limits are
+listed in [docs/development.md](docs/development.md#what-a-green-run-does-not-prove).
 
 ## Known limitations
 
@@ -172,11 +169,10 @@ drizzle/         ordered SQL migrations and snapshots
 public/sw.js     the shipping service worker, maintained directly
 ```
 
-A tracked-text count is about 140k lines, but that is not 140k lines of
-application logic: 58.7k are Drizzle's required migration snapshots and 8.5k are
-the lockfile. `src/` is 46.3k including 17.1k of co-located unit tests, which
-leaves roughly 29.2k lines of application code. See
-[repository-anatomy.md](docs/repository-anatomy.md) for the full audit.
+Application code, tests, CSS and generated migration state are counted separately.
+The reproducible scope and cyclomatic-complexity method are documented in
+[repository-anatomy.md](docs/repository-anatomy.md); this work's before/after
+measurements live in [the evidence ledger](docs/evidence/architecture-ledger.md).
 
 ## License
 

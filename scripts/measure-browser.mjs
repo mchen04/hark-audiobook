@@ -106,14 +106,12 @@ try {
       report.startup = {
         performance: await performanceState(),
         resources: await page.evaluate(() =>
-          performance
-            .getEntriesByType("resource")
-            .map((r) => ({
-              name: r.name,
-              transferSize: r.transferSize,
-              decodedBodySize: r.decodedBodySize,
-              initiatorType: r.initiatorType,
-            })),
+          performance.getEntriesByType("resource").map((r) => ({
+            name: r.name,
+            transferSize: r.transferSize,
+            decodedBodySize: r.decodedBodySize,
+            initiatorType: r.initiatorType,
+          })),
         ),
       };
     });
@@ -155,14 +153,12 @@ try {
       report.startup = {
         performance: await performanceState(),
         resources: await page.evaluate(() =>
-          performance
-            .getEntriesByType("resource")
-            .map((r) => ({
-              name: r.name,
-              transferSize: r.transferSize,
-              decodedBodySize: r.decodedBodySize,
-              initiatorType: r.initiatorType,
-            })),
+          performance.getEntriesByType("resource").map((r) => ({
+            name: r.name,
+            transferSize: r.transferSize,
+            decodedBodySize: r.decodedBodySize,
+            initiatorType: r.initiatorType,
+          })),
         ),
       };
     });

@@ -1,2 +1,1 @@
-export type StatusFilter = "all" | "in-progress" | "not-started" | "finished" | "archived";
-export type SortOrder = "activity" | "added" | "title" | "author";
+export type { LibraryStatus as StatusFilter, LibrarySort as SortOrder } from "@/domain/library";

@@ -1,6 +1,7 @@
 # Repository anatomy
 
-Last reviewed: 2026-08-13
+Historical tracked-file audit: 2026-08-13. Current comparable app-code and
+complexity measurements: [evidence ledger](evidence/architecture-ledger.md).
 
 This note explains why a raw line count approaches 140,000 and which large
 paths are authored code, required generated state, or disposable local output.
@@ -108,3 +109,27 @@ git ls-files 'src/**/*.test.ts' 'src/**/*.test.tsx' | xargs wc -l | tail -1
 A working-directory count includes dependencies and compiled Next.js output and
 can be hundreds of megabytes larger. GitHub's language panel is byte-based and
 honors `.gitattributes`; it is not the same metric as source lines.
+
+## Comparable application complexity
+
+Run `node scripts/measure-source.mjs <output.json>` after `pnpm build`. Both
+phases use all `src/**/*.ts` and `src/**/*.tsx` except test/spec files, plus the
+shipping `public/sw.js`. Token-occupied lines exclude comments and blank lines;
+physical lines are reported alongside them. CSS, test/harness files and Drizzle
+JSON snapshots are separate categories. Build scripts and evidence tooling are
+not application code. No generated model binaries are counted as source lines.
+
+Cyclomatic complexity is ESLint's classic `complexity` rule with threshold zero,
+reporting every function, including short-circuit, optional and default paths.
+The JSON contains every function result, total, maximum and count above ten.
+The bundle metric sums all static build JS/CSS/WASM and their individual gzip
+sizes; it is not an initial-download metric. Browser resource measurements
+separately record what the page actually loads.
+
+The retired integration/preview files, their exclusive tests and stylesheet
+rules are deleted. The redundant static `one-library.spec.ts` filename/regex
+scanner is removed; actual online/offline library parity, navigation and sync
+UI tests retain its behavioral contract. IndexedDB migrations, outbox, purge,
+resume oracles and required Drizzle snapshots remain. Persisted `searchText`
+fields remain for older open bundles sharing the version-7 mirror, even though
+the current reader derives search from its snapshot.
