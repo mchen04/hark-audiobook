@@ -91,7 +91,7 @@ afterwards, in the background.
 before it is projected onto the mirror, so a crash can leave a queued write with
 no visible change, but never a visible change with no queued write.
 
-**Launch does not wait for the network.** On mbp-old, warm-launch p95 measured
+**Launch does not wait for the network.** On mbp-old at `be79d4e`, warm-launch p95 measured
 223–232 ms across fast, slow, 3000 ms cold-database, and offline profiles, with
 zero server document hits and zero Postgres queries before paint. This uses a
 1,000-book library and Chromium calibrated to a 16 ms reference workload; it is

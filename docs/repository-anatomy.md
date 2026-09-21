@@ -127,9 +127,10 @@ sizes; it is not an initial-download metric. Browser resource measurements
 separately record what the page actually loads.
 
 The retired integration/preview files, their exclusive tests and stylesheet
-rules are deleted. The redundant static `one-library.spec.ts` filename/regex
-scanner is removed; actual online/offline library parity, navigation and sync
-UI tests retain its behavioral contract. IndexedDB migrations, outbox, purge,
+rules are deleted. The static `one-library.spec.ts` guard is restored: library
+parity and navigation tests cannot detect unused obsolete components or styles.
+It checks the removed files, imports and route contracts, with positive controls
+for the scanner itself. IndexedDB migrations, outbox, purge,
 resume oracles and required Drizzle snapshots remain. Persisted `searchText`
 fields remain for older open bundles sharing the version-7 mirror, even though
 the current reader derives search from its snapshot.

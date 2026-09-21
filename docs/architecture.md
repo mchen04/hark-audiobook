@@ -328,8 +328,8 @@ renders no user rows.
   Reaching it rewrites the address bar to `/library` with the history API; the
   library is already on screen either way.
 
-Measured by `pnpm test:e2e:launch` on mbp-old with 1,000 books: warm-launch p95
-is 223–232 ms across fast, slow, 3000 ms cold-database and offline, an 8 ms
+Measured at `be79d4e` by `pnpm test:e2e:launch` on mbp-old with 1,000 books: warm-launch p95
+was 223–232 ms across fast, slow, 3000 ms cold-database and offline, an 8 ms
 spread, with zero server document hits and Postgres queries before paint.
 The comparable `0e1f17e` baseline measured 245–253 ms. Each run calibrates
 Chromium to the same 16 ms reference workload; this is desktop emulation,

@@ -3,7 +3,7 @@
 Objective checkout: `/Users/michaelchen/.hermes/kanban/workspaces/t_99d8ece2/hark`.
 Hostname verified first: `mbp-old`. Baseline: `0e1f17eb18ce6a07c6d55c1790c860099a490932`.
 Branch: `task/t_99d8ece2-hark`. One implementer, ordinary turns, no goal mode or delegation.
-No push, PR, merge, deployment, board edits, cleanup gate, or independent review executed.
+No push, PR, merge, deployment, board edits, cleanup gate, or independent review executed by this implementer.
 
 ## Evidence policy
 
@@ -239,10 +239,15 @@ in `final/resume-repeat-rows.jsonl`.
 
 ## Comparable measurements
 
-The final source snapshot is `4964071` (test/tooling-only follow-up to the
+The original implementation source snapshot is `4964071` (test/tooling-only follow-up to the
 unchanged `be79d4e` application). Both phases use the same source scanner,
 ESLint complexity settings, browser scripts, fixtures and production mode.
 Browser runs are sequential, with no concurrent build or test load.
+
+These historical tables and raw browser benchmarks remain unchanged. Cleanup
+later changed three application files. The bounded review-fix section below
+records fresh source/build metrics and browser regression results separately;
+the original browser timings are not measurements of the later candidate.
 
 | Source scope / metric                    |   Baseline |      Final |      Change |
 | ---------------------------------------- | ---------: | ---------: | ----------: |
@@ -465,3 +470,261 @@ preview implementation. Preserve `.data/objective` until the independent review
 has consumed its raw outcomes and screenshots. Removal of generated artifacts,
 test containers or volumes belongs to the authorized cleanup gate. No global
 prune, unrelated checkout, real library or account cleanup is proposed.
+
+## Bounded review-fix round — 21 September 2026
+
+Incoming review candidate: `996e173`, after external cleanup commits `b323d7e`
+and `166820e`, formatting correction `3631a6b`, and the recorded cleanup rerun.
+Forge reported its cleanup gate passed and the independent Claude review found
+seven minor findings, no blockers. This implementer read **all** of
+`../review/REVIEW.md`; its unchanged contents are also preserved in
+`.data/objective/review-fixes/original-review.md`. The external review and gate
+are external outcomes, not checks claimed as executed here.
+
+Hostname was verified first again: **mbp-old**. This round used ordinary turns,
+one implementer, no agents, native goals, external review, board action, push,
+PR, merge, deployment, or personal-library access. The application and test
+candidate is local commit **`5d38ce6`**, “Address bounded review findings with
+regression coverage.” Subsequent handoff edits affect documentation/evidence
+only. The final documentation commit is identified in the handoff and local
+commit history rather than embedding a self-referential commit hash here.
+
+### Disposition of every finding
+
+| Finding                             | Bounded correction                                                                                                                                                                        | Regression/evidence                                                                                                                                                                                                                                                                                  |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — measurement provenance          | Preserve original benchmark values and name `be79d4e` in README/architecture. Measure the actual post-cleanup/fix application and build separately.                                       | [Fresh source summary](review-fixes-source.json); raw `review-fixes/source-metrics.json`; verified build provenance below. No new startup/heap/search performance claim.                                                                                                                             |
+| 2 — privacy oracle                  | Observe request URLs and `postDataBuffer()` from before authentication; also capture raw socket request URLs/bodies below service workers. Check decoded URL text as well as raw content. | Each consecutive WebKit run captured 99 wire requests, 11 nonempty bodies and 258 browser observations. Real GET-query, JSON, Blob, multipart and sendBeacon positive controls all reached the socket; six document formats narrated locally without the protected source text in captured requests. |
+| 3 — missing static contract         | Restore the original `one-library.spec.ts` unchanged from `0e1f17e`. Its static checks cover dead obsolete files/imports, route assertions and scanner positive controls.                 | Both static guards run in the parity project. The earlier pruning rationale covered rendered behavior only and was incomplete; restoration introduces no product feature.                                                                                                                            |
+| 4 — repeatable accounts/rate budget | Use one dedicated reusable account, the shared stable `.111` allocation, existing scoped fixture reset and persisted sign-in budget. Surface HTTP 429 explicitly.                         | Two consecutive complete iPhone WebKit runs passed 6/6 each. Second run reused the account and waited 57 seconds for a real idle window. Account-deletion coverage necessarily deletes/recreates that one disposable identity; no auth bucket was reset or limiter disabled.                         |
+| 5 — compatibility comments          | Correct the `searchText` comments in `db.ts` and `outbox.ts`. Keep the field, schema and existing writers for older open bundles.                                                         | Full types/unit/build gate; current search/filter coverage unchanged. No migration or user-data rewrite.                                                                                                                                                                                             |
+| 6 — cancellation after commit       | Cancellation now enters checking and rereads durable local media. A late attachment completion cannot overwrite the resulting ready/missing/unavailable state.                            | Three component cases plus a real WebKit commit-boundary cancellation in both full runs. The latter uses actual parsing, IndexedDB, Cache Storage, service-worker ranges and decoder playback; no second file selection.                                                                             |
+| 7 — account-fenced healing          | Assert account writability at entry, after opening the DB, and before committing. Abort a partial transaction and consume its abort rejection if a fence arrives during the write.        | Deletion, sign-out and mid-write fence cases leave no healing rows and still allow the other account to heal. Hook regression covers rejected heals on mount, focus and route return; its existing catch keeps those failures handled. Existing independent playback-field clock tests remain.       |
+
+The mid-write and component failure scenarios use controlled unit boundaries;
+they are **not** described as live-browser proofs. The cancellation browser
+case schedules a real Cancel click at the actual post-commit library signal
+before the attachment promise returns. Its positive oracle requires that the
+download transaction completed. Both runs then obtained HTTP **206** with
+**1,024 bytes** from that committed audio URL, checked the player's URL, and
+observed real decoder time advance. No synthetic media events or fake media
+records substitute for playback. The cancellation screenshot was visually
+inspected alongside the narrated-library screenshot.
+
+The privacy controls send disposable sentinel strings only to the local,
+read-only pull endpoint; unsupported POSTs exercise transport capture. Raw
+request contents stay in memory, and the durable capture summary stores counts
+and control outcomes, not credentials or auth bodies. This checks the actual
+fixture text in observed URLs/bodies; it is not a proof against every possible
+encoding or external transport.
+
+### Candidate, environment and exact outcomes
+
+The owned port `3000` server was absent before this round. PID **76083** was
+started from this checkout after the quick gate using `.env.test`,
+`HARK_REQUIRE_LOCAL_DB=1`, and the disposable localhost database on **54329**.
+The unchanged review scratch server on `3100` was never managed here.
+`server-provenance.json`, `served-build.json` and `served-build-check.log`
+record application/test commit `5d38ce6771599c49a9f9b7f075eda5fb198220df`, build
+ID **`UVWgYSKhICG8soUoaBO35`**, the owned process working directory, matching HTML
+build ID and all **60** served JS/CSS/WASM SHA-256 hashes. Fresh browser contexts
+used this verified production PWA.
+
+All raw prefixes in this section are relative to
+`.data/objective/review-fixes/`; no earlier raw file or manifest was replaced.
+Commands, start/end times, hostname, exit code and raw output are in each
+prefix's `.json` / `.log`. Node 26 checks use
+`NODE_OPTIONS=--no-experimental-webstorage`. Browser runs use the pinned
+`PLAYWRIGHT_BROWSERS_PATH=.data/objective/browsers` and `HARK_REUSE_SERVER=1`.
+
+| Check / raw prefix                     | Exact outcome                                                                                                                                                                                                                 |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `red-unit`                             | Exit 1; 6 failed / 33 passed. Initial cancellation and sign-out reproductions; two deletion fixtures were initially malformed.                                                                                                |
+| `green-unit`                           | Exit 1; 2 failed / 37 passed. Deletion fixtures still had the wrong shape; this was not a passing run despite its intended filename.                                                                                          |
+| `types`                                | Exit 2; two TS2683 errors for the new test spy's missing `this` annotation.                                                                                                                                                   |
+| `green-unit-v2`                        | Exit 0; 39 passed, after correcting fixture shape and spy annotation.                                                                                                                                                         |
+| `red-unit-corrected-fixtures`          | Exit 1; 6 failed / 33 passed with corrected tests and the two production files temporarily restored from `996e173`. All three cancellation and all three fence cases reproduced. Production fixes were restored in `finally`. |
+| `types-v2`, `lint`                     | Exit 0 each.                                                                                                                                                                                                                  |
+| `quick`                                | Exit 0, 31.792 s; `pnpm verify:quick`: formatter, ESLint, types, **777 tests / 88 files**, production build and runtime precache.                                                                                             |
+| `served-build-check`                   | Exit 0; exact build ID, process checkout and all 60 asset hashes verified.                                                                                                                                                    |
+| `iphone-run-1`                         | Exit 0; **6 passed**, 48.047 s including runner startup.                                                                                                                                                                      |
+| `iphone-run-2`                         | Exit 0; **6 passed**, 102.969 s including the required 57-second sign-in idle wait.                                                                                                                                           |
+| `source-measurement`, `source-summary` | Exit 0 each; same original source scanner and scope, new output paths.                                                                                                                                                        |
+| `historical-preservation`              | Exit 0; all **311** historical artifact hashes and sizes matched, zero missing/changed files.                                                                                                                                 |
+
+The first two iPhone commands were run consecutively, with no intervening
+browser suite, bucket reset or limiter configuration change:
+
+```sh
+PLAYWRIGHT_BROWSERS_PATH=.data/objective/browsers HARK_REUSE_SERVER=1 NODE_OPTIONS=--no-experimental-webstorage node scripts/record-check.mjs .data/objective/review-fixes/iphone-run-1 pnpm exec playwright test --project=iphone-webkit --output=.data/objective/review-fixes/iphone-run-1-artifacts
+PLAYWRIGHT_BROWSERS_PATH=.data/objective/browsers HARK_REUSE_SERVER=1 NODE_OPTIONS=--no-experimental-webstorage node scripts/record-check.mjs .data/objective/review-fixes/iphone-run-2 pnpm exec playwright test --project=iphone-webkit --output=.data/objective/review-fixes/iphone-run-2-artifacts
+```
+
+Use **new output prefixes** to reproduce any command; Playwright replaces its
+output directory. Each run's narration timings are diagnostic artifacts only,
+not comparable replacements for the original calibrated benchmark.
+
+### Fresh final-source measurements, separate from the original browser benchmark
+
+Measured application/test source: `5d38ce6`. Build: `UVWgYSKhICG8soUoaBO35`.
+The original `scripts/measure-source.mjs` method and full app scope are unchanged:
+all non-test `src` TS/TSX plus authored `public/sw.js`, with token-occupied code
+lines excluding comments/blanks and classic ESLint cyclomatic complexity.
+Tests/harness, CSS and generated Drizzle snapshots remain separate. All
+per-function and asset entries are in the new raw source report. The committed
+[summary](review-fixes-source.json) is generated by
+`.data/objective/review-fixes/summarize-source.mjs`.
+
+| Metric                             | Original baseline `0e1f17e` | Final source `5d38ce6` |
+| ---------------------------------- | --------------------------: | ---------------------: |
+| App files                          |                         185 |                    178 |
+| App physical lines                 |                      28,134 |                 27,274 |
+| App token-occupied code lines      |                      23,950 |                 23,226 |
+| App function complexity sum        |                       5,623 |                  5,452 |
+| Retained library subset complexity |                         357 |                    329 |
+| App functions                      |                       1,810 |                  1,745 |
+| Maximum function complexity        |                          70 |                     70 |
+| Functions with complexity above 10 |                          84 |                     79 |
+| Tests/harness physical lines       |                      35,655 |                 36,265 |
+| Tests/harness code lines           |                      32,148 |                 32,802 |
+| CSS physical lines                 |                       3,249 |                  3,149 |
+| Generated Drizzle JSON lines       |                      58,251 |                 58,251 |
+| All build JS/CSS/WASM bytes        |                  28,550,966 |             28,540,391 |
+| Sum of individually gzipped assets |                   7,559,946 |              7,555,774 |
+
+Compared with the reviewer's source measurements at `996e173` (23,217 app code
+lines, complexity 5,450, retained subset 328), this round adds nine app code
+lines and two complexity points. The extra branches implement the requested
+safe cancellation/fencing behavior. The original startup/search/heap/import
+performance values remain attached to `be79d4e` / source snapshot `4964071`;
+there is **no refreshed comparable browser-performance measurement** in this
+bounded fix round. Functional regression durations do not establish a speedup
+or memory improvement.
+
+### Retained-feature coverage refreshed in this round
+
+The original detailed coverage matrix above remains historical. These are the
+new candidate's checks; unit fault injection and static scans are distinguished
+from production-PWA journeys.
+
+| Retained workflow / state                                | New candidate evidence                                                                                                                                                                                                                                                        |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Loading, empty, unreachable, recovery                    | Both iPhone runs: socket-held first sync, slow notice, disconnect, retry and recovered empty library; screenshots `first-sync-loading`, `first-sync-unreachable`, `first-sync-recovered`.                                                                                     |
+| MP3 import, offline relaunch/playback, reattachment      | Both iPhone runs: original Downloads journey plus real post-commit attachment cancellation; range bytes and player URL in `committed-attachment.json`. Parity covers cold/missing-media routes.                                                                               |
+| Document import and completed-book playback              | Both iPhone runs: TXT, Markdown, HTML, PDF, DOCX, EPUB through real extraction/Kestrel/encoding; narration cancellation; no playable book until completion. Privacy positive controls and `privacy-capture.json`.                                                             |
+| Legacy rendition and timing integrity                    | Both iPhone runs: disposable completed rendition relabelled as legacy, still plays while saved audio exists, refuses regeneration after removal, chapter rows and legacy key unchanged. Existing regeneration parity also runs.                                               |
+| Chapters, skips, speed, sleep timer, history, transcript | Both retained-player journeys drive actual controls and decoder playback; screenshots `player`, `transcript`. Timer pauses at the real chapter boundary.                                                                                                                      |
+| Tags, organization, archive, collections/autoplay        | Both retained-player journeys and cross-tab filter journeys; committed edits appear on the next filter. Screenshots `collection-autoplay`, `filter-after-another-tab-edit`.                                                                                                   |
+| Smart rewind, preferences, diagnostics, export/deletion  | Both retained-player journeys set/persist settings, show diagnostics, export actual metadata, delete a book and delete the dedicated disposable account. `metadata-export.json` and `settings-diagnostics.png`. Rewind persistence/behavior also remains in the resume suite. |
+| Account isolation, purge, sign-out, expiry               | Parity suite exercises real account transitions, playing peers and late responses. Unit fence cases check healing rollback and another account's independent state; hook test verifies rejected heal promises are handled.                                                    |
+| One library, online/offline controls                     | Actual parity and navigation journeys plus two separately identified static guards for obsolete repository residue.                                                                                                                                                           |
+| Sync clocks, outbox, restart and resume durability       | Existing sync and resume suites run against the same verified build; results and any limitations are recorded in the final outcome below.                                                                                                                                     |
+
+Screenshot/JSON directories under `review-fixes/`:
+
+- `iphone-run-1-artifacts/` and `iphone-run-2-artifacts/`: all new journey captures,
+  source fixtures, export metadata, narration durations and privacy/cancellation
+  summaries. These two sets are independent consecutive runs.
+- Within either run, `retained-workflows-cancell-2795d-t-without-choosing-it-again-iphone-webkit/committed-attachment-after-cancel.png`
+  shows the recovered player without another attachment; the neighboring JSON
+  records the successful media range.
+- `retained-workflows-real-do-271b3--preserve-legacy-identities-iphone-webkit/`
+  contains `six-document-formats.png`, `legacy-rendition-refused.png` and
+  `privacy-capture.json`.
+- `parity-screenshots/`: preserved copies of the newly generated phone/desktop,
+  online/offline and missing-download screenshots. The historical copies and
+  all 311 original artifact hashes remain intact.
+
+### Standing limitations and fixes-only handoff
+
+This round is desktop browser automation, not a physical iPhone/lock-screen,
+background-audio, battery or sustained long-document thermal verification.
+The two `T1 hidden (online|offline)` cases remain excluded exactly as in the
+existing CI resume command. Persistent WebKit Cache Storage limitations and the
+resume harness's disclosed fixture-restoration/second-tap behavior remain as
+recorded above. No comparable launch, heap or responsiveness benchmark was
+rerun; the original measurements retain their original provenance.
+
+The local test server and isolated database remain available for Forge. Do not
+alter the independent scratch server on `3100`, reset auth buckets, remove
+`.data/objective`, overwrite existing evidence prefixes, or touch Michael's
+library. Read-only bounded checks for the external fixes-only re-review are:
+
+```sh
+git status --short
+git log --oneline 996e173..HEAD
+git diff --check 996e173 HEAD
+git diff -w 996e173 HEAD -- src/components/player/local-media-gate.tsx src/lib/offline/mirror.ts src/lib/offline/db.ts src/lib/offline/outbox.ts
+git diff 0e1f17e HEAD -- tests/parity/one-library.spec.ts
+cat .data/objective/review-fixes/quick.json
+cat .data/objective/review-fixes/iphone-run-1.json
+cat .data/objective/review-fixes/iphone-run-2.json
+cat .data/objective/review-fixes/integrity.json
+cat .data/objective/review-fixes/integrity-final.json
+```
+
+The static-guard diff should be empty. The implementer does not run the cleanup
+gate or independent reviewer and will pause for the authorized fixes-only
+external re-review after the final outcomes are recorded. No additional fix
+round is assumed.
+
+### Integrity-run diagnostic and preserved interruption
+
+The initial `integrity` run used the default retained tracing. It completed
+**41 checks**, then was deliberately interrupted with SIGINT at the five-cycle
+smart-rewind case: **exit 130**, **1 interrupted**, **47 did not run**, elapsed
+**1,318.019 s**. This is not a passing full gate and the interrupted case is not
+counted as passed even though its measurement row was emitted during shutdown.
+The command outcome, partial resume rows, interruption reason, screenshot and
+trace ZIP remain under `review-fixes/integrity*` and `resume-rows.jsonl`.
+
+`trace-progress-diagnostic.json` records only call names/times, not request
+contents. It showed browser evaluation calls growing to approximately 1.2–1.4
+seconds each during repeated persistent-context restarts. That motivated an
+artifact-capture alternative; it does not establish a production performance
+regression or prove tracing was the sole cause. Only the verified owned runner
+PID was interrupted; the app server and independent review server were left
+alone. The replacement `integrity-final` run uses the original successful
+implementation-gate option `--trace=off`, with **identical tests, exclusions,
+assertions and thresholds**, and fresh output/JSONL paths. Both attempts are
+preserved; no test was skipped to obtain a green result.
+
+### Final outcome of this bounded fix round
+
+`integrity-final`: **exit 0**, **89 passed** in **919.031 s** including runner
+startup — **33 parity**, **24 resume-durability**, **32 sync** checks. This is the
+completed replacement gate, distinct from the interrupted traced attempt.
+The parity count includes the two restored static guards; suite counts are not
+claims that every assertion is a live UI interaction. All 22 emitted resume
+measurement rows name build `UVWgYSKhICG8soUoaBO35`. Final-run T6 hard-kill loss
+was **128 ms** against the unchanged **1,000 ms** bar; T7 pagehide loss was
+**131 ms** against **250 ms**. All four repeated-open scenarios had zero total
+drift. The original raw performance benchmark is still separate.
+
+Exact completed integrity command:
+
+```sh
+node scripts/record-check.mjs .data/objective/review-fixes/integrity-final env PLAYWRIGHT_BROWSERS_PATH=.data/objective/browsers HARK_REUSE_SERVER=1 NODE_OPTIONS=--no-experimental-webstorage HARK_RESUME_LEDGER=.data/objective/review-fixes/resume-final-rows.jsonl pnpm exec playwright test --project=parity --project=sync --project=resume-durability '--grep-invert=T1 hidden (online|offline)' --trace=off --output=.data/objective/review-fixes/integrity-final-artifacts
+```
+
+`parity-final-screenshots/` preserves the replacement run's captures alongside
+the initial run's `parity-screenshots/`. `resume-final-rows.jsonl` is the completed
+run's measurement stream; `resume-rows.jsonl` belongs to the interrupted run.
+Neither was overwritten. The new
+[artifact manifest](review-fixes-artifacts.json) indexes this round's durable
+outputs, reproduction helpers and failures. It excludes the live server log;
+`server-captured.log` is its frozen handoff snapshot. The original artifact
+manifest is unchanged and all 311 of its entries were verified.
+
+All seven findings are addressed. No product defect remains unresolved from
+this bounded round; the standing platform/measurement limitations above remain.
+The application and tests have not changed since the successful full quick gate
+at `5d38ce6`. Final documentation/evidence formatting and source-identity checks
+are captured under `handoff-format`, `source-unchanged`, `static-guard-restored`
+and `handoff-diff-check`. Those checks verify the handoff without rebuilding or
+making the already verified local server stale.
+
+Local implementation commit: **`5d38ce6`**. The subsequent one-line local
+hand-off commit is reported with its exact ID in the final response. The
+implementer now pauses for Forge's **fixes-only independent external re-review**;
+no cleanup/review or board action is performed here.
