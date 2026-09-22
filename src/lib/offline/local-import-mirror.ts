@@ -1,6 +1,7 @@
 import type { LocalBookRegistration } from "@/domain/local-book";
 import { isValidChapterSequence } from "@/domain/mp3";
 import { assertAccountWritable } from "@/lib/account-deletion-fence";
+import { notifyLibraryChanged } from "./library-revision";
 
 import {
   database,
@@ -50,6 +51,7 @@ export async function projectLocalBookRegistration(
     }
     assertAccountWritable(userId);
     await transaction.done;
+    notifyLibraryChanged();
   } catch (error) {
     abortQuietly(transaction);
     throw error;
@@ -154,6 +156,7 @@ export async function rekeyMirroredLocalBook(
 
     assertAccountWritable(userId);
     await transaction.done;
+    notifyLibraryChanged();
   } catch (error) {
     abortQuietly(transaction);
     throw error;

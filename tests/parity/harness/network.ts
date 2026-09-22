@@ -77,7 +77,10 @@ function classify(pathname: string, headers: IncomingHttpHeaders): NetworkHit["k
   return "asset";
 }
 
-export async function startControllableNetwork(target: string): Promise<ControllableNetwork> {
+export async function startControllableNetwork(
+  target: string,
+  observeRequest?: (request: { method: string; url: string; body: Buffer }) => void,
+): Promise<ControllableNetwork> {
   const targetUrl = new URL(target);
   const targetHost = targetUrl.hostname;
   const targetPort = Number(targetUrl.port || 80);
@@ -123,6 +126,20 @@ export async function startControllableNetwork(target: string): Promise<Controll
       (candidate) => candidate.method === (req.method ?? "GET") && candidate.path === pathname,
     );
     const hold = holdIndex === -1 ? null : responseHolds.splice(holdIndex, 1)[0]!;
+
+    // Optional wire-level privacy oracle, below service workers. Bodies stay in
+    // the caller's memory; this harness never persists credentials or headers.
+    if (observeRequest) {
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk: Buffer) => chunks.push(chunk));
+      req.on("end", () =>
+        observeRequest({
+          method: req.method ?? "GET",
+          url: req.url ?? "/",
+          body: Buffer.concat(chunks),
+        }),
+      );
+    }
 
     const upstream = httpRequest(
       {

@@ -10,9 +10,12 @@ import { FullPlayer } from "@/components/player/full-player";
 import type { PlaybackHistorySnapshot } from "@/domain/playback-history";
 import type { NextInCollection, PlayerBook } from "@/domain/player";
 import { isAbortError } from "@/lib/abort";
+import {
+  canRegenerateRendition,
+  UNAVAILABLE_RENDITION_MESSAGE,
+} from "@/lib/document-import/rendition";
 import { formatBytes } from "@/lib/format-bytes";
 import { type MediaFingerprintKind, fingerprintMedia } from "@/lib/media-fingerprint";
-import { parseLocalMp3 } from "@/lib/local-import";
 import { getOfflineBook } from "@/lib/offline/library";
 import { storeLocalBookMedia } from "@/lib/offline/media-store";
 import { DOCUMENT_FILE_ACCEPT, isDocumentSource, MP3_FILE_ACCEPT } from "@/lib/source-formats";
@@ -30,20 +33,7 @@ type GateState =
  * imported elsewhere, it asks for the original MP3 and verifies it is the
  * same file before storing it here.
  */
-export function LocalMediaGate({
-  userId,
-  playerBook,
-  mediaFingerprint,
-  mediaFingerprintKind,
-  mediaRenditionKey,
-  byteSize,
-  sourceFilename,
-  sourceMimeType,
-  historySnapshot,
-  autoplay,
-  details,
-  nextInCollection,
-}: {
+type LocalMediaGateProps = {
   userId: string;
   playerBook: PlayerBook;
   mediaFingerprint: string | null;
@@ -56,10 +46,39 @@ export function LocalMediaGate({
   autoplay: boolean;
   details: BookDetails | null;
   nextInCollection: NextInCollection | null;
-}) {
+};
+
+export function LocalMediaGate(props: LocalMediaGateProps) {
+  // Reset before React commits a different identity. An effect would be too
+  // late: it could mount the new book with the previous book/account's audio.
+  const identity = JSON.stringify([
+    props.userId,
+    props.playerBook.id,
+    props.mediaFingerprintKind,
+    props.mediaFingerprint,
+    props.mediaRenditionKey,
+  ]);
+  return <MediaForIdentity key={identity} {...props} />;
+}
+
+function MediaForIdentity({
+  userId,
+  playerBook,
+  mediaFingerprint,
+  mediaFingerprintKind,
+  mediaRenditionKey,
+  byteSize,
+  sourceFilename,
+  sourceMimeType,
+  historySnapshot,
+  autoplay,
+  details,
+  nextInCollection,
+}: LocalMediaGateProps) {
   const [state, setState] = useState<GateState>({ phase: "checking" });
   const [error, setError] = useState<string | null>(null);
   const [checkAttempt, setCheckAttempt] = useState(0);
+  const [autoplayCancelled, setAutoplayCancelled] = useState(false);
   // The book must stay deletable even when this device lacks the audio,
   // otherwise a book imported elsewhere could never be removed from here.
   const { deleteBook, deleting, deleteLabel } = useDeleteBook(
@@ -72,6 +91,7 @@ export function LocalMediaGate({
   const inputRef = useRef<HTMLInputElement>(null);
   const attachmentRef = useRef<AbortController | null>(null);
   const documentSource = isDocumentSource(sourceFilename || "", sourceMimeType);
+  const unavailableRendition = documentSource && !canRegenerateRendition(mediaRenditionKey);
   const readyMediaUrl = state.phase === "ready" ? state.mediaUrl : null;
   const readyCoverUrl = state.phase === "ready" ? state.coverUrl : null;
   const readyCoverThumbUrl = state.phase === "ready" ? state.coverThumbUrl : null;
@@ -123,6 +143,7 @@ export function LocalMediaGate({
     event.target.value = "";
     if (!file) return;
 
+    setAutoplayCancelled(false);
     attachmentRef.current?.abort();
     const controller = new AbortController();
     attachmentRef.current = controller;
@@ -131,6 +152,25 @@ export function LocalMediaGate({
         setState({ phase: "attaching", percent, stage });
       }
     };
+    /** The MP3 keeps its own embedded artwork, so it is parsed before storing. */
+    async function attachLocalMp3(
+      source: File,
+      targetBook: Omit<PlayerBook, "mediaUrl" | "coverUrl">,
+      signal: AbortSignal,
+    ) {
+      const { parseLocalMp3 } = await import("@/lib/local-import");
+      const { artwork } = await parseLocalMp3(source, signal);
+      return storeLocalBookMedia(
+        userId,
+        targetBook,
+        source,
+        artwork,
+        (fraction) => reportAttachment(Math.round(fraction * 100), "Saving to this device"),
+        undefined,
+        signal,
+      );
+    }
+
     setError(null);
     reportAttachment(null, "Checking the source");
     try {
@@ -167,15 +207,7 @@ export function LocalMediaGate({
               },
             ),
           )
-        : await storeLocalBookMedia(
-            userId,
-            targetBook,
-            file,
-            (await parseLocalMp3(file, controller.signal)).artwork,
-            (fraction) => reportAttachment(Math.round(fraction * 100), "Saving to this device"),
-            undefined,
-            controller.signal,
-          );
+        : await attachLocalMp3(file, targetBook, controller.signal);
       if (controller.signal.aborted || attachmentRef.current !== controller) return;
       setState({
         phase: "ready",
@@ -198,7 +230,7 @@ export function LocalMediaGate({
       <FullPlayer
         playerBook={resolvedPlayerBook}
         historySnapshot={historySnapshot}
-        autoplay={autoplay}
+        autoplay={autoplay && !autoplayCancelled}
         details={details}
         mediaFingerprint={mediaFingerprint}
         mediaRenditionKey={mediaRenditionKey}
@@ -214,9 +246,24 @@ export function LocalMediaGate({
         <p className="gate-author">{playerBook.author}</p>
         {state.phase === "checking" && <p>Checking this device for the audio…</p>}
         {state.phase === "attaching" && (
-          <p>
-            {state.stage}…{state.percent !== null ? ` ${state.percent}%` : ""}
-          </p>
+          <>
+            <p role="status">
+              {state.stage}…{state.percent !== null ? ` ${state.percent}%` : ""}
+            </p>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                attachmentRef.current?.abort();
+                attachmentRef.current = null;
+                setAutoplayCancelled(true);
+                setState({ phase: "checking" });
+                setCheckAttempt((attempt) => attempt + 1);
+              }}
+            >
+              Cancel attachment
+            </button>
+          </>
         )}
         {state.phase === "unavailable" && (
           <>
@@ -243,12 +290,17 @@ export function LocalMediaGate({
         )}
         {state.phase === "missing" && (
           <>
-            <p>
-              The audio for this book is stored on your devices, not in the cloud — and this device
-              does not currently have it. Attach the original {documentSource ? "document" : "MP3"}
-              {byteSize ? ` (${formatBytes(byteSize)})` : ""} to listen here. Your reading position
-              and playback history are already synced.
-            </p>
+            {unavailableRendition ? (
+              <p role="status">{UNAVAILABLE_RENDITION_MESSAGE}</p>
+            ) : (
+              <p>
+                The audio for this book is stored on your devices, not in the cloud — and this
+                device does not currently have it. Attach the original{" "}
+                {documentSource ? "document" : "MP3"}
+                {byteSize ? ` (${formatBytes(byteSize)})` : ""} to listen here. Your reading
+                position and playback history are already synced.
+              </p>
+            )}
             <input
               ref={inputRef}
               className="visually-hidden"
@@ -261,6 +313,7 @@ export function LocalMediaGate({
             <button
               type="button"
               className="primary-button"
+              disabled={unavailableRendition}
               onClick={() => inputRef.current?.click()}
             >
               <UploadSimple size={17} aria-hidden="true" />

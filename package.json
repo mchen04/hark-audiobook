@@ -1,5 +1,6 @@
 {
   "name": "hark-audiobook",
+  "description": "A private audiobook PWA with local MP3 and document import, offline playback, and metadata sync.",
   "version": "0.1.0",
   "private": true,
   "type": "module",

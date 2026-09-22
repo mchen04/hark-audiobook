@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     id: "/",
     name: "Hark Audiobook Player",
     short_name: "Hark",
-    description: "A private, offline-ready MP3 audiobook player.",
+    description: "A private audiobook player with local document narration and offline listening.",
     start_url: "/library?source=pwa",
     scope: "/",
     display: "standalone",
@@ -41,7 +41,7 @@ export default function manifest(): MetadataRoute.Manifest {
         icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
       },
       {
-        name: "Import an MP3",
+        name: "Import a book",
         short_name: "Import",
         url: "/library?action=import",
         icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],

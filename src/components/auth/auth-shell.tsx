@@ -25,8 +25,8 @@ export function AuthShell({ eyebrow, title, summary, children }: AuthShellProps)
           <p className="auth-kicker">Your audiobooks, kept simple</p>
           <h1 id="auth-context-title">Listen where you left off.</h1>
           <p>
-            Import an MP3 or narrate a document with Kestrel on your device, then take the whole
-            book offline.
+            Import an MP3 or narrate a document with Kestrel on your device. Once narration
+            finishes, the saved book is ready for offline listening.
           </p>
         </div>
         <ul className="auth-principles" aria-label="Product principles">

@@ -28,6 +28,7 @@ import {
 } from "./deletion-journal";
 import { isPermanentOfflineDeletion } from "./deletion-fence";
 import { rekeyMirroredLocalBook } from "./local-import-mirror";
+import { notifyLibraryChanged } from "./library-revision";
 import { deleteAllTranscriptsForUser } from "./transcript-store";
 
 export async function listOfflineBooks(userId: string): Promise<OfflineBook[]> {
@@ -175,6 +176,7 @@ async function setMediaMissingSince(
     await transaction.store.put({ ...current, mediaMissingSince });
   }
   await transaction.done;
+  notifyLibraryChanged();
 }
 
 /**
@@ -326,6 +328,7 @@ async function rekeyLocalBook(
     }
   }
   await Promise.all([...writes, transaction.done]);
+  notifyLibraryChanged();
 }
 
 /** The record's own metadata, with every id that named the old book replaced. */
@@ -445,6 +448,7 @@ async function writeOfflineProgressProjection(
     updatedAt: new Date().toISOString(),
   });
   await transaction.done;
+  notifyLibraryChanged();
 }
 
 export function asOfflinePlayerBook(record: OfflineBook): PlayerBook {

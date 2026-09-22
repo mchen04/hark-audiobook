@@ -1,131 +1,105 @@
 # Operations
 
-Last reviewed: 2026-08-10
+Hark serves a Next.js PWA and authenticated metadata APIs backed by PostgreSQL.
+It has no server audio storage or cloud narration service. Deployments require
+HTTPS (localhost is the development exception) and a database reachable by the
+server. Each account owns its rows; serving the shell does not grant access to
+private metadata.
 
-## Deployment shape
+## Configuration
 
-- Next.js (`pnpm build && pnpm start`, or Vercel) behind HTTPS. The service
-  worker and installability require a secure origin (localhost counts for
-  development). Application instances are stateless; sessions, metadata, and
-  auth attempt budgets are shared through Postgres.
-- Set `BETTER_AUTH_URL` to the public origin; mutation requests from any other
-  origin are rejected.
-- The server stores metadata only; source documents and audio bytes live in
-  each device's browser storage. Public Kestrel weights are fetched directly by
-  the browser and verified against the pinned manifest. There is no object
-  storage or hosted inference service to provision.
-- `pnpm build` verifies and copies the pinned exporter/runtime assets without
-  network access, then writes `public/chapterline-runtime-assets.json` from the
-  built Kestrel graph plus the offline page's client and React-loadable
-  manifests. It follows their lazy and worker dependencies, so both a fresh
-  import and a missing-media player reattach keep working after the backend is
-  unreachable. A missing extractor, encoder, worker bootstrap, or ONNX marker
-  fails the build instead of shipping a shell that only narrates while online.
-  Before changing Kestrel graphs or model pins,
-  run `pnpm verify:kestrel-export`; it downloads only the exact public weight
-  commit into an isolated temporary directory and requires byte-for-byte ONNX
-  output.
-- Auth rate limiting uses an app-owned atomic database adapter over the
-  `rate_limit` table, so cold starts and multiple instances share one
-  per-IP/path attempt budget. Its cleanup retention is derived from every
-  configured rule (currently ten minutes); Better Auth 1.6's built-in database
-  cleanup omits custom-rule windows and must not replace it.
-- Session validation is authoritative against Postgres so password resets and
-  explicit revocations take effect immediately on every API route.
-- Postgres: Vercel runs `pnpm db:migrate` before its production build. Preview
-  builds use inert validation-only environment placeholders and never connect to
-  or migrate the production database. On other hosts, run migrations before
-  starting a new build. Migrations are ordered, idempotent, and verified to apply
-  from an empty database. The app never mutates schema at runtime.
-- Rendition identity migration `0028` is the expand half of a rolling-safe
-  change: it adds the four-column index while retaining the three-column
-  fingerprint index required by older application instances. Do not drop
-  `media_assets_owner_sha256_unique` in this release. A later release may add
-  the contract migration only after every production instance runs targetless
-  conflict handling; until then, one source fingerprint intentionally owns one
-  rendition per account.
-- Email: set both `RESEND_API_KEY` and `MAIL_FROM` to enable password resets in
-  production; reset requests fail closed when delivery is not configured.
-  Development captures expire after one hour in `.data/mail/`. Reset tokens
-  are single-use, expire in 30 minutes, and revoke other sessions on success.
-- Rotate the development Neon credential before any public deployment.
+| Variable                         | Purpose                                                                                                                       |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                   | PostgreSQL connection for metadata, auth, and receipts.                                                                       |
+| `BETTER_AUTH_SECRET`             | Private random signing secret, at least 32 characters.                                                                        |
+| `BETTER_AUTH_URL`                | Exact app origin, including port for local use.                                                                               |
+| `RESEND_API_KEY` and `MAIL_FROM` | Configure both for password-reset delivery. Omit both for local capture.                                                      |
+| `ALLOW_LOCAL_MAIL_CAPTURE=true`  | Explicitly allow production-mode **local test** servers to write reset mail to `.data/mail`. Never use this as real delivery. |
 
-## Backup and restore
+Do not set optional mail keys to empty strings. Partial mail configuration fails
+validation. With neither mail key, development captures reset mail locally;
+production reset requests fail unless real delivery or explicit local capture is
+configured. Protect env files, database backups, and captured reset links. Never
+commit secrets or log passwords, reset tokens, or document content.
 
-- **Database**: Neon branch snapshots or `pg_dump`. All server-side state
-  lives in Postgres; a database restore is a full server restore.
-- **Book files**: original MP3s and documents are the user's own — the app never
-  holds the only source copy. After any restore (or on a new device), opening a
-  book prompts for that source, verifies it by size and fingerprint, and either
-  attaches the MP3 or regenerates the pinned Kestrel rendition.
-- Browser storage can be evicted by the OS under pressure; the original files
-  remain the durable copy. The app requests persistent storage at import.
-- The v2 media store splits audiobooks into 4 MiB cache entries so iPhone
-  playback never has to materialize a whole audiobook in one WebKit process.
-  Downloads made by the older whole-file store require attaching the original
-  MP3 once after this upgrade; server metadata, position, and playback history remain.
+## Build and migrations
 
-The checked-in `drizzle/meta/*.json` files are migration-generation state, not
-database backups. Keep the complete snapshot chain with its SQL migrations;
-restore live data from Neon snapshots or `pg_dump`, never from Drizzle metadata.
+For a configured environment:
 
-## Data lifecycle
+```sh
+pnpm install --frozen-lockfile
+pnpm db:migrate
+pnpm build
+```
 
-- Book deletion: the rows cascade server-side and the client removes the
-  device-local bytes in the same flow.
-- Account deletion: requires the email and current password, then journals a
-  short-lived deletion intent on the device. The device purge completes before
-  the idempotent server commit cascades every row and expires the cookie. A
-  crash or lost success response resumes from that journal, so a deleted
-  account cannot leave its local mirror behind.
-- Export: `GET /api/account/export` returns all metadata, chapters, progress,
-  playback history, legacy saved positions, collections, tags, sessions, and preferences as JSON.
-  Audio bytes are the user's own files and are not duplicated.
+Drizzle applies the ordered SQL history; do not use runtime schema push.
+`pnpm db:generate` creates a migration and snapshot for an intentional schema
+change. Keep existing SQL and `drizzle/meta` snapshots intact.
 
-## Known platform limitations
+Migration `0028` expands media uniqueness to include rendition identity while
+retaining the older three-column owner/fingerprint arbiter for compatible
+servers. Do not drop the legacy index casually. Receipt ordering requires all
+cursor-bearing writers to use the current serialized database rule; mixed
+predecessor/current servers or direct writes can invalidate it. See
+[receipt ordering](local-first.md#3-aggregate-and-receipt-ordering).
 
-- iOS Safari installs PWAs via Share → Add to Home Screen; there is no install
-  prompt event, and background audio controls are more limited than Chromium's
-  Media Session surface. Run the automated WebKit gate and the physical-device
-  release checklist in `docs/ios-pwa-testing.md` before shipping changes to
-  authentication, imports, storage, service workers, or playback.
-- Media Session action support varies by browser; unsupported actions are
-  feature-detected and skipped without affecting playback.
-- CI runs the 24 resume rows Playwright WebKit can exercise honestly. The full
-  `pnpm test:resume` command also runs the two real-iOS hidden-state rows and is
-  expected to label them `UNCOVERED` on this engine; use the physical-device
-  checklist rather than weakening or silently skipping that residual.
-- Browsers may evict Cache Storage under storage pressure; the app requests
-  persistent storage when importing, clears stale download metadata when the
-  matching media entry is gone, and surfaces an original-file reattach flow
-  instead of pretending the book is playable.
-- Playback actions are written to IndexedDB first and replayed after reconnect;
-  both local and server stores retain only the newest 50 actions per audiobook.
-- `chapterline:active-user` is observed across tabs. Completing sign-out in one
-  tab revokes peer shells, stops their player, and redirects them to `/login`;
-  the parity gate waits beyond a heartbeat and proves no departed-account data
-  is recreated.
+Prebuild copies/verifies pinned browser assets locally and postbuild emits the
+runtime precache manifest. Serve the matching `.next` output, static chunks, and
+`public` assets together. The standalone test runner stages these assets and
+reads an explicit env file; see [development](development.md#checks).
+`pnpm verify:kestrel-export` is a separate provenance check that downloads pinned
+upstream weights and reproduces the ONNX graphs; it is not required at each app
+startup.
 
-## Troubleshooting
+The optional `vercel-build` script applies migrations only when
+`VERCEL_ENV=production`. Other builds use placeholder build credentials rather
+than opening the production database. This does **not** make an automatically
+published preview harmless or authorize deployment. Git hosting integrations
+can create previews on pushes and production deployments on merges independently
+of CI; inspect and resolve those triggers before a publication that must not deploy.
 
-- **Stale UI after deploy**: the service worker takes over on the next
-  navigation (skipWaiting + clients.claim). A shell refresh promotes the new
-  document only after its HTML chunks and generated document-runtime manifest
-  are fully cached, so a transient chunk failure keeps the previous working
-  shell. If a development client sees a chunk 404 after `.next` was replaced
-  under a running server, restart that server and reload once.
-- **Import fails with "not a valid MP3"**: the file must be a real MPEG Layer 3
-  file. Document imports support PDF, EPUB, DOCX, TXT, Markdown, and HTML;
-  scanned PDFs require OCR before Hark can narrate them. Sources are bounded to
-  96 MiB PDF, 48 MiB EPUB/DOCX, 8 MiB text/Markdown, 2 MiB HTML, and two million
-  extracted characters so hostile or accidental inputs cannot exhaust a tab.
-- **"This device does not have enough free storage"**: the import is bounded
-  by browser storage quota — free space or use a device with more room.
-- **A book asks for its source on another device**: expected — audio bytes never
-  sync; attach the original MP3 or document once per device. Documents are
-  regenerated only with the exact saved rendition recipe and timeline.
-- **Progress seems stuck on one device**: check the response of a manual
-  progress PATCH — a 409 `stale-event` means another device has fresher state,
-  which is the deterministic conflict rule working as intended.
-- **Password reset mails**: in development they land in `.data/mail/` as JSON
-  files containing the reset URL.
+## Device storage and recovery
+
+The server can restore metadata after device storage loss, but never the audio
+or transcript bytes. Keep original source files separately. Browser persistence
+requests reduce eviction risk without guaranteeing retention.
+
+| Situation                                 | Recovery                                                                                                                          |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| First sync cannot reach the account       | Keep the loading/recovery state and retry when connected; do not infer an empty account.                                          |
+| Session expired                           | Sign in again. Expiry itself preserves local media.                                                                               |
+| Audio missing or removed from this device | Open the book and attach its matching source. Do not delete the book to reattach it.                                              |
+| Unsupported older narration rendition     | Use a device that still has completed audio; Hark will not regenerate a different timeline onto the saved book.                   |
+| Narration interrupted                     | Incomplete work is cancelled; retry the source while Hark stays open. A completed durable attachment remains available.           |
+| Sync returns 503 with `Retry-After: 1`    | Durable intent remains queued. Normal replay resumes on mount/reconnect; sign-out can retry within its eight-second drain budget. |
+| Quota exhausted                           | Free device storage or remove selected downloads whose originals you retain, then retry.                                          |
+
+Do not clear browser data as a first troubleshooting step: it can remove the only
+local audio copy and pending writes. **Remove download**, book deletion, sign-out,
+and account deletion have different effects; see the
+[account lifecycle](local-first.md#11-account-lifecycle).
+
+## Export, backups, and diagnostics
+
+Settings exports account/library metadata, chapters, progress, tags, collections,
+preferences, playback history, legacy saved positions, and listening sessions as
+JSON. It does not export audio, source documents, covers, or transcript payloads,
+and Hark has no JSON-restore UI. Database backups likewise do not back up media.
+Account deletion verifies the password and journals local purge before the
+idempotent server deletion commit; interrupted deletion resumes on next load.
+
+For a report, record the served commit/build, runtime/browser/device, action,
+observed result, HTTP status, and relevant console error. Settings **Resume
+diagnostics** shows the latest saved position, writer, and age; see the
+[device procedure](resume-durability-device-check.md). Redact account identifiers,
+source content, and credentials from shared receipts. Keep artifacts outside the
+source tree and preserve failed outcomes alongside later results.
+
+## Verification limits
+
+Use the [quick and browser gates](development.md#checks) against disposable data
+and the exact production build being accepted. A green unit suite does not prove
+browser service-worker behavior. Desktop WebKit does not establish physical iOS
+screen-off durability; the launch benchmark may fall back to Chromium when its
+persistent-WebKit capability probe fails. Neither case should be reported as a
+physical-device pass.

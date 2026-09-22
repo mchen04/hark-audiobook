@@ -15,8 +15,6 @@ import {
   rememberPendingAccountDeletion,
 } from "@/lib/account-deletion";
 
-import { LemonadeSettings } from "./lemonade-settings";
-
 export function SettingsClient({ email }: { email: string }) {
   const router = useRouter();
   const { userId } = usePlayback();
@@ -139,16 +137,14 @@ export function SettingsClient({ email }: { email: string }) {
         </p>
       </section>
 
-      <LemonadeSettings />
-
       <ResumeDiagnostics userId={userId} />
 
       <section className="settings-group" aria-labelledby="settings-data-title">
         <h2 id="settings-data-title">Your data</h2>
         <p className="details-hint">
           Download a JSON copy of your books&apos; metadata, chapters, progress, playback history,
-          legacy saved positions, collections, and listening sessions. Your MP3 files are your own
-          originals and are not included.
+          legacy saved positions, tags, collections, preferences, and listening sessions. Audio,
+          source documents, covers, and transcripts are not included.
         </p>
         <a className="secondary-button" href="/api/account/export" download>
           <DownloadSimple size={17} aria-hidden="true" />

@@ -1,624 +1,228 @@
-# Local-first architecture
+# Storage and sync contract
 
-Last reviewed against the implementation: 2026-08-13
+Hark reads its library from the device and syncs metadata with the account's
+server. Audio is available only where it has been imported or regenerated.
+Section numbers are kept stable for references from source and tests.
 
-Hark's library reads from the device, always. The network only syncs in the
-background. There is no "am I online?" branch anywhere on the read path.
+## 1. Device-first reads
 
-This note is the design contract. It was written before the sync engine, because
-designing a sync engine in code first is how local-first projects lose data.
+The library joins an account-scoped metadata mirror with local downloads. A
+refresh reads a snapshot once; search, facets, sorting, and the continue card
+reuse it. Import completion refreshes local availability before a background pull.
+A new device without any snapshot shows first-sync loading or recovery, not an
+unverified empty library.
 
-## Contents
+## 2. What is stored where
 
-1. [Why this is a completion, not a reversal](#1-why-this-is-a-completion-not-a-reversal)
-2. [What is mirrored, and what is not](#2-what-is-mirrored-and-what-is-not)
-3. [The sync unit is the book aggregate](#3-the-sync-unit-is-the-book-aggregate)
-4. [Local schema](#4-local-schema)
-5. [The outbox](#5-the-outbox)
-6. [Pull](#6-pull)
-7. [Conflict resolution — extend, do not replace](#7-conflict-resolution--extend-do-not-replace)
-8. [The launch path](#8-the-launch-path)
-9. [One library UI](#9-one-library-ui)
-10. [Eviction and storage pressure](#10-eviction-and-storage-pressure)
-11. [Account lifecycle](#11-account-lifecycle)
-12. [Migration for devices that already have data](#12-migration-for-devices-that-already-have-data)
-13. [What this design deliberately does not do](#13-what-this-design-deliberately-does-not-do)
-14. [Residual risks](#14-residual-risks)
+| Data                                                                                       | Device                                                   | Server                              |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------------- | ----------------------------------- |
+| Audio and cover bytes                                                                      | Cache Storage                                            | Never uploaded                      |
+| Source document                                                                            | Read locally for import/regeneration; keep your original | Never uploaded                      |
+| Read-along transcripts                                                                     | IndexedDB                                                | Never uploaded                      |
+| Books, media identity, chapters, progress, tags, collections, preferences, recent sessions | Account-scoped mirror/caches                             | Account-owned metadata              |
+| Pending mutations and local playback registers                                             | IndexedDB/localStorage                                   | Received through authenticated APIs |
+| Auth sessions, rate limits, idempotency receipts                                           | No authoritative mirror                                  | Server-authoritative                |
 
-## 1. Why this is a completion, not a reversal
+Metadata includes titles, authors, chapter labels, fingerprints, and listening
+positions. “Files stay local” does not mean metadata stays off the server.
 
-The book content already never leaves the device (`src/lib/local-import.ts` parses
-MP3s and `src/lib/document-import/` extracts and narrates documents in the browser;
-`src/app/api/books/local/route.ts` receives metadata only;
-`media_assets` has no storage key or URL column). The device therefore already
-holds the only copy of the only irreplaceable data. Postgres holds metadata that
-could be rebuilt from it. Making the device authoritative for reads finishes an
-architecture that was already half-built.
+## 3. Aggregate and receipt ordering
 
-## 2. What is mirrored, and what is not
+Books are the cursored aggregate: chapter/tag-edge changes bump the parent book's
+`updatedAt`, and pull replaces the aggregate together. Collections, membership,
+tag vocabulary, and preferences are pulled in full. Collection mutations still
+advance their parent timestamp; full-pull convergence alone cannot prove that bump.
 
-Mirrored to IndexedDB (the app reads these locally and only locally):
+Books, playback states, and book tombstones share one timestamp cursor. Every
+writer to these streams first calls
+[`syncReceipt()`](../src/server/db/sync-receipt.ts) in a **read-committed
+transaction**, before other write locks or state-dependent decisions:
 
-| Entity                    | Local store         | Sync unit             |
-| ------------------------- | ------------------- | --------------------- |
-| books                     | `books`             | book aggregate        |
-| chapters                  | `chapters`          | book aggregate        |
-| media asset metadata      | `books` (embedded)  | book aggregate        |
-| playback states           | `playbackStates`    | per book+device       |
-| tags (vocabulary)         | `tags`              | user-level, full pull |
-| book↔tag edges            | `bookTags`          | book aggregate        |
-| collections               | `collections`       | user-level, full pull |
-| collection↔book edges     | `collectionBooks`   | collection aggregate  |
-| user preferences          | `preferences`       | user-level, LWW       |
-| recent listening sessions | `listeningSessions` | append-only           |
+1. Acquire the account advisory lock and hold it through commit.
+2. In a separate statement after admission, read the maximum receipt across all
+   three streams. Allocate at least the database clock and strictly above the
+   retained maximum, including any future-dated rows.
+3. Keep database timestamp precision in text/SQL; JavaScript `Date` truncates
+   microseconds. Deletion allocates before removing rows and transfers the floor
+   to its tombstone.
 
-Never mirrored — these stay server-authoritative:
+This orders receipts with commits and prevents a future row or blocked writer
+from making a sibling change invisible behind an issued cursor. Pull uses a
+read-only repeatable-read snapshot without a writer lock. Installed clients keep
+the timestamp protocol; all server writers must follow the rule. Direct SQL
+writes or mixed old/new server binaries do not provide that guarantee.
 
-- `user`, `session`, `account`, `verification`, `rate_limit`. Sessions must stay
-  server-authoritative; a device may not mint its own auth.
-- `playback_action_receipts`. That is the server's idempotency ledger and only
-  the server may write it.
+Account-lock admission has a transaction-local **100 ms lock timeout**, restored
+before subsequent work. Timeout rolls back and returns **503, Retry-After: 1**;
+no progress/ownership/no-op read moves outside serialization. This bounds lock
+admission only, **not** pool checkout, arbitrary queries, the admitted transaction,
+or total request time. Production uses the shared ten-connection pool; unrelated
+accounts have different account locks but still share that pool.
 
-Never moved to the server, ever: **audio bytes, source-document bytes, and transcript payloads**. They
-live in Cache Storage / IndexedDB on the device that imported them, and there is
-no route capable of accepting or serving them. This is a hard boundary, not a
-default.
-
-## 3. The sync unit is the book aggregate
-
-`books`, `mediaAssets`, `collections`, `playbackStates` and `userPreferences`
-carry `updatedAt`. `chapters`, `tags`, `bookTags`, `collectionBooks` and
-`listeningSessions` do not.
-
-Rather than add five columns and backfill them, the **book aggregate** is the
-unit of change: any mutation to a book's chapters or tag edges bumps that book's
-`books.updatedAt`. A pull that sees a changed book re-pulls that book's chapters
-and tag edges wholesale. The same rule applies to a collection and its
-membership edges.
-
-This is deliberate. It makes the cursor trivially correct, keeps conflict
-resolution reasoning at one granularity, and avoids a partially-applied child
-row ever being visible without its parent.
-
-Consequence that must be honored by every write path: **a mutation that only
-touches a child table must still bump the parent's `updatedAt`**, or the change
-will never propagate to another device. Any new mutation route that forgets this
-is a sync bug, and the two-device convergence test exists to catch it.
-
-That consequence is load-bearing for **books** and, today, only for books. Book
-aggregates are cursored, so `books.updatedAt` is the only thing that puts a
-chapter or tag-edge change into another device's incremental pull. Collections
-are pulled in full and uncursored, so a missing `collections.updatedAt` bump does
-not currently break propagation — which means propagation cannot be used as
-evidence that the bump happened. Assert the timestamp directly. A test that
-infers the bump from "the other device saw it" passes even when the bump is gone,
-and would stop protecting anything the moment collections became cursored.
-
-Tag vocabulary and collection lists are small and user-level, so they are pulled
-in full on every sync rather than cursored.
+Uncursored row updates use `monotonicTimestamp()` under their row lock. Client
+position/rate/completion event clocks remain separate from server receipt time.
+Receipt timestamps can be ahead of wall time after retained clock skew; they are
+ordering tokens, not listening times.
 
 ## 4. Local schema
 
-Two IndexedDB databases, kept separate on purpose: state and outbox have
-different failure modes, and merging them would mean migrating both at once.
+- `chapterline-offline-v1`, version 7: downloads, transcripts, deletion journal,
+  cache metadata, and the library mirror. Mirror keys include account identity;
+  multirow stores have user indexes for scoped reads and purge. Version 7 adds
+  stores without replacing existing downloads.
+- `chapterline-sync-v1`, version 5: durable mutations and per-book device sequence
+  counters. Migration scopes sequence keys by account without lowering counters;
+  the legacy bare-key fallback remains for rows without safe attribution.
+- `hark-playback-history-v1`: device playback-history ledger.
+- localStorage: active-account marker, per-writer playback registers, device id,
+  preference cache/pending revision, and lifecycle fences.
 
-### `chapterline-offline-v1` — device state, version 6 → 7
+State and outbox deliberately use different IndexedDB databases. There is no
+transaction spanning both; write ordering is part of the durability contract.
+Schema upgrades must preserve pending writes and existing media identities.
 
-Existing stores are untouched and keep their data: `downloads`, `transcripts`,
-`deletions`, `cacheEntries`.
+## 5. Durable writes and replay
 
-Version 7 adds the mirror:
+1. Commit the outbox intent before its optimistic mirror patch. A crash may leave
+   an unapplied projection with recoverable intent; it must not leave a visible
+   edit with no durable intent. Imports explicitly project the accepted local or
+   canonical identity after journaling registration.
+2. A mutation id remains stable across retries of that intent. Replay uses the
+   same strict REST schemas and server idempotency receipts as live requests.
+3. Progress coalesces by book/device and merges field clocks. Metadata/archive
+   changes replace the pending value; tag/collection changes coalesce per edge.
+   Import, delete, and history are distinct events and never coalesce.
+4. Retryable failures retain the row. Auth failures retain intent for a restored
+   session; duplicate imports merge identity. A 404 while registration is still
+   queued cannot discard dependent edits. See
+   [replay policy](../src/lib/offline-sync/replay.ts) for status-specific handling.
+5. Replay runs while the app is open, including launch and reconnect. No closed-app
+   Background Sync delivery is promised.
 
-- `books` — key `userId:bookId`, indexes `by-user`, `by-user-updated`
-- `chapters` — key `userId:bookId:paddedIndex`, index `by-user-book`
-- `playbackStates` — key `userId:bookId`, index `by-user`
-- `tags` — key `userId:tagId`, index `by-user`
-- `bookTags` — key `userId:bookId:tagId`, indexes `by-user`, `by-user-book`
-- `collections` — key `userId:collectionId`, index `by-user`
-- `collectionBooks` — key `userId:collectionId:bookId`, indexes `by-user`,
-  `by-user-collection`
-- `preferences` — key `userId`
-- `listeningSessions` — key `userId:sessionId`, index `by-user-book`
-- `syncMeta` — key `userId`, holds the pull cursor and last-sync time
+A permanent delete atomically removes an older unsent registration of the same
+source **and rendition** while journaling deletion. A later re-import is a new
+intent and stays queued behind that deletion. A device tombstone prevents stale
+tabs from recreating media for the deleted id.
 
-Every store is keyed by `userId` first and carries a `by-user` index. That is
-what makes account-switch purge a bounded, provable operation rather than a
-best-effort sweep.
+On a canonical duplicate, rekey the media, complete mirror aggregate, and queued
+mutations before settling registration. Progress must use the target identity's
+sequence counter. Fingerprint alone is not enough to identify a rendition.
 
-The version-7 upgrade is **additive only**. It creates stores; it does not
-rewrite or delete existing records. A device that already holds downloads,
-transcripts and a pending deletion journal comes through with all of it intact,
-and the mirror simply starts empty and fills on first pull.
+Preferences are the exception to the outbox shape: their pending revision lives
+in a localStorage envelope and participates in sign-out drain/reporting. Playback
+also persists local registers and queued progress before network reconciliation.
 
-#### Upgrade steps must be awaited
-
-One cursor sweep is still fire-and-forget:
-
-- `offline/db.ts` — `void downloads.openCursor().then(...)` (the legacy-bookmark
-  strip)
-
-The `void` means a rejection inside the sweep becomes an unhandled rejection
-instead of aborting the version-change transaction. The new version number still
-commits, and because the sweep is guarded by `oldVersion < N` it can never run
-again. The outbox's sweeps in `offline-sync/db.ts` are awaited — the v4 and v5
-steps rewrite rows and say so in place.
-
-Today the fire-and-forget sweep only _deletes_ legacy rows, so a silent partial
-sweep leaves stale-but-harmless data. That stops being true the moment an upgrade **rewrites**
-data. Any new upgrade step must be `await`ed inside `upgrade()` before the
-version is bumped, so a failure aborts the transaction and the upgrade is retried
-rather than half-committed. Copying the existing `void` pattern into a
-data-rewriting migration is how this design would lose user data.
-
-### `chapterline-sync-v1` — the outbox, version 3 → 4 → 5
-
-Version 4 generalized `mutations` from `kind: "progress"` alone to every
-mirrored mutation. It is the first upgrade in this database that **rewrites**
-rows rather than only dropping them, so it is awaited: each row is a user write
-that has not reached the server, and losing one is indistinguishable from losing
-the write itself.
-
-Version 5 keys `sequences` by `userId:bookId` and names each row's owner, so an
-account purge sweeps it by key range like every other store. It is awaited for
-the same reason. Two properties make it safe mid-flight: with no signed-in
-account there is no honest attribution, so rows are left as they are and
-`nextDeviceSequence` keeps reading them through its bare-key fallback; and the
-scoped row takes the maximum of both values, so re-running the step cannot lower
-a counter.
-
-`sequences` holds per-book device high-water marks and must never be reset —
-those values order replay, and a counter that restarts below the server's high-water
-mark loses every write until it catches up.
-
-## 5. The outbox
-
-Record shape:
-
-```
-{
-  key:         string,   // dedupe/coalesce identity, see below
-  userId:      string,
-  kind:        "progress" | "import" | "metadata" | "tag" | "collection"
-             | "archive" | "delete" | "history",
-  entityId:    string,   // bookId / collectionId
-  payload:     object,   // the intended change
-  mutationId:  string,   // uuid, the idempotency key sent to the server
-  deviceId:    string,
-  deviceSequence: number,
-  queuedAt:    number,
-  attempts:    number,
-}
-```
-
-Rules:
-
-1. **Journal intent before acting.** The outbox row is written **first**, and the
-   optimistic mirror update only after it. Each half is individually atomic.
-
-   An earlier draft of this note required both in one IndexedDB transaction.
-   That is not implementable: the outbox lives in `chapterline-sync-v1` and the
-   mirror in `chapterline-offline-v1`, IndexedDB has no cross-database
-   transaction, and section 4 keeps the two databases separate on purpose.
-
-   Ordering carries the guarantee instead, and it is the same ordering
-   `deletion-journal.ts` already proves. A crash between the two halves leaves
-   an outbox row whose local projection has not been applied — recoverable, and
-   the server still learns about the write. The forbidden state is the reverse:
-   a mirrored change the user can see with no queued write behind it, which
-   would be a silent lost write. Never write the mirror first.
-
-   Imports use the same order, but their projection is explicit rather than a
-   generic mutation patch: queue the registration, resolve whether its
-   device-minted id remains local or maps to a canonical server id, then write
-   that book and its chapters to the mirror. This makes a new offline import
-   immediately routable at `/books/:id` without creating a phantom row when an
-   online duplicate resolves to another id.
-
-2. **Idempotent on replay.** `mutationId` is generated once, at queue time, and
-   reused on every retry. The server dedupes on it. Replaying a mutation the
-   server already applied is a no-op, not a double-apply.
-3. **Coalescing is by `key`, and only where it is safe.** Progress for a given
-   book+device coalesces to the highest `deviceSequence` (existing behavior).
-   Tag and collection edge changes coalesce per edge. Renames coalesce per book.
-   `import`, `delete` and `history` **never** coalesce — each is a distinct
-   event and dropping one loses a write.
-4. **Retry on reconnect and on launch, never in the background.** iOS does not
-   support Background Sync and will not wake a closed PWA. The queue drains when
-   the app is open. No UI may imply otherwise.
-5. **Failure classification is inherited**, not reinvented:
-   `isRetryableMutationStatus` and `shouldRetainMutation` in
-   `offline-sync/replay.ts`
-   already encode it. 401/403 retain (the session may come back). 4xx other than
-   409 is terminal. 409 goes to conflict reconciliation.
-
-### 5.4 A delete supersedes an unsent registration of the same rendition
-
-The outbox drains in key order with several rows in flight, which is NOT the
-order the user expressed their intents. `delete` sorts before `import`, so a
-delete could land, release the fingerprint, and let a registration queued
-_earlier_ find the fingerprint free and re-create the book the user had already
-deleted. The fuzz found this on seed 20260105 and called it what it is: a
-resurrection. Nothing was lost in transit — the delete was undone by an intent
-the user had already superseded.
-
-So `commitBookDeletion` drops any unsent registration of the same source and
-rendition, in the same transaction that journals the delete: no window in which
-both rows exist, and no ordering left to get right. It links them two ways,
-because a user can be looking at either kind of row — by book id (a device-only
-book, normally in the mirror and always in `downloads`) and by the
-fingerprint/rendition tuple (read from the mirror, never sent on the wire).
-Fingerprint alone is not enough: deleting rendition A must not erase a queued
-replacement B. When a book route already knows the tuple but the mirror row is
-unavailable, that route carries both values into the delete. A registration
-queued _after_ a delete is kept: re-importing something you deleted is a new
-intent, not a stale one. Its live registration optimization uses the same
-fingerprint/rendition lock as replay and rechecks the outbox inside that lock.
-When the predecessor delete is still queued, the device keeps the replacement's
-minted id and audio immediately but leaves registration to replay. It must not
-accept a 409 for the doomed id and attach fresh bytes to a book replay is about
-to delete.
-
-Permanent deletion also leaves an identity-only device tombstone after cache
-cleanup completes. Ordinary remove-download receipts expire, but this marker
-lasts until account data is purged: a player tab opened before deletion cannot
-later attach or regenerate audio under the dead book id and make it reappear as
-a device-only card.
-
-### 5.5 When the server renames a book mid-flight
-
-A registration queued offline carries the id this device minted. If the server
-already owns that fingerprint it answers 409 with the canonical id, and the local
-identity moves onto it (§10). Two consequences that are easy to miss, and both
-were bugs:
-
-- **Queued rows naming the abandoned id must be re-addressed too**, with the
-  production key builders rather than hand-built strings, or every edit, tag,
-  archive and delete queued before the merge replays against a book the server
-  has never heard of and settles as terminal. Progress is re-stamped from the
-  _target's_ sequence counter, because the server discards a sequence at or below
-  its high-water mark for (user, book, device) **and answers 200** — a carried-over
-  sequence is a write that reports success and vanishes.
-- **The local identity moves as one aggregate**, not just the audio record.
-  The device-minted mirror book, chapters, playback state, tag and collection
-  edges, and listening sessions move or merge onto the canonical id. The
-  abandoned mirror row is removed before the registration settles, so an
-  offline deep link cannot outlive the id the server rejected.
-- **A 404 is not terminal while a registration for that book is still queued.**
-  `archive`, `collection`, `delete` and `history` all sort ahead of `import`, so
-  they reach the server before the merge is knowable. Dropping them there loses
-  the user's intent, including their delete.
-
-### 5.6 Preferences are the one write that is not an outbox row
-
-`savePreferences` keeps its pending revision in the localStorage envelope rather
-than the outbox. It is still journalled, drained and reported — the sign-out
-drain enumerates it alongside the outbox and the playback queue, and reports it
-if the server will not take it — but the mechanism differs, and this note would
-be lying if it claimed otherwise. Moving it onto a real outbox kind is the
-cleaner end state.
+The sign-out drain has an **eight-second budget**. For a hinted busy response it
+joins any ambient replay, then starts a fresh pass after a one-second wait. The
+wait is outside entity mutation locks, allowing terminal progress to journal;
+the next pass reads current intent. Per-account single-flight prevents parallel
+replay. Deadline, account change, or any intervening fence stops further sends,
+and late replies cannot cross the purge boundary. Undelivered writes are reported;
+privacy purge still completes. Ordinary ambient replay retains 5xx writes but
+does not schedule a timer from `Retry-After`, so a paused app may wait for its next
+mount or reconnect.
 
 ## 6. Pull
 
-`GET /api/sync/pull?since=<iso>` returns everything that changed for the signed-in
-user since the cursor, as the book/collection aggregates of section 3, plus the
-full tag vocabulary, collection list, preferences, and recent listening sessions.
+`GET /api/sync/pull?since=<iso>` returns changed book aggregates and tombstones,
+plus whole-account tag/collection/preference snapshots and recent sessions.
+The mirror applies a batch and its cursor in one IndexedDB transaction. An
+interrupted apply re-fetches the batch instead of advancing ahead of data.
+Deletion is an explicit tombstone; absence is not proof of deletion.
 
-It reuses the query shape already proven in
-`src/server/account/export-stream.ts`, which reads exactly this set of tables
-under a read-only repeatable-read transaction.
+## 7. Conflict resolution
 
-- Cursor is `max(updatedAt)` observed in the response, stored in `syncMeta`.
-- The cursor is advanced **only after** the whole batch has been committed to
-  IndexedDB, so an interrupted pull re-fetches rather than skips.
-- Deletions are conveyed as explicit tombstones, not absence. Absence cannot be
-  distinguished from "not in this page".
-- A new index on `books (owner_id, updated_at, id)` ships as a drizzle migration
-  to keep the cursor scan cheap.
+Playback state uses per-device sequence high-water marks and independent clocks
+for position, rate, and completion. A late rate-only change must not rewind a newer
+position. Bootstrap and replay select the freshest value for each field; a merged
+pending payload gets a fresh mutation id/sequence so an older acknowledgement
+cannot settle a newer write. Explicit rewinds remain valid events.
 
-Pull runs on launch (after paint, never before) and on reconnect.
+Older clients' combined `stateOccurredAt` remains a compatibility fallback;
+new clients send independent clocks. Per-writer localStorage registers protect
+cross-tab field merges; the joined legacy tuple remains for older bundles and
+diagnostics. Strict-schema rejection by a predecessor server retains the new
+progress event rather than silently stripping its field clocks.
 
-## 7. Conflict resolution — extend, do not replace
+Book metadata and membership requests are applied by server mutation handlers;
+they are not a CRDT with durable per-edge timestamp tombstones. Edge adds are
+idempotent and explicit removals delete the edge. Listening sessions/history use
+their existing append/deduplication rules. See
+[progress policy](../src/server/playback/progress-policy.ts) and
+[tag policy](../src/server/tags/tag-policy.ts).
 
-The repo already has a working model and this design adds no second one:
+## 8. Launch and session recovery
 
-- `playback_states` carries `deviceId`, `deviceSequence`, `eventOccurredAt`;
-  `playback_device_sequences` holds per-device high-water marks;
-  `playback_action_receipts` is the durable idempotency ledger.
-- `src/server/playback/progress-policy.ts` and `listening-session-policy.ts`
-  hold the rules. `PROGRESS_CONFLICT_EVENT` already surfaces conflicts to the UI.
-- Immediately before replay, a progress row is compared with the complete
-  durable local tuple. Position, playback rate, and completion are separate
-  last-writer-wins registers: `eventOccurredAt` clocks the position,
-  `playbackRateOccurredAt` clocks the rate, and `completedOccurredAt` clocks the
-  completion flag. Replay folds in only the fields whose local clocks are
-  newer, then gives the replacement a fresh device sequence. A late stale-tab
-  flush can therefore carry a real rate change without moving the position or
-  changing completion.
-- `stateOccurredAt` remains a combined rate/completion clock for rows and
-  clients from before the split. Nullable per-field database columns fall back
-  to it during migration. A legacy input that supplies only this one clock is
-  necessarily still a tuple: the server cannot distinguish a rate-only write
-  from an intentional restart, so guessing would silently discard one of those
-  valid legacy operations. New clients always send both independent clocks.
-- Player bootstrap chooses the freshest local/server value for each register
-  independently and hydrates the selected tuple with its original clocks.
-  Position cadence therefore advances only the position clock; merely carrying
-  an unchanged rate or completion value never claims that it changed now.
-- In `localStorage`, each document writes per-field registers under its own
-  writer id and reads the newest clock across writers. A rate-only tab therefore
-  never replaces another tab's position key, even if their reads and writes
-  interleave. The joined `chapterline:position:*` tuple remains for older builds
-  and diagnostics, but is no longer the sole durable authority.
-- The one queued progress row per book/device field-merges before replacement;
-  the highest device sequence is only its replay envelope. Any merged payload
-  receives a new mutation id so an acknowledgement already in flight cannot
-  settle a field that arrived after the request began.
-- During a rolling deploy, a `400` from a predecessor server that does not know
-  the per-field keys retains the v2 event unchanged. It is retried after rollout
-  instead of being downgraded to the ambiguous legacy combined tuple.
+The cached shell contains no user identity or books. The client checks the active
+account before showing its local snapshot. The readiness marker represents real
+book content or a verified empty library. Warm-launch revalidation runs after
+paint; a device with no completed first pull syncs immediately.
 
-Per entity:
+No active account redirects to login. A server 401/403 also redirects, **without
+purging downloads**: session expiry is not an instruction to destroy local audio.
+Authenticated sign-in handles cross-account cleanup before exposing another
+account. Shell generations and offline dependencies are described in
+[architecture](architecture.md#local-launch-and-updates).
 
-| Entity                                  | Rule                                                                                                                          |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| playback state                          | per-device sequence idempotency plus independent LWW clocks for position, rate, and completion                                |
-| listening sessions                      | append-only, dedupe by id; existing session policy                                                                            |
-| book metadata (title, author, archived) | last-writer-wins on `updatedAt`, ties broken by `deviceId`                                                                    |
-| tag / collection edges                  | add-wins; an explicit remove carries a tombstone that outranks a concurrent add only when its `updatedAt` is newer            |
-| preferences                             | last-writer-wins on `updatedAt`                                                                                               |
-| import (new book)                       | fingerprint-unique; a duplicate registration returns 409 with `existingBookId` and is treated as a merge, never a second book |
+## 9. One library
 
-Conflicts are surfaced through the existing `PROGRESS_CONFLICT_EVENT`
-mechanism rather than a parallel channel.
+`/library` is the library screen; **On this device** is a facet, including when
+opened through `/library?device=1`. Missing audio remains browsable and organized,
+with an attach gate at its book route. The offline fallback renders the same
+library and rewrites the address; it is not a separate Downloads screen.
 
-## 8. The launch path
+Within an account, browsing or deleting a different missing book keeps the active
+book playing. Controls and Media Session still identify the active book. A new
+book/account must never transiently mount the previous media.
 
-The whole point. Warm launch must paint real library content without touching
-the network, so that a 3000ms cold database and airplane mode produce the same
-number as wifi.
+## 10. Eviction and reattachment
 
-Icon tap → painted content:
+The browser may reclaim storage despite persistence requests. Metadata can pull
+again from the server; audio cannot. Availability checks reconcile download
+records with Cache Storage and show a missing-file gate rather than a broken
+player. Keep originals outside browser storage.
 
-0. The install handler declares a **static route** for the manifest's
-   `start_url` (`/library?source=pwa`), so the browser answers that one
-   navigation straight from Cache Storage **without starting the service worker
-   at all**. This exists because booting a worker to ask it about a navigation
-   makes Chromium hedge the wait by speculatively fetching the same document:
-   the paint never waits for it, but the server renders `/library` and runs its
-   queries on every cold launch and the answer is discarded.
-
-   Two details are load-bearing, because a routing **miss goes to the network**
-   rather than falling back to the `fetch` handler. The condition matches the
-   start_url exactly — pathname _and_ search — so every other navigation is left
-   to `serveNavigation`, which is not query-sensitive; and `precacheShell`
-   stores the shell under that exact key so the lookup hits. Writing the rule
-   for a bare `/library` put the whole launch document back on the wire
-   (measured: 5.4 KB per launch, cold-database p95 3426ms). `addRoutes` is
-   Chromium-only and guarded; elsewhere step 1 is unchanged and authoritative.
-
-1. The service worker serves the `/library` document **from Cache Storage,
-   cache-first**. No network on the critical path, so no network profile can
-   change this step's cost.
-2. That cached document is a **user-agnostic shell**. It contains no book data
-   and no user identity — which is what makes caching it safe across accounts.
-   The server page therefore renders no user rows into HTML.
-3. The client reads the mirror from IndexedDB and renders real book cards.
-   `data-launch-ready` is set at this point, and **only** when real content or
-   the genuine empty state is on screen — never when a skeleton mounts.
-   A cached `/books/:id` route also waits for that first device snapshot before
-   treating the temporary empty map as a miss. Once a book is active, unload
-   events are scoped by account and book id, so deleting some other missing
-   book cannot stop it.
-4. _After_ paint, revalidation runs: session check and `GET /api/sync/pull`.
-   Results patch into the already-rendered list in place — no flash, no layout
-   jump, no scroll reset.
-
-Session handling under a cached shell:
-
-- The cached shell is served without consulting the server, so `requireSession()`
-  does not run on a warm launch. That is intended: it is what removes Postgres
-  from the paint path.
-- The client checks `ACTIVE_USER_KEY` before rendering the mirror. No active
-  user → `/login`.
-- Revalidation answering 401/403 → `/login`, **without purging**. An expired or
-  revoked session must never strand the user on a cached library.
-
-  An earlier draft of this note said "purge and `/login`". That would have been a
-  data-loss bug: the purge path deletes downloads and their media, and per
-  section 10 those MP3s exist nowhere else. A session timing out overnight is a
-  routine event, and it must not cost the user every audiobook on the device.
-
-  Privacy is still closed, one step later and by the right mechanism: the mirror
-  that survives belongs to the account that is still signed in on this device,
-  and section 11's sign-in purge removes every _other_ account's data before a
-  different user can see anything. Expiry is not a trust boundary; a new sign-in
-  is.
-
-Consequences that must hold:
-
-- **Zero Postgres queries on the warm-launch critical paint path.** Proven by a
-  query counter around the postgres client, not by argument. The benchmark also
-  asserts zero server document requests of any kind during a launch, which is
-  stricter: it catches a request the paint does not wait for but the server
-  still pays for, which is exactly how the speculative preload above was found.
-- **The launch must paint the user's real library, not merely something.** The
-  benchmark asserts the readiness marker says `books`, counts the rendered
-  cards, and requires the document to arrive as `cache-storage` with an empty
-  transfer. Without that last part a device whose mirror had been evicted
-  painted "Bring your first audiobook" to an account owning 1000 books and
-  scored the best numbers ever recorded.
-- First install has no cache, so it must race the network against a bounded
-  timeout rather than hanging on a fetch that a weak-but-alive connection will
-  never reject. The current unbounded `fetch(request).catch(...)` is exactly the
-  bug that produces a blank screen instead of a fallback.
-- `use-library-books.ts` currently skips fetching on first render. Once the
-  first paint comes from local data, that skip is a correctness bug and the
-  revalidation must exist.
-
-### 8.1 Offline import needs its code cached, not just its data
-
-The import path reaches its MP3 parser through `await import("music-metadata")`,
-that package reaches the parser that does the work through a SECOND dynamic
-import which only runs when something is actually parsed, the hasher is a third,
-and the fingerprint runs in a **Worker** whose script no `import()` can reach at
-all. A code-split chunk is not referenced by the cached shell, so `precacheShell`
-never sees it, and the service worker's runtime caching only stores what has
-actually been requested — which is never, until someone picks a file.
-
-The consequence was that importing a book with no network had never worked: it
-failed with "Failed to load chunk" where the audiobook should have been, which
-also made §10's eviction recovery unreachable exactly when it is needed. So:
-
-- `pwa-register.tsx` warms the parser after paint by parsing a synthesized
-  MPEG-1 Layer 3 frame through the real `parseBlob`, so whatever chunk an MP3
-  needs is the chunk that gets fetched, with no assumption about the package's
-  internals. It marks `data-import-ready` when that and the hasher have resolved,
-  in the same spirit as `data-launch-ready` — otherwise the state is invisible
-  and a test can only guess at it with a sleep.
-- The Worker cannot be warmed, so `fingerprintMedia` falls back to hashing
-  inline when its script will not load. Slower, and better than being unable to
-  add a book.
-
-Anything new on a path that must work offline gets the same audit: every
-`await import(` and every `new Worker(` is a network dependency until proven
-otherwise. The production build therefore emits a checked dependency-closure
-manifest for document adapters, Kestrel, ONNX, MP3 encoding, and the shared
-Turbopack worker bootstrap. Shell promotion caches that manifest's files as one
-generation; after the exact model marker exists it carries the pinned ONNX
-Runtime module and WASM forward too.
-
-## 9. One library UI
-
-`/library` is the only library UI. "On this device" becomes a facet alongside
-the existing status filters, not a second screen. `/offline` redirects into the
-unified library.
-
-- Books whose audio is not on this device stay browsable, searchable, taggable
-  and sortable. They are visibly marked and never look playable.
-- Every capability of the old Downloads screen survives in the merged view,
-  including byte size and removing a download.
-- Search, status filters, tag filters, sort, view toggle and the continue card
-  all operate on local data, so they work identically with the network off.
-
-## 10. Eviction and storage pressure
-
-Safari reclaims script-writable storage from disused origins.
-`navigator.storage.persist()` is the mitigation and
-`src/lib/offline/media-store.ts` already requests persistence, checks
-`navigator.storage.estimate()`, and handles `QuotaExceededError`. The mirror
-reuses that machinery rather than bypassing it.
-
-Two different losses, two different recoveries:
-
-- **Mirror evicted** — recoverable. Metadata re-pulls from Postgres. The app
-  detects the empty mirror, re-pulls, and carries on.
-- **Audio evicted** — _not_ recoverable from anywhere. The MP3 exists only on
-  this device (section 2). The app must detect it, keep the book visible with
-  its metadata intact, never let it look playable, and say plainly that the file
-  must be re-imported.
-
-Re-import must be cheap and lossless, and the machinery already exists: media is
-fingerprinted with sha256, `media_assets` is unique on
-(owner, fingerprintKind, fingerprint), and duplicate registration returns 409
-with `existingBookId` plus the saved position, which `local-import.ts` already
-follows. Re-importing an evicted book must reconnect to the **same** book and
-restore progress, chapters, tags and collections — never create a duplicate,
-never reset the position.
-
-Storing the file's path cannot rescue this: `<input type="file">` yields a
-`File`, never a path, and File System Access is unavailable in Safari on iOS.
-Re-picking the file is the only recovery, which is why it must be lossless.
-The cold offline `/books/:id` route reads this metadata directly from the
-mirror, independent of the current library filters, and renders the attach gate
-even when the MP3 is absent. A player URL must never fall through to a library
-grid whose header and mini-player disagree with the route.
+Reattachment verifies the saved source size/fingerprint and rendition. Document
+regeneration requires the supported recipe and an exact timeline match. The
+expand-only uniqueness migration retains both the legacy fingerprint arbiter and
+the rendition-aware index; an identical source with a different rendition can
+still conflict with the legacy arbiter. Never drop it casually or pair regenerated
+audio with an older timeline. Completed legacy audio can still play.
 
 ## 11. Account lifecycle
 
-A cached page, mirrored row, or downloaded file from one account must never be
-readable by another.
+All reads and writes are account scoped. Sign-out purges the departing account;
+authenticated sign-in purges **other** accounts and preserves the incoming
+account's own downloads. Changes to the active-account marker revoke mounted
+peer tabs and stop their playback.
 
-Purge runs on **both** sign-out and sign-in, and covers: every mirror store by
-`by-user` index, the outbox, Cache Storage entries for pages and media,
-localStorage keys for that user, and `ACTIVE_USER_KEY`. Purging on sign-in as
-well as sign-out is what protects against a crash between the two.
+After its final drain, sign-out installs a pending account fence before the auth
+request. Account locks coordinate import/media writes with purge. A failed request
+clears its pending fence; a dead request's pending fence can age out. Successful
+sign-out or a started purge commits an **origin-wide**, identity-free fence that
+cannot expire mid-sweep. Only authenticated sign-in behind the global purge lock
+reopens writes. Verification detects rows recreated by an already-in-flight write.
 
-`ACTIVE_USER_KEY` is also a cross-tab revocation boundary. Every mounted shell
-subscribes to its storage changes (plus a same-document event); removing it
-unmounts the account's providers, stops playback, and redirects the peer tab to
-`/login`. A stale server-rendered `userId` may bootstrap the device once, but it
-must never override a later removal from browser storage.
+Purge covers the account's media, transcripts, mirror, queues, playback registers,
+preferences, and private cached pages. Safe user-agnostic shell/static assets can
+remain. Session expiry alone does not invoke this purge.
 
-The two purges have deliberately different targets:
+Account deletion verifies the password, journals a short-lived bearer intent,
+finishes local purge, then commits server deletion idempotently. A root runner
+resumes an interrupted intent; server deletion cannot outrun unfinished local
+purge. Metadata export does not include audio or transcript payloads.
 
-- **Sign-out** purges the account that is leaving.
-- **Sign-in** purges every account _other_ than the one signing in — never the
-  incoming account's own data.
+## 12. Existing-device compatibility
 
-Sign-out drains queued writes first, then installs an origin-wide write fence
-before the auth request leaves. The fence cancels document narration and media
-writes in every tab; those operations share an account lock with purge, so the
-sweep cannot snapshot around a writer or wait for hours of uncancelled speech.
-After the lock drains, purge verifies that no account-indexed row was recreated
-and repeats the sweep once if a write already in flight crossed the boundary.
-An unconfirmed request fence may age out if its document dies, but a successful
-sign-out or a started purge commits the fence so it cannot expire mid-sweep.
-The committed form contains no account identity and blocks writes globally
-until an authenticated sign-in waits behind the global purge lock. A failed
-sign-out clears its still-pending, account-scoped fence immediately.
+Retain database names, account keys, device sequence high-water marks, receipt
+precision, rendition keys, migration history, and old-client fallbacks. The first
+mirror pull after an additive upgrade must not hide already-downloaded books.
+Migration, purge, outbox, and resume tests protect data that cannot be recreated
+from the server alone.
 
-That asymmetry is load-bearing. Purging the incoming account's own data on every
-login would delete its downloaded audio, and per section 1 those MP3s exist
-nowhere else in the world — the server has never held the bytes. Wiping every
-other account still delivers the property this section exists for (B can never
-read A's rows, because the next sign-in finishes any cleanup a crash
-interrupted) without destroying the only copy of something irreplaceable.
+## 13. Deliberate limits
 
-The cached shell is user-agnostic and holds no user data, so it may survive an
-account switch. Every store that does hold user data is keyed by `userId`, which
-is what makes the purge provable rather than best-effort.
-
-Account deletion adds a durable two-phase boundary. Password verification first
-issues a short-lived bearer intent. The browser journals it, runs the complete
-local purge without revoking the still-needed session, records that the purge
-finished, and only then makes an idempotent server commit. The consumed token is
-kept briefly as a deletion receipt, so retrying after a lost HTTP response still
-returns success. A root-level runner resumes either the purge or commit after a
-tab crash; server deletion is never allowed to outrun an incomplete device
-purge.
-
-## 12. Migration for devices that already have data
-
-Non-negotiable: a device that already holds downloads, transcripts and a pending
-deletion journal must come through the upgrade with all of it intact.
-
-- The version-7 upgrade is additive; it creates stores and rewrites nothing.
-- Existing `downloads` records remain the source of truth for "audio is on this
-  device" and are joined to mirrored books by `bookId`.
-- The first pull after upgrade populates the mirror. Until it completes, the
-  library renders from `downloads` alone, so an offline device that upgrades
-  still shows its books.
-- The deletion journal keeps retrying on next load, unchanged.
-
-## 13. What this design deliberately does not do
-
-- No CRDTs or operational transform. The existing last-writer-wins model with
-  device sequences and idempotency receipts is extended instead.
-- No real-time sync, websockets or push. Launch, reconnect, and post-mutation is
-  enough.
-- No Background Sync / Periodic Background Sync — iOS support is poor and the
-  deletion-journal retry-on-next-load pattern is the precedent.
-- No audio on the server, and no object storage. This reverses the privacy
-  promise and is out of scope.
-- No SQLite-WASM. A megabyte of WASM instantiating before the first book can be
-  read fights the sub-500ms bar; iOS restricts OPFS sync access to Workers; and
-  a few hundred books filter in JavaScript in well under a millisecond.
-
-## 14. Residual risks
-
-- **Staleness.** The library can be up to one sync interval behind another
-  device. That is the explicit trade for network-independent launch.
-- **Queue drains only while the app is open.** A mutation made offline reaches
-  the server on the next foregrounded launch or reconnect, not before. No UI may
-  imply background delivery.
-- **Evicted audio is unrecoverable** without a re-import, by design.
+There is no cloud audio store, hosted TTS, CRDT, realtime push, or guaranteed
+background delivery. A local library can lag another device until sync completes.
+Storage eviction requires the source file, and real iOS background suspension
+requires [physical-device verification](resume-durability-device-check.md).

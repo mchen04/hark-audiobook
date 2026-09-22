@@ -1,35 +1,15 @@
 # Hark documentation
 
-Start with [architecture.md](architecture.md) for how the app is built, and
-[local-first.md](local-first.md) for why the local-first rules are what they are.
+- [Readme](../README.md): what Hark does, file handling, and local start.
+- [Setup and contributing](development.md): environment, fixtures, commands, and CI.
+- [Architecture](architecture.md): runtime boundaries, import, playback, and source map.
+- [Storage and sync](local-first.md): persistence, receipt ordering, conflicts, and account lifecycle.
+- [Operations](operations.md): production configuration, migrations, backups, and recovery.
+- [iPhone PWA testing](ios-pwa-testing.md): automated coverage and installation checks.
+- [Physical-device resume check](resume-durability-device-check.md): background playback limits.
+- [Launch benchmark](../tests/perf/BASELINE.md): reproducible performance gate and its limits.
+- [Changelog](../CHANGELOG.md): user-visible changes awaiting release.
 
-## Design and behavior
-
-| Document                                       | What it covers                                                                                                                                                                  |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [architecture.md](architecture.md)             | Stack, boundaries, data rules, the local read model, the write path, the launch path, rejected alternatives                                                                     |
-| [local-first.md](local-first.md)               | The design contract: what is mirrored, the outbox, pull, conflict rules, eviction, account lifecycle                                                                            |
-| [lemonade.md](lemonade.md)                     | Narrating through AMD's Lemonade server: setup, engine selection, why the rendition key names the engine, length and time estimates, listening during an import, and the limits |
-| [repository-anatomy.md](repository-anatomy.md) | Tracked-line breakdown, generated-file policy, large-file classification, counting rules                                                                                        |
-
-## Building and running
-
-| Document                         | What it covers                                                                                          |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| [development.md](development.md) | Setup, environment variables, the local test database, every command, CI, and the limits of a green run |
-| [operations.md](operations.md)   | Deployment shape, backup and restore, data lifecycle, platform limitations, troubleshooting             |
-
-## Release gates
-
-| Document                                                               | What it covers                                                                      |
-| ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| [ios-pwa-testing.md](ios-pwa-testing.md)                               | The automated WebKit gate and the physical-iPhone release checklist                 |
-| [resume-durability-device-check.md](resume-durability-device-check.md) | The one resume check that needs a real iPhone, and its observable pass/fail signal  |
-| [`../tests/perf/BASELINE.md`](../tests/perf/BASELINE.md)               | The proven-red launch baseline and the measured local-first result that replaced it |
-
-## Conventions
-
-Each document carries a review date in its header. When executable reality
-changes, update the document in the same change — a stale contract is worse than
-no contract. Figures that can be measured (line counts, launch percentiles,
-schema versions) should name the command or file that reproduces them.
+These are maintained docs. Generated review reports, command receipts, screenshots,
+and benchmark runs belong outside the shipped source tree. Historical reports
+remain in Git history; their results apply to their recorded commits and runtimes.

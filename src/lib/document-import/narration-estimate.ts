@@ -8,7 +8,7 @@
  * separately rather than being smeared into the rate.
  *
  * The *time to produce* it is not arithmetic — it depends entirely on the
- * engine and the hardware, from an NPU to a phone falling back to WASM. So it
+ * browser and hardware, from WebGPU to a phone falling back to WASM. So it
  * is measured while narrating rather than assumed.
  */
 

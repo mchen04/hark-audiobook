@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { assertSameRenditionTimeline, engineForRenditionKey, renditionKeyFor } from "./rendition";
+import {
+  assertSameRenditionTimeline,
+  canRegenerateRendition,
+  NARRATION_RENDITION_KEY,
+} from "./rendition";
 
 const timeline = {
   durationMs: 2_000,
@@ -11,21 +15,20 @@ const timeline = {
 };
 
 describe("document rendition timeline", () => {
-  it("identifies the deterministic extractor and sentence splitter", () => {
-    expect(renditionKeyFor("kestrel")).toContain(":extract-v2:split-v1:");
+  it("keeps the shipped Kestrel recipe unchanged", () => {
+    expect(NARRATION_RENDITION_KEY).toBe(
+      "kestrel-fast-v1:ebfe37d8a8771780:extract-v2:split-v1:chunk320:af_heart:mp3-cbr64k",
+    );
+    expect(canRegenerateRendition(NARRATION_RENDITION_KEY)).toBe(true);
   });
 
-  it("gives each narration engine its own rendition, because their samples differ", () => {
-    expect(renditionKeyFor("kestrel")).not.toEqual(renditionKeyFor("lemonade"));
-  });
-
-  it("round-trips a saved rendition back to the engine that has to rebuild it", () => {
-    expect(engineForRenditionKey(renditionKeyFor("kestrel"))).toBe("kestrel");
-    expect(engineForRenditionKey(renditionKeyFor("lemonade"))).toBe("lemonade");
-  });
-
-  it("refuses a rendition no engine in this build can reproduce", () => {
-    expect(engineForRenditionKey("kestrel-fast-v0:stale:extract-v1:split-v1")).toBeNull();
+  it.each([
+    "lemonade-kokoro-v1:ebfe37d8a8771780:extract-v2:split-v1:chunk320:af_heart:mp3-cbr64k",
+    "kestrel-fast-v0:stale:extract-v1:split-v1",
+    "source-v1",
+    "",
+  ])("refuses to regenerate unsupported recipe %s", (key) => {
+    expect(canRegenerateRendition(key)).toBe(false);
   });
   it("accepts the exact saved seek map", () => {
     expect(() => assertSameRenditionTimeline(timeline, structuredClone(timeline))).not.toThrow();

@@ -1,22 +1,42 @@
+import { filterLibraryBooks, type LibraryQuery } from "@/domain/library";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "fake-indexeddb/auto";
-import { IDBFactory as FakeIDBFactory } from "fake-indexeddb";
+import { IDBFactory as FakeIDBFactory, IDBObjectStore } from "fake-indexeddb";
 
 import { PENDING_ACCOUNT_DELETION_KEY } from "@/lib/app-keys";
+import {
+  commitAccountSignOutFence,
+  installAccountSignOutFence,
+  reopenAccountAfterSignIn,
+} from "@/lib/account-deletion-fence";
+import {
+  listProgressNormalizations,
+  persistProgressNormalization,
+} from "@/lib/offline-sync/normalizations";
 import { saveLocalPlaybackState } from "@/lib/playback-core";
 
 import { database } from "./db";
+import * as mirrorDatabase from "./db";
 import {
   applyPullBatch,
-  getMirrorContinueBook,
+  readMirrorLibrary,
   getMirrorPlayerBook,
   getSyncMeta,
   healMirrorPlaybackFromLocal,
-  listMirrorBooks,
-  listMirrorTagNames,
   purgeUser,
 } from "./mirror";
 import type { PullBatch, PulledBook } from "./sync-protocol";
+
+// Helpers stay in the oracle: production uses one read for all three views.
+async function listMirrorBooks(userId: string, query: LibraryQuery = {}) {
+  return filterLibraryBooks((await readMirrorLibrary(userId)).books, query);
+}
+async function getMirrorContinueBook(userId: string) {
+  return (await readMirrorLibrary(userId)).continueBook;
+}
+async function listMirrorTagNames(userId: string) {
+  return (await readMirrorLibrary(userId)).tags;
+}
 
 const USER_A = "user-a";
 const USER_B = "user-b";
@@ -480,7 +500,136 @@ describe("tombstones", () => {
   });
 });
 
+/** The register-backed stub both fence cases read and write through. */
+function stubPlaybackStorage(): Map<string, string> {
+  const values = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    get length() {
+      return values.size;
+    },
+    key: (index: number) => [...values.keys()][index] ?? null,
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => void values.set(key, value),
+    removeItem: (key: string) => void values.delete(key),
+  });
+  return values;
+}
+
 describe("healMirrorPlaybackFromLocal", () => {
+  it.each(["entry", "database-open"])(
+    "a heal fenced at %s cannot inherit permission from a later sign-in",
+    async (boundary) => {
+      stubPlaybackStorage();
+      const db = await database();
+      try {
+        // A surviving local register must not authorize a stale writer across
+        // the account boundary, even when a subsequent sign-in reopens it.
+        saveLocalPlaybackState(USER_A, "book-1", { positionMs: 42000, occurredAt: Date.now() });
+        if (boundary === "entry") {
+          commitAccountSignOutFence();
+          const healing = healMirrorPlaybackFromLocal(USER_A).catch((error: unknown) => error);
+          await reopenAccountAfterSignIn(USER_B);
+          expect(await healing).toMatchObject({ message: expect.stringMatching(/sign.out/i) });
+        } else {
+          let opened!: (value: typeof db) => void;
+          const open = vi.spyOn(mirrorDatabase, "database").mockReturnValueOnce(
+            new Promise((resolve) => {
+              opened = resolve;
+            }),
+          );
+          const healing = healMirrorPlaybackFromLocal(USER_A).catch((error: unknown) => error);
+          await vi.waitFor(() => expect(open).toHaveBeenCalledTimes(1));
+          commitAccountSignOutFence();
+          const get = IDBObjectStore.prototype.get;
+          vi.spyOn(IDBObjectStore.prototype, "get").mockImplementation(function (
+            this: IDBObjectStore,
+            key,
+          ) {
+            const request = get.call(this, key);
+            // If the fenced job is admitted to the transaction, a later
+            // sign-in can clear the fence before the final commit assertion.
+            if (this.name === "playbackStates") void reopenAccountAfterSignIn(USER_B);
+            return request;
+          });
+          opened(db);
+          expect(await healing).toMatchObject({ message: expect.stringMatching(/sign.out/i) });
+        }
+        expect(await db.getAll("playbackStates")).toEqual([]);
+        expect(await db.getAll("downloads")).toEqual([]);
+      } finally {
+        db.close();
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
+  it.each(["deletion", "sign-out", "during-write", "normalization", "committed-sign-out"])(
+    "refuses %s fences without partial writes and respects the fence's account scope",
+    async (fence) => {
+      const values = stubPlaybackStorage();
+      const fenceAccount = () =>
+        values.set(
+          PENDING_ACCOUNT_DELETION_KEY,
+          JSON.stringify({
+            userId: USER_A,
+            deleteToken: "disposable-fence-fixture",
+            phase: "purged",
+            createdAt: Date.now(),
+          }),
+        );
+      try {
+        for (const userId of [USER_A, USER_B]) {
+          saveLocalPlaybackState(userId, "book-1", { positionMs: 42000, occurredAt: Date.now() });
+        }
+        if (fence === "normalization") {
+          await persistProgressNormalization(USER_A, "book-1", {
+            position: {
+              submitted: { value: 42000, occurredAt: 1 },
+              canonical: { value: 43000, occurredAt: 2 },
+            },
+          });
+          fenceAccount();
+        }
+        const localBefore = new Map(values);
+        if (fence === "deletion") fenceAccount();
+        if (fence === "sign-out") installAccountSignOutFence(USER_A);
+        if (fence === "committed-sign-out") commitAccountSignOutFence();
+        if (fence === "during-write") {
+          const put = IDBObjectStore.prototype.put;
+          vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function (
+            this: IDBObjectStore,
+            value,
+            key,
+          ) {
+            const request = put.call(this, value, key);
+            if (this.name === "playbackStates" && value.userId === USER_A) fenceAccount();
+            return request;
+          });
+        }
+        await expect(healMirrorPlaybackFromLocal(USER_A)).rejects.toThrow(/deletion|sign.out/i);
+        expect(await storeContents("playbackStates")).toEqual([]);
+        expect(await storeContents("downloads")).toEqual([]);
+        if (fence === "normalization") {
+          expect(values).toEqual(localBefore);
+          expect(await listProgressNormalizations(USER_A)).toHaveLength(1);
+        }
+        if (fence === "committed-sign-out") {
+          await expect(healMirrorPlaybackFromLocal(USER_B)).rejects.toThrow(/sign.out/i);
+          expect(await storeContents("playbackStates")).toEqual([]);
+          return;
+        }
+        await expect(healMirrorPlaybackFromLocal(USER_B)).resolves.toBe(1);
+        expect(await storeContents("playbackStates")).toMatchObject([
+          { userId: USER_B, positionMs: 42000 },
+        ]);
+      } finally {
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
   it("discovers register-only state when the joined snapshot write fails", async () => {
     const values = new Map<string, string>();
     const legacyKey = `chapterline:position:${USER_A}:book-1`;

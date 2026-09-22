@@ -62,7 +62,9 @@ const BOOK_COUNT = 9;
 
 test.beforeAll(async () => {
   test.setTimeout(900_000);
-  await resumeFixture(BOOK_COUNT);
+  // Two devices listen sequentially; a loaded run can exhaust the 24-second
+  // fixture and correctly restart a finished book at zero. Keep it mid-book.
+  await resumeFixture(BOOK_COUNT, { 5: 15 });
 });
 
 test.afterAll(async () => {

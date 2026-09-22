@@ -735,6 +735,15 @@
   background: color-mix(in srgb, var(--danger) 88%, black);
 }
 
+/* Small list covers keep the icon; the row spells out the missing-source state. */
+.book-grid-list .book-cover > .book-offdevice {
+  font-size: var(--text-xs);
+}
+
+.book-grid-list .book-offdevice > span {
+  display: none;
+}
+
 /* Same footprint as the play button, deliberately not the same affordance. */
 .book-play-unavailable,
 .continue-unavailable {
@@ -760,7 +769,7 @@
   min-width: 0;
 }
 
-.narrating-title {
+.narrating-copy .narrating-title {
   display: block;
   overflow: hidden;
   color: var(--text);
@@ -773,11 +782,8 @@
 
 .narrating-copy p {
   margin: 0;
-  overflow: hidden;
   color: var(--text-muted);
   font-size: var(--text-sm);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .narrating-book .book-cover {
@@ -786,12 +792,6 @@
   border: 0;
   background: var(--surface-muted);
   color: var(--accent);
-  cursor: pointer;
-}
-
-.narrating-book .book-cover:disabled {
-  color: var(--text-muted);
-  cursor: default;
 }
 
 .narrating-badge {
@@ -819,63 +819,4 @@
   display: block;
   height: 100%;
   background: var(--accent);
-}
-
-/* The narrating screen borrows the player's layout; only the parts a book
-   without finished audio cannot have are defined here. */
-.narrating-cover-art {
-  display: grid;
-  place-items: center;
-  background: var(--surface-muted);
-  color: var(--accent);
-}
-
-.narrating-scrubber {
-  width: 100%;
-  margin: 1.25rem 0 0.5rem;
-}
-
-.narrating-bar {
-  width: 100%;
-  height: 0.4rem;
-  overflow: hidden;
-  border-radius: var(--radius-pill);
-  background: var(--surface-muted);
-}
-
-.narrating-bar span {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-}
-
-.narrating-scrubber-legend {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 0.45rem;
-  color: var(--text-muted);
-  font-size: var(--text-xs);
-}
-
-.narrating-transport {
-  display: flex;
-  justify-content: center;
-  min-height: 56px;
-  margin: 0.75rem 0;
-}
-
-.narrating-live {
-  margin: 0;
-  align-self: center;
-  color: var(--accent);
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
-
-.narrating-note {
-  max-width: 30rem;
-  margin: 0.5rem auto 0;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  text-align: center;
 }

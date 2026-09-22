@@ -2,11 +2,13 @@ import type { StoreNames } from "idb";
 
 import { ACTIVE_USER_KEY } from "@/lib/app-keys";
 import {
+  createAccountWriteScope,
   installAccountSignOutFence,
+  isAccountWriteFenced,
   reopenAccountAfterSignIn,
   withAccountPurgeLock,
 } from "@/lib/account-deletion-fence";
-import { forgetActiveUserId } from "@/lib/active-user";
+import { forgetActiveUserId, readActiveUserId } from "@/lib/active-user";
 import {
   listQueuedMutationUserIds,
   listQueuedMutations,
@@ -395,24 +397,78 @@ export async function drainBeforeSignOut(
   if (!queued.length && !actions.length && !preferences.length) return [];
 
   const timeoutMs = options.drainTimeoutMs ?? SIGN_OUT_DRAIN_TIMEOUT_MS;
+  const deadline = performance.now() + timeoutMs;
+  let finished = false;
+  const send = options.fetchFn ?? fetch;
+  const scope = isAccountWriteFenced(userId) ? null : createAccountWriteScope(userId);
+  const canSend = () => {
+    const active = readActiveUserId();
+    return (
+      scope !== null &&
+      !scope.signal.aborted &&
+      !isAccountWriteFenced(userId) &&
+      (!active || active === userId) &&
+      !finished &&
+      performance.now() < deadline
+    );
+  };
+  const drainQueue = async (
+    replay: (fetchFn: typeof fetch) => Promise<void>,
+    hasPending: () => Promise<boolean>,
+  ) => {
+    while (canSend()) {
+      let sent = false;
+      let busy = false;
+      await replay(async (input, init) => {
+        if (!canSend()) throw new DOMException("The sign-out drain ended.", "AbortError");
+        sent = true;
+        const response = await send(input, init);
+        busy ||= response.status === 503 && response.headers.get("Retry-After") === "1";
+        return response;
+      }).catch(() => undefined);
+      if (!canSend()) return;
+      if (!sent) {
+        // Per-account single-flight may have joined an ambient pass whose fetch
+        // we did not supply. Once it settles, re-read and make our own pass.
+        // Never split single-flight by fetch identity or run parallel replays.
+        if (!(await hasPending().catch(() => false))) return;
+        continue;
+      }
+      if (!busy || performance.now() + 1_000 >= deadline) return;
+      // The replay (and its entity locks) has FINISHED. Terminal progress can
+      // journal during this wait; the next pass reads the latest durable intent.
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+  };
   let expire: ReturnType<typeof setTimeout> | undefined;
   const bound = new Promise<void>((resolve) => {
     expire = setTimeout(resolve, timeoutMs);
   });
   const drain = Promise.all([
     queued.length
-      ? replayQueuedMutations(userId, options.fetchFn).catch(() => undefined)
+      ? drainQueue(
+          (drainFetch) => replayQueuedMutations(userId, drainFetch),
+          async () => (await listQueuedMutations(userId)).length > 0,
+        )
       : Promise.resolve(),
     actions.length
-      ? replayPlaybackHistory(userId, options.fetchFn).catch(() => undefined)
+      ? drainQueue(
+          (drainFetch) => replayPlaybackHistory(userId, drainFetch),
+          async () => (await listPendingPlaybackActions(userId)).length > 0,
+        )
       : Promise.resolve(),
     preferences.length
-      ? flushPendingPreferences(userId, options.fetchFn).catch(() => undefined)
+      ? drainQueue(
+          (drainFetch) => flushPendingPreferences(userId, drainFetch),
+          async () => listPendingPreferenceWrites(userId).length > 0,
+        )
       : Promise.resolve(),
   ]).then(() => undefined);
   try {
     await Promise.race([drain, bound]);
   } finally {
+    finished = true;
+    scope?.release();
     clearTimeout(expire);
   }
 

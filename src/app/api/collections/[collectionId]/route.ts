@@ -4,6 +4,7 @@ import { z } from "zod";
 import { collectionPatchSchema } from "@/server/api/mutation-schemas";
 import { withMutation } from "@/server/api/route-handler";
 import { db } from "@/server/db/client";
+import { monotonicTimestamp } from "@/server/db/monotonic-timestamp";
 import { books, collectionBooks, collections } from "@/server/db/schema";
 
 export const runtime = "nodejs";
@@ -41,7 +42,10 @@ export const PATCH = withMutation(
       if (name !== undefined || bookId !== undefined) {
         await transaction
           .update(collections)
-          .set({ ...(name !== undefined ? { name } : {}), updatedAt: new Date() })
+          .set({
+            ...(name !== undefined ? { name } : {}),
+            updatedAt: monotonicTimestamp(collections.updatedAt),
+          })
           .where(eq(collections.id, params.collectionId));
       }
       if (bookId !== undefined && include === false) {

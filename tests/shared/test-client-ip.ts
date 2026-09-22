@@ -9,4 +9,5 @@ export const TEST_CLIENT_HEADERS = {
   sync: { "x-forwarded-for": "198.51.100.103" },
   resume: { "x-forwarded-for": "198.51.100.104" },
   launch: { "x-forwarded-for": "198.51.100.105" },
+  retained: { "x-forwarded-for": "198.51.100.111" },
 } as const;

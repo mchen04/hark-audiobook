@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import ts from "typescript";
 
 /**
  * The sync unit is the book aggregate (`docs/local-first.md` section 3).
@@ -11,9 +12,8 @@ import { describe, expect, it } from "vitest";
  * change no other device can ever observe. It is silent: the route returns 200,
  * the local UI updates, and the write simply never propagates.
  *
- * This is a source-level guard because the failure is an *absence*, and an
- * absence has no runtime behaviour to assert. It is the same technique
- * `service-worker-shell.test.ts` uses on `public/sw.js`.
+ * This cheap source-level route audit complements the production-PWA sync
+ * regressions. It does not prove database receipt or commit ordering.
  */
 
 const API_ROOT = join(process.cwd(), "src/app/api");
@@ -60,7 +60,7 @@ describe("every mutation route bumps its parent aggregate", () => {
         (route) =>
           writesChild(route.source, child) &&
           // A route that creates the parent in the same request has nothing to
-          // bump — the row is new and its `updatedAt` defaults to now.
+          // bump — the insertion stamps its own receipt.
           !new RegExp(`\\.insert\\(\\s*${parent}\\s*\\)`).test(route.source) &&
           !bumpsParent(route.source, parent),
       );
@@ -88,10 +88,19 @@ describe("every mutation route bumps its parent aggregate", () => {
 describe("deletions leave a durable tombstone", () => {
   it("writes the tombstone in the same transaction as the book delete", () => {
     const source = ROUTES.find((route) => route.name === "books/[bookId]/route.ts")!.source;
-    const block = source.match(
-      /await db\.transaction\(async \(transaction\) => \{[\s\S]*?\n {2}\}\);/g,
-    );
-    const deleting = block?.find((chunk) => /\.delete\(books\)/.test(chunk));
+    // Parse callback boundaries, independent of formatter line breaks or a
+    // transaction-options argument. A regex could also span two transactions.
+    const file = ts.createSourceFile("route.ts", source, ts.ScriptTarget.Latest, true);
+    const blocks: string[] = [];
+    function visit(node: ts.Node) {
+      if (ts.isCallExpression(node) && node.expression.getText(file) === "db.transaction") {
+        const callback = node.arguments[0];
+        if (callback && ts.isArrowFunction(callback)) blocks.push(callback.body.getText(file));
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(file);
+    const deleting = blocks.find((chunk) => /\.delete\(books\)/.test(chunk));
     expect(deleting, "the delete must run in a transaction").toBeDefined();
     expect(deleting!).toMatch(/\.insert\(bookTombstones\)/);
   });

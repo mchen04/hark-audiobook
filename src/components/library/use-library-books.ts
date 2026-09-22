@@ -1,19 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { LibraryBook } from "@/domain/library";
+import { filterLibraryBooks, type LibraryBook } from "@/domain/library";
 import { afterLaunchPaint } from "@/lib/launch-revalidation";
-import { database, mirrorKeyTail, type OfflineBook } from "@/lib/offline/db";
+import type { OfflineBook } from "@/lib/offline/db";
 import { removeOfflineBook } from "@/lib/offline/deletion-journal";
 import { listOfflineBooks, listVisibleStoredOfflineBooks } from "@/lib/offline/library";
+import { libraryRevision } from "@/lib/offline/library-revision";
 import {
   applyPullBatch,
-  getMirrorContinueBook,
   getSyncMeta,
   healMirrorPlaybackFromLocal,
-  listMirrorBooks,
-  listMirrorTagNames,
+  readMirrorLibrary,
 } from "@/lib/offline/mirror";
 import { isPullBatch } from "@/lib/offline/sync-protocol";
 import { singleFlight } from "@/lib/single-flight";
@@ -64,9 +63,6 @@ type LibraryListing = {
   continueBook: LibraryBook | null;
 };
 
-type Overview = { libraryTotal: number; tags: string[]; continueBook: LibraryBook | null };
-type Listing = { books: LibraryBook[]; device: DeviceIndex };
-
 const PULL_PAGE_LIMIT = 50;
 
 /**
@@ -116,16 +112,21 @@ function firstSyncStatusOf(
   return "waiting";
 }
 
-export function useLibraryBooks(userId: string | null, filters: LibraryFilters) {
+export function useLibraryBooks(
+  userId: string | null,
+  filters: LibraryFilters,
+  routeBookId: string | null = null,
+) {
   const { query, status, tag, sort, onDevice } = filters;
-  const [overview, setOverview] = useState<Overview | null>(null);
-  const [listing, setListing] = useState<Listing | null>(null);
+  const [source, setSource] = useState<(LibraryListing & { userId: string }) | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const [nonce, setNonce] = useState(0);
-  // Per-mount heal bookkeeping: returning to the library must heal again (the
-  // player wrote fresh local positions), but keystrokes within a visit must
-  // not. A ref scopes the marker to this mount without module-level state.
-  const healScope = useRef<HealScope>({ healed: null });
+  const loaded = useRef<{
+    userId: string;
+    nonce: number;
+    routeBookId: string | null;
+    revision: number;
+  } | null>(null);
   const [reconnects, setReconnects] = useState(0);
   const [firstSync, setFirstSync] = useState<FirstSync>("unknown");
   /**
@@ -139,14 +140,24 @@ export function useLibraryBooks(userId: string | null, filters: LibraryFilters) 
 
   const reread = useCallback(() => setNonce((current) => current + 1), []);
 
-  // Filter-independent: the tag vocabulary, the continue card and the total
-  // the readiness marker is decided from. Keystrokes never re-read these.
+  // Unchanged filters use the account snapshot. A committed mutation marks it
+  // dirty (also across tabs), so the next control interaction reads fresh rows.
+  // Route returns and explicit refreshes also heal this device's saved position.
   useEffect(() => {
     if (!userId) return;
+    const prior = loaded.current;
+    const refresh =
+      prior?.userId !== userId || prior.nonce !== nonce || prior.routeBookId !== routeBookId;
+    const revision = libraryRevision();
+    if (!refresh && prior.revision === revision) return;
     let active = true;
-    void readOverview(userId, healScope.current, `${nonce}`)
+    void readLibrary(userId, refresh)
       .then((next) => {
-        if (active) setOverview(next);
+        if (active) {
+          loaded.current = { userId, nonce, routeBookId, revision };
+          setSource({ ...next, userId });
+          setUnavailable(false);
+        }
       })
       .catch(() => {
         if (active) setUnavailable(true);
@@ -154,24 +165,16 @@ export function useLibraryBooks(userId: string | null, filters: LibraryFilters) 
     return () => {
       active = false;
     };
-  }, [userId, nonce]);
+  }, [userId, nonce, routeBookId, query, status, tag, sort, onDevice]);
 
-  // The list itself. The previous list stays mounted while this runs, so a
-  // re-read patches rows in place instead of unmounting the grid.
-  useEffect(() => {
-    if (!userId) return;
-    let active = true;
-    void readListing(userId, { query, status, tag, sort, onDevice }, healScope.current, `${nonce}`)
-      .then((next) => {
-        if (active) setListing(next);
-      })
-      .catch(() => {
-        if (active) setUnavailable(true);
-      });
-    return () => {
-      active = false;
+  const snapshot = useMemo(() => {
+    if (!source || source.userId !== userId) return null;
+    const books = filterLibraryBooks(source.books, { query, status, tag, sort });
+    return {
+      ...source,
+      books: onDevice ? books.filter((book) => source.device.has(book.id)) : books,
     };
-  }, [userId, query, status, tag, sort, onDevice, nonce]);
+  }, [source, userId, query, status, tag, sort, onDevice]);
 
   // Revalidation, after paint and never before.
   //
@@ -255,8 +258,12 @@ export function useLibraryBooks(userId: string | null, filters: LibraryFilters) 
   useEffect(() => {
     const onOnline = () => setReconnects((current) => current + 1);
     window.addEventListener("online", onOnline);
-    return () => window.removeEventListener("online", onOnline);
-  }, []);
+    window.addEventListener("focus", reread);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("focus", reread);
+    };
+  }, [reread]);
 
   const retry = useCallback(() => {
     setUnavailable(false);
@@ -266,11 +273,11 @@ export function useLibraryBooks(userId: string | null, filters: LibraryFilters) 
     reread();
   }, [reread]);
 
-  /** After an import: pull it back down, then re-read. */
+  /** Completed local audio is usable even while the sync peer is stalled. */
   const reload = useCallback(async () => {
     if (!userId) return;
-    await revalidate(userId);
     reread();
+    void revalidate(userId).then(reread);
   }, [userId, reread]);
 
   const removeDownload = useCallback(
@@ -289,8 +296,6 @@ export function useLibraryBooks(userId: string | null, filters: LibraryFilters) 
     },
     [userId, reread],
   );
-
-  const snapshot: LibraryListing | null = overview && listing ? { ...listing, ...overview } : null;
 
   return {
     snapshot,
@@ -321,104 +326,36 @@ export function useLibraryBooks(userId: string | null, filters: LibraryFilters) 
 // Local reads
 // ---------------------------------------------------------------------------
 
-/**
- * The shelf must show what this device knows, not what it last heard from the
- * server. A relaunch after a kill has a durable local position that no
- * IndexedDB write ever got to record, so the mirror is brought up to date
- * before it is read. Single-flighted: the overview and the listing are two
- * concurrent readers of one snapshot, and they must not race each other into
- * the same rows.
- */
+// A refresh heals the durable position once; filter keystrokes never write.
 const activeHeals = new Map<string, Promise<void>>();
-type HealScope = { healed: string | null };
 
-function healBeforeRead(userId: string, scope: HealScope, generation: string): Promise<void> {
-  // One heal per refresh generation. Filter keystrokes within a visit reuse
-  // it rather than opening a read-write transaction per keypress; the accepted
-  // cost is that a card's progress can lag by a few seconds while the
-  // mini-player plays on this page, until the next reload or visit.
-  const key = `${userId}:${generation}`;
-  if (scope.healed === key) return Promise.resolve();
-  return singleFlight(activeHeals, userId, async () => {
-    // Never fatal to a library read: a device that cannot write the mirror can
-    // still show what the mirror already holds.
-    await healMirrorPlaybackFromLocal(userId).catch(() => 0);
-  }).then(() => {
-    // Marked by every caller, not inside the flight: a reader that joined an
-    // in-progress heal must remember its own scope was covered too.
-    scope.healed = key;
-  });
-}
-
-async function readOverview(
-  userId: string,
-  scope: HealScope,
-  generation: string,
-): Promise<Overview> {
-  await healBeforeRead(userId, scope, generation);
-  const [tags, continueBook, mirrorIds, records] = await Promise.all([
-    listMirrorTagNames(userId),
-    getMirrorContinueBook(userId),
-    readMirrorBookIds(userId),
+async function readLibrary(userId: string, heal: boolean): Promise<LibraryListing> {
+  // Never fatal to a read: a device that cannot write the mirror can still show
+  // what the mirror already holds.
+  if (heal)
+    await singleFlight(activeHeals, userId, async () => {
+      await healMirrorPlaybackFromLocal(userId).catch(() => 0);
+    });
+  const [mirror, records] = await Promise.all([
+    readMirrorLibrary(userId),
     listVisibleStoredOfflineBooks(userId),
   ]);
-  const deviceOnly = records.filter((record) => !mirrorIds.has(record.book.id)).length;
-  return { libraryTotal: mirrorIds.size + deviceOnly, tags, continueBook };
-}
-
-async function readListing(
-  userId: string,
-  filters: LibraryFilters,
-  scope: HealScope,
-  generation: string,
-): Promise<Listing> {
-  await healBeforeRead(userId, scope, generation);
-  const [rows, records, mirrorIds] = await Promise.all([
-    listMirrorBooks(userId, {
-      query: filters.query.trim() || undefined,
-      status: filters.status,
-      tag: filters.tag || undefined,
-      sort: filters.sort,
-    }),
-    listVisibleStoredOfflineBooks(userId),
-    readMirrorBookIds(userId),
-  ]);
+  const mirrorIds = new Set(mirror.books.map((book) => book.id));
+  // Keep metadata for device-only books even if their audio was evicted.
+  const books = [
+    ...mirror.books,
+    ...records.filter((record) => !mirrorIds.has(record.book.id)).map(asLibraryBook),
+  ];
   const device: DeviceIndex = new Map(
     records.filter((record) => !record.mediaMissingSince).map((record) => [record.book.id, record]),
   );
-  // Every record, marked or not: a book this device imported and the mirror has
-  // not seen yet must keep its row even after its audio went missing, or the
-  // only way back to the attach screen would vanish with it.
-  const merged = withDeviceOnlyBooks(rows, records, mirrorIds, filters);
-  return { books: filters.onDevice ? merged.filter((row) => device.has(row.id)) : merged, device };
-}
-
-/** Ids only — no record is deserialized, so this stays cheap on big libraries. */
-async function readMirrorBookIds(userId: string): Promise<Set<string>> {
-  const db = await database();
-  const keys = await db.getAllKeysFromIndex("books", "by-user", userId);
-  return new Set(keys.map(mirrorKeyTail));
-}
-
-/**
- * A book can be on this device before it exists in the mirror: a local import
- * lands in `downloads` at once, and the first pull after an upgrade or after
- * the mirror was evicted has not run yet (design contract sections 10 and 12).
- * Those records are projected into rows and filtered by the same rules rather
- * than dropped, so the library never hides a book this device can play.
- */
-function withDeviceOnlyBooks(
-  rows: LibraryBook[],
-  records: OfflineBook[],
-  mirrorIds: Set<string>,
-  filters: LibraryFilters,
-): LibraryBook[] {
-  const extras = records
-    .filter((record) => !mirrorIds.has(record.book.id))
-    .map(asLibraryBook)
-    .filter((row) => matchesDeviceOnly(row, filters));
-  if (!extras.length) return rows;
-  return [...rows, ...extras].sort(comparatorFor(filters.sort));
+  return {
+    books,
+    device,
+    libraryTotal: books.length,
+    tags: mirror.tags,
+    continueBook: mirror.continueBook,
+  };
 }
 
 function asLibraryBook(record: OfflineBook): LibraryBook {
@@ -438,46 +375,6 @@ function asLibraryBook(record: OfflineBook): LibraryBook {
     completed: record.book.completed || false,
     progressUpdatedAt: record.book.initialProgressOccurredAt,
   };
-}
-
-/** The mirror's own rules, applied to a row the mirror does not hold yet. */
-function matchesDeviceOnly(row: LibraryBook, filters: LibraryFilters): boolean {
-  // A row the mirror has never seen carries no tag edges, so any tag facet
-  // excludes it rather than silently widening the filter.
-  if (filters.tag) return false;
-  const completed = row.completed || false;
-  const positionMs = row.positionMs || 0;
-  if (filters.status === "archived") return false;
-  if (filters.status === "finished" && !completed) return false;
-  if (filters.status === "in-progress" && (completed || positionMs === 0)) return false;
-  if (filters.status === "not-started" && (completed || positionMs > 0)) return false;
-  const needle = filters.query.trim().toLowerCase();
-  return !needle || `${row.title} ${row.author}`.toLowerCase().includes(needle);
-}
-
-/**
- * Mirrors `comparatorFor` in `lib/offline/mirror.ts`. It is needed only to
- * splice device-only rows into an already-sorted list; the mirror stays the
- * single implementation for everything it holds.
- */
-function comparatorFor(sort: SortOrder): (left: LibraryBook, right: LibraryBook) => number {
-  if (sort === "title" || sort === "author") {
-    return (left, right) =>
-      left[sort].toLowerCase().localeCompare(right[sort].toLowerCase()) ||
-      left.id.localeCompare(right.id);
-  }
-  if (sort === "added") {
-    return (left, right) =>
-      right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id);
-  }
-  return (left, right) =>
-    activityAt(right).localeCompare(activityAt(left)) || right.id.localeCompare(left.id);
-}
-
-function activityAt(book: LibraryBook): string {
-  return book.progressUpdatedAt && book.progressUpdatedAt > book.updatedAt
-    ? book.progressUpdatedAt
-    : book.updatedAt;
 }
 
 // ---------------------------------------------------------------------------

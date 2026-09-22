@@ -14,8 +14,8 @@ import {
  * The one durability question this machine cannot answer, and the safety net
  * that makes it not matter.
  *
- * THE QUESTION (`docs/resume-durability-device-check.md`, nine avenues probed
- * and measured closed): while the PWA is backgrounded with the screen off and
+ * THE QUESTION (`docs/resume-durability-device-check.md`): while the PWA is
+ * backgrounded with the screen off and
  * audio playing, does iOS suspend BOTH the 200 ms cadence timer AND the media
  * element's `timeupdate`? Playwright's WebKit never reports a page as genuinely
  * hidden, `setActivityState` does not exist in `playwright-core`, macOS Safari

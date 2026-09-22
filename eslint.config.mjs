@@ -7,6 +7,7 @@ export default defineConfig([
   ...nextTypeScript,
   globalIgnores([
     ".next/**",
+    ".data/**",
     "coverage/**",
     "public/sw.js",
     "public/pdf.worker.*.min.mjs",
