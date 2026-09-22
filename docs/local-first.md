@@ -131,8 +131,12 @@ not the admitted write itself. The server never retries; the client does.
 The client already retains 5xx writes durably and replays them on mount or
 reconnect, and the player resends its current state on transport actions and
 heartbeats. The sign-out drain additionally retries this hinted busy response
-once a second inside its existing eight-second budget. It never extends that
-budget and never starts a retry after the drain ends; undelivered writes are
+after a one-second wait between replay passes, inside its existing eight-second
+budget. It joins any ambient per-account replay before making a fresh pass;
+entity locks are released during the wait so terminal progress can journal and
+the next pass reads the newest intent. A fence (even if later reopened), a new
+active account, or the drain deadline prevents further sends. It never extends
+that budget; undelivered writes are
 still reported and privacy purging still completes. Ordinary background replay
 does not schedule from `Retry-After`, so a paused app may hold the write until
 its next mount or reconnect.

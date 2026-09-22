@@ -1,9 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "fake-indexeddb/auto";
 import { IDBFactory as FakeIDBFactory } from "fake-indexeddb";
 
 import { ACTIVE_USER_KEY } from "@/lib/app-keys";
 import { subscribeActiveUser } from "@/lib/active-user";
+import { createProgressPersister } from "@/components/player/progress-persister";
+import type { PlayerBook } from "@/domain/player";
+import { installAccountSignOutFence, reopenAccountAfterSignIn } from "@/lib/account-deletion-fence";
+import * as mutationReplay from "@/lib/offline-sync";
+import * as historyReplay from "@/lib/playback-history";
 import {
   listQueuedMutations,
   nextDeviceSequence,
@@ -21,7 +26,13 @@ import {
 import { listPendingPreferenceWrites, savePreferences } from "@/lib/preferences";
 import { openDB } from "idb";
 
-import { listLocalUserIds, purgeAccount, purgeOnSignIn, purgeOnSignOut } from "./account-purge";
+import {
+  drainBeforeSignOut,
+  listLocalUserIds,
+  purgeAccount,
+  purgeOnSignIn,
+  purgeOnSignOut,
+} from "./account-purge";
 import { database, MEDIA_CACHE, mirrorKey } from "./db";
 import { commitMetadataEdit } from "./outbox";
 
@@ -915,3 +926,161 @@ async function sequenceRowsFor(userId: string): Promise<number> {
   sync.close();
   return rows.filter((row) => row.key.startsWith(`${userId}:`)).length;
 }
+
+/** Busy admission must retry BETWEEN single-flight passes, outside entity locks. */
+describe("sign-out replay coordination", () => {
+  afterEach(() => vi.restoreAllMocks());
+  const busy = () => new Response(null, { status: 503, headers: { "Retry-After": "1" } });
+  const ok = () => new Response(null, { status: 200 });
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((done) => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  }
+
+  for (const lane of ["mutations", "history"] as const) {
+    async function seed() {
+      if (lane === "mutations") {
+        await commitMetadataEdit({ userId: USER_A, deviceId: "device-1" }, "book", {
+          title: "Pending",
+        });
+      } else {
+        await storePlaybackAction(USER_A, "book", playbackEntry("ambient-action"), async () =>
+          busy(),
+        );
+      }
+    }
+    function observeReplay() {
+      return lane === "mutations"
+        ? vi.spyOn(mutationReplay, "replayQueuedMutations")
+        : vi.spyOn(historyReplay, "replayPlaybackHistory");
+    }
+
+    it(`joins ambient ${lane}, then runs its own busy retry without parallel replay`, async () => {
+      await seed();
+      const replay = observeReplay(); // Delegates to the actual per-account single-flight.
+      const response = deferred<Response>();
+      const started = deferred<void>();
+      let ambientActive = true;
+      const ambient = replay(USER_A, async () => {
+        started.resolve();
+        return response.promise;
+      });
+      await started.promise;
+      const send = vi.fn<typeof fetch>().mockImplementation(async () => {
+        expect(ambientActive, "drain ran in parallel with the ambient replay").toBe(false);
+        return send.mock.calls.length === 1 ? busy() : ok();
+      });
+      const signingOut = purgeOnSignOut(USER_A, { fetchFn: send, drainTimeoutMs: 3_000 });
+      await vi.waitFor(() => expect(replay).toHaveBeenCalledTimes(2));
+      expect(send).not.toHaveBeenCalled();
+      ambientActive = false;
+      response.resolve(busy());
+      await ambient;
+      const outcome = await signingOut;
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(outcome).toEqual({ undelivered: [], failure: null });
+      expect(await listLocalUserIds()).not.toContain(USER_A);
+    });
+
+    it(`never starts a follow-up after a joined ${lane} reply misses the drain budget`, async () => {
+      await seed();
+      const replay = observeReplay();
+      const response = deferred<Response>();
+      const started = deferred<void>();
+      const ambient = replay(USER_A, async () => {
+        started.resolve();
+        return response.promise;
+      });
+      await started.promise;
+      const send = vi.fn<typeof fetch>().mockResolvedValue(ok());
+      const outcome = await purgeOnSignOut(USER_A, { fetchFn: send, drainTimeoutMs: 25 });
+      expect(replay).toHaveBeenCalledTimes(2);
+      expect(outcome.undelivered).toHaveLength(1);
+      response.resolve(busy());
+      await ambient;
+      // Flush the drain's continuation after the joined promise settles.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(send).not.toHaveBeenCalled();
+      expect(await listLocalUserIds()).not.toContain(USER_A);
+    });
+  }
+
+  it("journals terminal progress during the retry wait and sends the refreshed intent", async () => {
+    storage.setItem(ACTIVE_USER_KEY, USER_A);
+    const terminalFetch = vi.fn<typeof fetch>().mockResolvedValue(busy());
+    vi.stubGlobal("fetch", terminalFetch);
+    const persister = createProgressPersister({
+      getUserId: () => USER_A,
+      getAudio: () => ({ playbackRate: 1 }) as HTMLAudioElement,
+      getActiveBook: () =>
+        ({
+          id: "book",
+          durationMs: 60_000,
+          completed: false,
+          initialPositionMs: 0,
+          initialPlaybackRate: 1,
+        }) as PlayerBook,
+    });
+    persister.markPositionChanged();
+    await persister.persistProgress("pagehide-flush", 5_000);
+    const initial = (await listQueuedMutations(USER_A))[0]!;
+    expect(initial.payload.positionMs).toBe(5_000);
+    const waiting = deferred<void>();
+    const send = vi.fn<typeof fetch>().mockImplementation(async () => {
+      if (send.mock.calls.length === 1) {
+        waiting.resolve();
+        return busy();
+      }
+      return ok();
+    });
+    const draining = drainBeforeSignOut(USER_A, { fetchFn: send, drainTimeoutMs: 3_000 });
+    await waiting.promise;
+    const terminal = persister.persistProgress("pagehide-flush", 7_000);
+    try {
+      const completedDuringWait = await Promise.race([
+        terminal.then(() => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 250)),
+      ]);
+      expect(completedDuringWait, "terminal outbox write waited behind retry sleep").toBe(true);
+      const current = (await listQueuedMutations(USER_A))[0]!;
+      expect(current.payload.positionMs).toBe(7_000);
+      expect(current.deviceSequence).toBeGreaterThan(initial.deviceSequence);
+      expect(await draining).toEqual([]);
+      const sent = send.mock.calls.map(([, init]) => JSON.parse(String(init?.body)));
+      expect(sent.map((body) => body.positionMs)).toEqual([5_000, 7_000]);
+      expect(sent[1].deviceSequence).toBeGreaterThan(sent[0].deviceSequence);
+    } finally {
+      await Promise.all([terminal, draining]);
+    }
+  });
+
+  it.each(["fence then reauthenticate", "switch active account"] as const)(
+    "stops waiting retries across %s without touching the other account",
+    async (boundary) => {
+      vi.stubGlobal("window", new EventTarget());
+      storage.setItem(ACTIVE_USER_KEY, USER_A);
+      await commitMetadataEdit({ userId: USER_A, deviceId: "a" }, "book", { title: "A" });
+      await commitMetadataEdit({ userId: USER_B, deviceId: "b" }, "other", { title: "B" });
+      const other = await listQueuedMutations(USER_B);
+      const waiting = deferred<void>();
+      const send = vi.fn<typeof fetch>().mockImplementation(async () => {
+        waiting.resolve();
+        return busy();
+      });
+      const draining = drainBeforeSignOut(USER_A, { fetchFn: send, drainTimeoutMs: 2_000 });
+      await waiting.promise;
+      if (boundary === "fence then reauthenticate") {
+        installAccountSignOutFence(USER_A);
+        await reopenAccountAfterSignIn(USER_A);
+      } else {
+        storage.setItem(ACTIVE_USER_KEY, USER_B);
+      }
+      expect(await draining).toHaveLength(1);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(await listQueuedMutations(USER_B)).toEqual(other);
+    },
+  );
+});

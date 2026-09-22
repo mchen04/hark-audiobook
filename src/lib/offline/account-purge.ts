@@ -2,11 +2,13 @@ import type { StoreNames } from "idb";
 
 import { ACTIVE_USER_KEY } from "@/lib/app-keys";
 import {
+  createAccountWriteScope,
   installAccountSignOutFence,
+  isAccountWriteFenced,
   reopenAccountAfterSignIn,
   withAccountPurgeLock,
 } from "@/lib/account-deletion-fence";
-import { forgetActiveUserId } from "@/lib/active-user";
+import { forgetActiveUserId, readActiveUserId } from "@/lib/active-user";
 import {
   listQueuedMutationUserIds,
   listQueuedMutations,
@@ -398,22 +400,45 @@ export async function drainBeforeSignOut(
   const deadline = performance.now() + timeoutMs;
   let finished = false;
   const send = options.fetchFn ?? fetch;
-  const drainFetch: typeof fetch = async (input, init) => {
-    let response = await send(input, init);
-    // Only the server's bounded account-admission failure asks for this retry.
-    // Keep the durable intent and the same request identity; spend the existing
-    // sign-out budget, never extend it or start a retry after the purge begins.
-    while (
-      response.status === 503 &&
-      response.headers.get("Retry-After") === "1" &&
+  const scope = isAccountWriteFenced(userId) ? null : createAccountWriteScope(userId);
+  const canSend = () => {
+    const active = readActiveUserId();
+    return (
+      scope !== null &&
+      !scope.signal.aborted &&
+      !isAccountWriteFenced(userId) &&
+      (!active || active === userId) &&
       !finished &&
-      performance.now() + 1_000 < deadline
-    ) {
+      performance.now() < deadline
+    );
+  };
+  const drainQueue = async (
+    replay: (fetchFn: typeof fetch) => Promise<void>,
+    hasPending: () => Promise<boolean>,
+  ) => {
+    while (canSend()) {
+      let sent = false;
+      let busy = false;
+      await replay(async (input, init) => {
+        if (!canSend()) throw new DOMException("The sign-out drain ended.", "AbortError");
+        sent = true;
+        const response = await send(input, init);
+        busy ||= response.status === 503 && response.headers.get("Retry-After") === "1";
+        return response;
+      }).catch(() => undefined);
+      if (!canSend()) return;
+      if (!sent) {
+        // Per-account single-flight may have joined an ambient pass whose fetch
+        // we did not supply. Once it settles, re-read and make our own pass.
+        // Never split single-flight by fetch identity or run parallel replays.
+        if (!(await hasPending().catch(() => false))) return;
+        continue;
+      }
+      if (!busy || performance.now() + 1_000 >= deadline) return;
+      // The replay (and its entity locks) has FINISHED. Terminal progress can
+      // journal during this wait; the next pass reads the latest durable intent.
       await new Promise((resolve) => setTimeout(resolve, 1_000));
-      if (finished || performance.now() >= deadline) break;
-      response = await send(input, init);
     }
-    return response;
   };
   let expire: ReturnType<typeof setTimeout> | undefined;
   const bound = new Promise<void>((resolve) => {
@@ -421,19 +446,29 @@ export async function drainBeforeSignOut(
   });
   const drain = Promise.all([
     queued.length
-      ? replayQueuedMutations(userId, drainFetch).catch(() => undefined)
+      ? drainQueue(
+          (send) => replayQueuedMutations(userId, send),
+          async () => (await listQueuedMutations(userId)).length > 0,
+        )
       : Promise.resolve(),
     actions.length
-      ? replayPlaybackHistory(userId, drainFetch).catch(() => undefined)
+      ? drainQueue(
+          (send) => replayPlaybackHistory(userId, send),
+          async () => (await listPendingPlaybackActions(userId)).length > 0,
+        )
       : Promise.resolve(),
     preferences.length
-      ? flushPendingPreferences(userId, drainFetch).catch(() => undefined)
+      ? drainQueue(
+          (send) => flushPendingPreferences(userId, send),
+          async () => listPendingPreferenceWrites(userId).length > 0,
+        )
       : Promise.resolve(),
   ]).then(() => undefined);
   try {
     await Promise.race([drain, bound]);
   } finally {
     finished = true;
+    scope?.release();
     clearTimeout(expire);
   }
 

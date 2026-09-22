@@ -16,9 +16,11 @@ does not prove.
 
 CI uses Node 22. This checkout is also verified with Node **26.3.1** using
 `NODE_OPTIONS=--no-experimental-webstorage`. Node 26's experimental global
-`localStorage` masks jsdom storage: the reviewer's default-runtime run at
+`localStorage` masks jsdom storage: the board reviewer's separate default-runtime run at
 `8b5adc2` had 14 setup failures; with that option all 807 tests passed. Those are
-test-host failures, not production-browser storage results.
+test-host failures, not production-browser storage results. The task-root
+`board-review-unit.log` and `board-review-unit-webstorage-disabled.log` preserve
+that run; the later implementer control with 809 tests is a different run.
 
 Use the option for every Vitest entry point, including the combined quick gate:
 

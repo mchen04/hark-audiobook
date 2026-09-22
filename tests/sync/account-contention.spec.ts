@@ -223,7 +223,9 @@ test("a held import bounds contending progress without starving another account"
     expect.soft(Math.max(...results.map((row) => row.elapsedMs))).toBeLessThan(1_500);
     expect.soft(peerResults.map((row) => row.status)).toEqual(Array(8).fill(200));
     expect.soft(Math.max(...peerResults.map((row) => row.elapsedMs))).toBeLessThan(1_000);
-    expect.soft(Math.max(...samples.map((row) => row.waiters))).toBeGreaterThan(0);
+    // Samples can miss a brief wait (including a valid fail-fast admission).
+    // The held writer and 32 real busy responses above are the positive control;
+    // sampled ages and the quiet final sample do not prove an absolute bound.
     expect.soft(Math.max(...samples.map((row) => row.oldestWaitMs))).toBeLessThan(200);
     expect.soft(samples.at(-1)!.waiters).toBe(0);
 
@@ -502,6 +504,253 @@ test("sign-out retries a busy edit within its existing drain budget before purgi
     // fixture normally, then delete only this case's two new IDs.
     const api = await browser.newContext({ storageState: await sessionFor(browser, account) });
     for (const id of [bookId, importing]) await call(api.request, "DELETE", `/api/books/${id}`);
+    await api.close();
+  }
+});
+
+test("sign-out joins a held ambient replay then retries real server contention", async ({
+  browser,
+}, info) => {
+  test.setTimeout(90_000);
+  const net = await network();
+  const account = await ensureAccount(browser, ACCOUNT_A);
+  const device = "contention-ambient-0001";
+  const { context, page } = await openDevice(browser, device, await sessionFor(browser, account));
+  const bookId = randomUUID();
+  const importing = randomUUID();
+  const title = `Ambient sign-out ${randomUUID()}`;
+  let held: Awaited<ReturnType<typeof heldImport>> | undefined;
+  let buffered: ReturnType<typeof net.holdNextResponse> | undefined;
+  const responses: Array<{ atMs: number; status: number }> = [];
+  const errors: string[] = [];
+  const observations: Record<string, unknown> = { responses, errors };
+  page.on("pageerror", (error) => errors.push(error.name));
+  page.on("response", (response) => {
+    if (
+      response.url().endsWith(`/api/books/${bookId}`) &&
+      response.request().method() === "PATCH"
+    ) {
+      responses.push({ atMs: performance.now(), status: response.status() });
+    }
+  });
+  try {
+    expect(
+      (await call(context.request, "POST", "/api/books/local", registration(bookId))).status,
+    ).toBe(201);
+    await page.goto(`${net.origin}/library`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("[data-launch-ready]", { state: "attached" });
+    await waitForServiceWorker(page);
+    // The 404 page has no replay effect. Seed one real outbox row, then mount
+    // the SHIPPING replay on Settings (the bundled driver has a different map).
+    await page.goto(`${net.origin}/__hark_sync_probe__`, { waitUntil: "domcontentloaded" });
+    await attachDriver(page, account, device);
+    await page.evaluate(
+      async ({ bookId, title, userId }) => {
+        localStorage.setItem("chapterline:active-user", userId);
+        await window.__harkSync.commit({ kind: "rename", bookId, fields: { title } });
+      },
+      { bookId, title, userId: account.userId },
+    );
+    held = await heldImport(context.request, account.userId, importing);
+    buffered = net.holdNextResponse("PATCH", `/api/books/${bookId}`);
+    await page.goto(`${net.origin}/settings`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("button", { name: /Sign out/ })).toBeVisible();
+    expect(await buffered.upstreamStatus).toBe(503);
+    // Observe (delegate unchanged) BOTH initial drain reads. The next task runs
+    // after their promise continuations, making the overlap deterministic without
+    // sleeping or invoking a second copy of the app replay in the driver.
+    await page.evaluate(() => {
+      const original = IDBIndex.prototype.getAll;
+      const completed = new Set<string>();
+      IDBIndex.prototype.getAll = function (...args) {
+        const request = original.apply(this, args);
+        const store = this.objectStore.name;
+        const db = this.objectStore.transaction.db.name;
+        if (
+          (db === "chapterline-sync-v1" && store === "mutations") ||
+          (db === "hark-playback-history-v1" && store === "actions")
+        ) {
+          request.addEventListener("success", () => {
+            completed.add(store);
+            if (completed.size === 2)
+              setTimeout(() => {
+                document.documentElement.dataset.drainRead = "complete";
+                IDBIndex.prototype.getAll = original;
+              }, 0);
+          });
+        }
+        return request;
+      };
+    });
+    const signOutAt = performance.now();
+    await page.getByRole("button", { name: /Sign out/ }).click();
+    await page.waitForFunction(() => document.documentElement.dataset.drainRead === "complete");
+    expect(
+      net.hits().filter((hit) => hit.method === "PATCH" && hit.path === `/api/books/${bookId}`),
+    ).toHaveLength(1);
+    observations.joinedBeforeReply = true;
+    buffered.release();
+    // The ambient 503 alone cannot drain this edit. A fresh own pass must run.
+    await expect
+      .poll(() => responses.filter((row) => row.status === 503).length, { timeout: 3_000 })
+      .toBe(2);
+    await attachDriver(page, account, device);
+    expect((await outbox(page)).some((row) => row.payload.title === title)).toBe(true);
+    await page.screenshot({ path: info.outputPath("ambient-busy-drain.png") });
+    held.release();
+    expect((await held.done).status).toBe(201);
+    await page.waitForURL(/\/login/, { timeout: 8_000 });
+    observations.drainElapsedMs = performance.now() - signOutAt;
+    expect(observations.drainElapsedMs).toBeLessThan(8_000);
+    expect(responses.map((row) => row.status)).toEqual([503, 503, 200]);
+    expect(responses[2]!.atMs - responses[1]!.atMs).toBeGreaterThanOrEqual(950);
+    const [saved] = await sql()<
+      { title: string }[]
+    >`select title from books where owner_id=${account.userId} and id=${bookId}::uuid`;
+    expect(saved?.title).toBe(title);
+    observations.saved = saved;
+    await attachDriver(page, account, device);
+    expect(await outbox(page)).toEqual([]);
+    expect(await page.evaluate(() => localStorage.getItem("chapterline:active-user"))).toBe(null);
+    expect(errors).toEqual([]);
+    observations.assertionsPassed = true;
+    await page.screenshot({ path: info.outputPath("ambient-signout-delivered.png") });
+  } finally {
+    buffered?.release();
+    held?.release();
+    if (held) await Promise.allSettled([held.done]);
+    observations.finalUrl = page.url();
+    writeFileSync(info.outputPath("ambient-signout.json"), JSON.stringify(observations, null, 2));
+    await context.close();
+    const api = await browser.newContext({ storageState: await sessionFor(browser, account) });
+    for (const id of [bookId, importing]) await call(api.request, "DELETE", `/api/books/${id}`);
+    await api.close();
+  }
+});
+
+test("terminal progress journals while busy sign-out waits and its fresh intent reaches the server", async ({
+  browser,
+}, info) => {
+  test.setTimeout(90_000);
+  const account = await ensureAccount(browser, ACCOUNT_A);
+  const device = "contention-terminal-0001";
+  const { context, page } = await openDevice(browser, device, await sessionFor(browser, account));
+  const importing = randomUUID();
+  let bookId: string | undefined;
+  let held: Awaited<ReturnType<typeof heldImport>> | undefined;
+  const responses: Array<{
+    atMs: number;
+    status: number;
+    positionMs: number;
+    deviceSequence: number;
+  }> = [];
+  const errors: string[] = [];
+  const observations: Record<string, unknown> = { responses, errors };
+  page.on("pageerror", (error) => errors.push(error.name));
+  page.on("response", (response) => {
+    if (bookId && response.url().endsWith(`/api/books/${bookId}/progress`)) {
+      const body = response.request().postDataJSON();
+      responses.push({
+        atMs: performance.now(),
+        status: response.status(),
+        positionMs: body.positionMs,
+        deviceSequence: body.deviceSequence,
+      });
+    }
+  });
+  try {
+    await page.goto(`${APP_ORIGIN}/library`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("[data-launch-ready]", { state: "attached" });
+    await waitForServiceWorker(page);
+    const fixture = info.outputPath("terminal-progress.mp3");
+    const title = `Terminal sign-out ${randomUUID()}`;
+    execFileSync("ffmpeg", [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "sine=frequency=330:duration=30",
+      "-metadata",
+      `title=${title}`,
+      "-c:a",
+      "libmp3lame",
+      "-b:a",
+      "64k",
+      fixture,
+    ]);
+    await importThroughUi(page, "Terminal-progress.mp3", readFileSync(fixture));
+    await page.getByRole("link", { name: title, exact: true }).click();
+    await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+    bookId = page.url().split("/").at(-1)!;
+    await attachDriver(page, account, device);
+    held = await heldImport(context.request, account.userId, importing);
+    await page.getByRole("slider", { name: "Audiobook position" }).fill("5000");
+    await expect
+      .poll(
+        async () => (await outbox(page)).find((row) => row.entityId === bookId)?.payload.positionMs,
+      )
+      .toBe(5_000);
+    const initial = (await outbox(page)).find((row) => row.entityId === bookId)!;
+    await page.getByRole("button", { name: "Library", exact: true }).click();
+    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await expect(page.getByRole("button", { name: /Sign out/ })).toBeVisible();
+    const before = responses.length;
+    const signOutAt = performance.now();
+    await page.getByRole("button", { name: /Sign out/ }).click();
+    await expect.poll(() => responses.length).toBe(before + 1);
+    expect(responses.at(-1)?.status).toBe(503);
+    const terminalAt = performance.now();
+    // Synthetic lifecycle stimulus, real installed terminal handler/persister,
+    // real SQL 503 and real IDB journal. This is not a physical OS-kill claim.
+    await page.locator("audio").evaluate((audio: HTMLAudioElement) => {
+      audio.currentTime = 7;
+      window.dispatchEvent(new PageTransitionEvent("pagehide"));
+    });
+    await expect
+      .poll(
+        async () => (await outbox(page)).find((row) => row.entityId === bookId)?.payload.positionMs,
+        { timeout: 600, intervals: [20, 50] },
+      )
+      .toBe(7_000);
+    observations.terminalJournalMs = performance.now() - terminalAt;
+    const terminal = (await outbox(page)).find((row) => row.entityId === bookId)!;
+    observations.terminal = terminal;
+    expect(terminal.deviceSequence).toBeGreaterThan(initial.deviceSequence);
+    expect(responses.some((row) => row.status === 503 && row.positionMs === 7_000)).toBe(true);
+    await page.screenshot({ path: info.outputPath("terminal-during-drain.png") });
+    held.release();
+    expect((await held.done).status).toBe(201);
+    await page.waitForURL(/\/login/, { timeout: 8_000 });
+    observations.drainElapsedMs = performance.now() - signOutAt;
+    expect(observations.drainElapsedMs).toBeLessThan(8_000);
+    const accepted = responses.filter((row) => row.status === 200);
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0]).toMatchObject({
+      positionMs: 7_000,
+      deviceSequence: terminal.deviceSequence,
+    });
+    const [saved] = await sql()<
+      { positionMs: number; deviceSequence: number }[]
+    >`select position_ms::int as "positionMs", device_sequence::int as "deviceSequence" from playback_states where user_id=${account.userId} and book_id=${bookId}::uuid`;
+    observations.saved = saved;
+    expect(saved).toEqual({ positionMs: 7_000, deviceSequence: terminal.deviceSequence });
+    await attachDriver(page, account, device);
+    expect(await outbox(page)).toEqual([]);
+    expect(await page.evaluate(() => localStorage.getItem("chapterline:active-user"))).toBe(null);
+    expect(errors).toEqual([]);
+    observations.assertionsPassed = true;
+    await page.screenshot({ path: info.outputPath("terminal-signout-delivered.png") });
+  } finally {
+    held?.release();
+    if (held) await Promise.allSettled([held.done]);
+    observations.finalUrl = page.url();
+    writeFileSync(info.outputPath("terminal-signout.json"), JSON.stringify(observations, null, 2));
+    await context.close();
+    const api = await browser.newContext({ storageState: await sessionFor(browser, account) });
+    for (const id of [bookId, importing].filter((id): id is string => !!id))
+      await call(api.request, "DELETE", `/api/books/${id}`);
     await api.close();
   }
 });
