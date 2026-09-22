@@ -318,9 +318,7 @@ test("deleting a missing book does not unload the different book still playing",
     } finally {
       held.release();
     }
-    await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible({
-      timeout: 60_000,
-    });
+    await expect(play).toBeVisible({ timeout: 60_000 });
     await play.click();
     await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
     const source = await page.locator("audio").getAttribute("src");

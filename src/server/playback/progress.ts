@@ -147,52 +147,52 @@ export async function saveProgress(userId: string, input: ProgressInput) {
 
       const merged = decisions.merged;
       const saved = await transaction.execute<PlaybackStateRow>(sql`
-      with claimed as (
-        insert into ${playbackDeviceSequences} ("user_id", "book_id", "device_id", "last_sequence")
-        values (${userId}, ${input.bookId}, ${input.deviceId}, ${input.deviceSequence})
-        on conflict ("user_id", "book_id", "device_id") do update
-          set "last_sequence" = excluded."last_sequence", "updated_at" = ${monotonicTimestamp(playbackDeviceSequences.updatedAt)}
-          where ${playbackDeviceSequences}."last_sequence" < excluded."last_sequence"
-        returning "last_sequence"
-      )
-      insert into ${playbackStates} (
-        "user_id", "book_id", "position_ms", "playback_rate", "completed",
-        "device_id", "device_sequence", "event_occurred_at",
-        "playback_rate_occurred_at", "completed_occurred_at", "state_occurred_at", "updated_at"
-      )
-      select ${userId}, ${input.bookId}::uuid, ${merged.positionMs}::bigint,
-        ${merged.playbackRate.toFixed(2)}::numeric, ${merged.completed}::boolean,
-        ${input.deviceId}, ${input.deviceSequence}::bigint,
-        ${merged.eventOccurredAt.toISOString()}::timestamptz,
-        ${merged.playbackRateOccurredAt.toISOString()}::timestamptz,
-        ${merged.completedOccurredAt.toISOString()}::timestamptz,
-        ${merged.stateOccurredAt.toISOString()}::timestamptz, ${receipt}
-      from claimed
-      on conflict ("user_id", "book_id") do update set
-        "position_ms" = excluded."position_ms",
-        "playback_rate" = excluded."playback_rate",
-        "completed" = excluded."completed",
-        "device_id" = excluded."device_id",
-        "device_sequence" = excluded."device_sequence",
-        "event_occurred_at" = excluded."event_occurred_at",
-        "playback_rate_occurred_at" = excluded."playback_rate_occurred_at",
-        "completed_occurred_at" = excluded."completed_occurred_at",
-        "state_occurred_at" = excluded."state_occurred_at",
-        "updated_at" = excluded."updated_at"
-      returning
-        "user_id" as "userId",
-        "book_id" as "bookId",
-        "position_ms"::float8 as "positionMs",
-        "playback_rate" as "playbackRate",
-        "completed",
-        "device_id" as "deviceId",
-        "device_sequence"::float8 as "deviceSequence",
-        "event_occurred_at" as "eventOccurredAt",
-        "playback_rate_occurred_at" as "playbackRateOccurredAt",
-        "completed_occurred_at" as "completedOccurredAt",
-        "state_occurred_at" as "stateOccurredAt",
-        "updated_at" as "updatedAt"
-    `);
+        with claimed as (
+          insert into ${playbackDeviceSequences} ("user_id", "book_id", "device_id", "last_sequence")
+          values (${userId}, ${input.bookId}, ${input.deviceId}, ${input.deviceSequence})
+          on conflict ("user_id", "book_id", "device_id") do update
+            set "last_sequence" = excluded."last_sequence", "updated_at" = ${monotonicTimestamp(playbackDeviceSequences.updatedAt)}
+            where ${playbackDeviceSequences}."last_sequence" < excluded."last_sequence"
+          returning "last_sequence"
+        )
+        insert into ${playbackStates} (
+          "user_id", "book_id", "position_ms", "playback_rate", "completed",
+          "device_id", "device_sequence", "event_occurred_at",
+          "playback_rate_occurred_at", "completed_occurred_at", "state_occurred_at", "updated_at"
+        )
+        select ${userId}, ${input.bookId}::uuid, ${merged.positionMs}::bigint,
+          ${merged.playbackRate.toFixed(2)}::numeric, ${merged.completed}::boolean,
+          ${input.deviceId}, ${input.deviceSequence}::bigint,
+          ${merged.eventOccurredAt.toISOString()}::timestamptz,
+          ${merged.playbackRateOccurredAt.toISOString()}::timestamptz,
+          ${merged.completedOccurredAt.toISOString()}::timestamptz,
+          ${merged.stateOccurredAt.toISOString()}::timestamptz, ${receipt}
+        from claimed
+        on conflict ("user_id", "book_id") do update set
+          "position_ms" = excluded."position_ms",
+          "playback_rate" = excluded."playback_rate",
+          "completed" = excluded."completed",
+          "device_id" = excluded."device_id",
+          "device_sequence" = excluded."device_sequence",
+          "event_occurred_at" = excluded."event_occurred_at",
+          "playback_rate_occurred_at" = excluded."playback_rate_occurred_at",
+          "completed_occurred_at" = excluded."completed_occurred_at",
+          "state_occurred_at" = excluded."state_occurred_at",
+          "updated_at" = excluded."updated_at"
+        returning
+          "user_id" as "userId",
+          "book_id" as "bookId",
+          "position_ms"::float8 as "positionMs",
+          "playback_rate" as "playbackRate",
+          "completed",
+          "device_id" as "deviceId",
+          "device_sequence"::float8 as "deviceSequence",
+          "event_occurred_at" as "eventOccurredAt",
+          "playback_rate_occurred_at" as "playbackRateOccurredAt",
+          "completed_occurred_at" as "completedOccurredAt",
+          "state_occurred_at" as "stateOccurredAt",
+          "updated_at" as "updatedAt"
+      `);
       const state = saved[0];
       if (!state) return duplicate();
       if (!allAccepted) {
