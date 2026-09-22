@@ -417,7 +417,9 @@ test("the real player retains a busy progress write and replays it on relaunch",
 test("sign-out retries a busy edit within its existing drain budget before purging", async ({
   browser,
 }, info) => {
-  test.setTimeout(45_000);
+  // Reauthenticating the fixture for teardown may need the real limiter's
+  // bounded 61s idle window. The application's drain assertions stay at 8s.
+  test.setTimeout(90_000);
   const account = await ensureAccount(browser, ACCOUNT_A);
   const { context, page } = await openDevice(
     browser,
@@ -428,7 +430,7 @@ test("sign-out retries a busy edit within its existing drain budget before purgi
   const importing = randomUUID();
   const renamed = `Edit before busy sign-out ${randomUUID()}`;
   const responses: Array<{ atMs: number; status: number; retryAfter: string | undefined }> = [];
-  const observations: Record<string, unknown> = { responses };
+  const observations: Record<string, unknown> = { bookId, importing, responses };
   let held: Awaited<ReturnType<typeof heldImport>> | undefined;
   const started = performance.now();
   page.on("response", (response) => {

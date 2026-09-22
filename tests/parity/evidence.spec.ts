@@ -1,5 +1,4 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mkdirSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -34,7 +33,6 @@ import { readLibrary } from "./harness/snapshot";
  */
 
 const PHONE_VIEWPORT = { width: 393, height: 852 };
-const SHOTS = path.join(process.cwd(), "test-results/evidence");
 
 let account: Account;
 let state: StorageState;
@@ -44,7 +42,6 @@ test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async ({ browser }) => {
   test.setTimeout(600_000);
-  mkdirSync(SHOTS, { recursive: true });
   account = await ensureAccount(browser, ACCOUNT_A);
   state = await sessionFor(browser, account);
   device = await openDevice(browser, { storageState: state, deviceId: "evidence-device-00001" });
@@ -87,7 +84,7 @@ async function capture(page: Page, name: string, label: string): Promise<number>
       "filed as a working library while showing something else",
   ).toBe("books");
   expect(snapshot.books.length, `${label}: no book cards were on screen`).toBeGreaterThan(0);
-  await page.screenshot({ path: path.join(SHOTS, `${name}.png`), fullPage: true });
+  await page.screenshot({ path: test.info().outputPath(`${name}.png`), fullPage: true });
   return snapshot.books.length;
 }
 
@@ -112,7 +109,7 @@ test("the library looks the same, and real, with the network on and gone", async
 
   console.log(
     `[evidence] ${onlineCards} book cards online and offline · ` +
-      `${path.relative(process.cwd(), SHOTS)}/library-online.png, library-offline.png`,
+      `${path.relative(process.cwd(), test.info().outputDir)}/library-online.png, library-offline.png`,
   );
 });
 
@@ -157,11 +154,11 @@ test("a book whose audio is not on this device says so, on screen", async () => 
     ).toBe(true);
   }
 
-  await page.screenshot({ path: path.join(SHOTS, "not-on-this-device.png"), fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("not-on-this-device.png"), fullPage: true });
   await page.close();
 
   console.log(
     `[evidence] ${absent.length} off-device and ${present.length} on-device cards · ` +
-      `${path.relative(process.cwd(), SHOTS)}/not-on-this-device.png`,
+      `${path.relative(process.cwd(), test.info().outputDir)}/not-on-this-device.png`,
   );
 });
