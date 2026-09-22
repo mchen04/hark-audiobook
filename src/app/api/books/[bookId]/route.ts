@@ -1,11 +1,11 @@
-import { and, eq, lt } from "drizzle-orm";
+import { and, eq, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { bookPatchSchema } from "@/server/api/mutation-schemas";
 import { withMutation, withQuery } from "@/server/api/route-handler";
 import { getBookForUser, getOwnedBook } from "@/server/books/queries";
 import { db, type Transaction } from "@/server/db/client";
-import { monotonicTimestamp } from "@/server/db/monotonic-timestamp";
+import { syncReceipt } from "@/server/db/sync-receipt";
 import { books, bookTombstones } from "@/server/db/schema";
 import {
   applyTagEdge,
@@ -35,31 +35,35 @@ export const PATCH = withMutation(
 
     let unknownTag = false;
     try {
-      await db.transaction(async (transaction) => {
-        await transaction
-          .update(books)
-          .set({
-            ...fields,
-            ...(seriesPosition !== undefined
-              ? { seriesPosition: seriesPosition === null ? null : seriesPosition.toFixed(2) }
-              : {}),
-            ...(archived !== undefined ? { archivedAt: archived ? new Date() : null } : {}),
-            updatedAt: monotonicTimestamp(books.updatedAt),
-          })
-          .where(eq(books.id, params.bookId));
+      await db.transaction(
+        async (transaction) => {
+          const receipt = await syncReceipt(transaction, session.user.id);
+          await transaction
+            .update(books)
+            .set({
+              ...fields,
+              ...(seriesPosition !== undefined
+                ? { seriesPosition: seriesPosition === null ? null : seriesPosition.toFixed(2) }
+                : {}),
+              ...(archived !== undefined ? { archivedAt: archived ? new Date() : null } : {}),
+              updatedAt: receipt,
+            })
+            .where(eq(books.id, params.bookId));
 
-        if (nextTags !== undefined) {
-          await replaceBookTags(transaction, session.user.id, params.bookId, nextTags);
-        }
-        if (tagEdge !== undefined) {
-          unknownTag = !(await applyTagEdge(transaction, {
-            userId: session.user.id,
-            bookId: params.bookId,
-            mutationId,
-            ...tagEdge,
-          }));
-        }
-      });
+          if (nextTags !== undefined) {
+            await replaceBookTags(transaction, session.user.id, params.bookId, nextTags);
+          }
+          if (tagEdge !== undefined) {
+            unknownTag = !(await applyTagEdge(transaction, {
+              userId: session.user.id,
+              bookId: params.bookId,
+              mutationId,
+              ...tagEdge,
+            }));
+          }
+        },
+        { isolationLevel: "read committed" },
+      );
     } catch (error) {
       if (error instanceof TagLimitError) {
         return Response.json(
@@ -97,21 +101,25 @@ export const DELETE = withMutation({ params: paramsSchema }, async ({ session, p
   // Audio bytes live only on the user's devices; the client removes its local
   // copy alongside this row delete. Tags unique to this book are collected in
   // the same transaction so no orphaned filter chips linger.
-  await db.transaction(async (transaction) => {
-    await lockAccountTags(transaction, session.user.id);
-    await transaction.delete(books).where(eq(books.id, params.bookId));
-    // Same transaction as the delete: a deletion the user saw succeed can never
-    // exist without the tombstone that tells the user's other devices about it.
-    await transaction
-      .insert(bookTombstones)
-      .values({ bookId: params.bookId, ownerId: session.user.id })
-      .onConflictDoUpdate({
-        target: bookTombstones.bookId,
-        set: { deletedAt: monotonicTimestamp(bookTombstones.deletedAt) },
-      });
-    await deleteUnusedTags(transaction, session.user.id);
-    await pruneExpiredTombstones(transaction, session.user.id);
-  });
+  await db.transaction(
+    async (transaction) => {
+      const receipt = await syncReceipt(transaction, session.user.id);
+      await lockAccountTags(transaction, session.user.id);
+      await transaction.delete(books).where(eq(books.id, params.bookId));
+      // Same transaction as the delete: a deletion the user saw succeed can never
+      // exist without the tombstone that tells the user's other devices about it.
+      await transaction
+        .insert(bookTombstones)
+        .values({ bookId: params.bookId, ownerId: session.user.id, deletedAt: receipt })
+        .onConflictDoUpdate({
+          target: bookTombstones.bookId,
+          set: { deletedAt: receipt },
+        });
+      await deleteUnusedTags(transaction, session.user.id);
+      await pruneExpiredTombstones(transaction, session.user.id);
+    },
+    { isolationLevel: "read committed" },
+  );
 
   return Response.json({ deleted: true });
 });
@@ -121,15 +129,13 @@ export const DELETE = withMutation({ params: paramsSchema }, async ({ session, p
  * from a full pull, which conveys deletions by absence from the complete book
  * list. Matches the receipt retention horizon in `server/playback/history.ts`.
  */
-const TOMBSTONE_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
-
 async function pruneExpiredTombstones(transaction: Transaction, userId: string): Promise<void> {
   await transaction
     .delete(bookTombstones)
     .where(
       and(
         eq(bookTombstones.ownerId, userId),
-        lt(bookTombstones.deletedAt, new Date(Date.now() - TOMBSTONE_RETENTION_MS)),
+        lt(bookTombstones.deletedAt, sql`clock_timestamp() - interval '365 days'`),
       ),
     );
 }

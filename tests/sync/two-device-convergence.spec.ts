@@ -1,5 +1,7 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import type { PullBatch } from "@/lib/offline/sync-protocol";
 
 import {
   APP_ORIGIN,
@@ -408,7 +410,6 @@ for (const parent of ["book", "collection"] as const) {
       const cursorBefore = (await mirror(b.page)).syncMeta?.cursor;
       expect(cursorBefore).toBeTruthy();
       const edits = [true, false, true];
-      let mirroredEdits = 0;
       for (const include of edits) {
         await commit(
           a.page,
@@ -447,7 +448,6 @@ for (const parent of ["book", "collection"] as const) {
             include ? [book.media] : [],
           );
         }
-        mirroredEdits += 1;
       }
       writeFileSync(
         info.outputPath("monotonic-timestamps.json"),
@@ -457,10 +457,6 @@ for (const parent of ["book", "collection"] as const) {
             fixtureScope: "One row owned by the disposable sync account; no clock change",
             cursorBefore,
             stamps,
-            strictlyIncreasing: stamps.every(
-              (stamp, index) => index === 0 || stamp > stamps[index - 1]!,
-            ),
-            incrementalMirrorMatchedEveryEdit: mirroredEdits === edits.length,
           },
           null,
           2,
@@ -542,3 +538,280 @@ test("playback and preference receipt clocks advance without replacing playback 
     await b.context.close();
   }
 });
+
+/** Real authenticated endpoints; no driver interception or server-clock mocks. */
+async function request(device: Device, method: string, path: string, data?: unknown) {
+  return device.context.request.fetch(`${APP_ORIGIN}${path}`, {
+    method,
+    data,
+    headers: { Origin: APP_ORIGIN },
+  });
+}
+
+async function incremental(device: Device, cursor: string): Promise<PullBatch> {
+  const response = await request(
+    device,
+    "GET",
+    `/api/sync/pull?since=${encodeURIComponent(cursor)}`,
+  );
+  expect(response.status()).toBe(200);
+  const batch = (await response.json()) as PullBatch;
+  expect(batch.complete).toBe(true);
+  return batch;
+}
+
+for (const futureStream of ["book", "playback", "tombstone"] as const) {
+  test(`account receipts keep sibling writes visible after a future ${futureStream} cursor`, async ({
+    browser,
+  }, info) => {
+    const { account, a, b } = await setUpPair(browser);
+    const receipts: unknown[] = [];
+    try {
+      const future = await seedBook(account, a, b, `future-${futureStream}`, "Future Receipt");
+      const sibling = await seedBook(account, a, b, `sibling-${futureStream}`, "Sibling Before");
+      if (futureStream === "playback") {
+        expect(
+          (
+            await request(a, "PATCH", `/api/books/${future.bookId}/progress`, {
+              deviceId: a.id,
+              deviceSequence: 1,
+              positionMs: 1_000,
+              playbackRate: 1,
+              completed: false,
+              eventOccurredAt: new Date().toISOString(),
+            })
+          ).status(),
+        ).toBe(200);
+      } else if (futureStream === "tombstone") {
+        expect((await request(a, "DELETE", `/api/books/${future.bookId}`)).status()).toBe(200);
+      }
+      const table =
+        futureStream === "book"
+          ? "books"
+          : futureStream === "playback"
+            ? "playback_states"
+            : "book_tombstones";
+      const owner = futureStream === "playback" ? "user_id" : "owner_id";
+      const id = futureStream === "book" ? "id" : "book_id";
+      const stamp = futureStream === "tombstone" ? "deleted_at" : "updated_at";
+      // Only this account's disposable row changes, never the actual clocks.
+      await sql()`update ${sql()(table)} set ${sql()(stamp)}=clock_timestamp() + interval '1 minute'
+        where ${sql()(owner)}=${account.userId} and ${sql()(id)}=${future.bookId}::uuid`;
+      expect(await pull(b.page)).toBe("applied");
+      let cursor = (await mirror(b.page)).syncMeta!.cursor!;
+      expect(Date.parse(cursor) - Date.now()).toBeGreaterThan(30_000);
+      const initialCursor = cursor;
+      const capture = async (stage: string) => {
+        const batch = await incremental(b, cursor);
+        expect(await pull(b.page)).toBe("applied");
+        const snapshot = await mirror(b.page);
+        receipts.push({ stage, cursorBefore: cursor, batch, snapshot });
+        expect.soft(batch.cursor > cursor, `${stage} must advance the account cursor`).toBe(true);
+        cursor = batch.cursor;
+        return { batch, snapshot };
+      };
+      expect(
+        (
+          await request(a, "PATCH", `/api/books/${sibling.bookId}`, { title: "Sibling After" })
+        ).status(),
+      ).toBe(200);
+      let result = await capture("sibling edit");
+      expect
+        .soft(result.batch.books.find((row) => row.id === sibling.bookId)?.title)
+        .toBe("Sibling After");
+      expect
+        .soft(toDeviceState(result.snapshot).booksByFingerprint.get(sibling.media)?.title)
+        .toBe("Sibling After");
+
+      const newId = randomUUID();
+      const newMedia = fingerprint(`new-${futureStream}`);
+      expect(
+        (
+          await request(a, "POST", "/api/books/local", {
+            ...importPayload(newMedia, "New Sibling"),
+            bookId: newId,
+          })
+        ).status(),
+      ).toBe(201);
+      result = await capture("new import");
+      expect.soft(result.batch.books.some((row) => row.id === newId)).toBe(true);
+      expect.soft(toDeviceState(result.snapshot).booksByFingerprint.has(newMedia)).toBe(true);
+
+      const eventOccurredAt = new Date().toISOString();
+      expect(
+        (
+          await request(a, "PATCH", `/api/books/${sibling.bookId}/progress`, {
+            deviceId: a.id,
+            deviceSequence: 1,
+            positionMs: 24_000,
+            playbackRate: 1.5,
+            completed: false,
+            eventOccurredAt,
+          })
+        ).status(),
+      ).toBe(200);
+      result = await capture("sibling progress");
+      expect
+        .soft(result.snapshot.playbackStates.find((row) => row.bookId === sibling.bookId))
+        .toMatchObject({
+          positionMs: 24_000,
+          playbackRate: 1.5,
+          eventOccurredAt,
+        });
+
+      // Delete the highest receipt too: its tombstone must preserve the floor
+      // for subsequent writes, rather than letting the account clock regress.
+      expect((await request(a, "DELETE", `/api/books/${sibling.bookId}`)).status()).toBe(200);
+      result = await capture("sibling deletion");
+      expect.soft(result.batch.tombstones?.some((row) => row.bookId === sibling.bookId)).toBe(true);
+      expect.soft(toDeviceState(result.snapshot).booksByFingerprint.has(sibling.media)).toBe(false);
+      expect(
+        (
+          await request(a, "PATCH", `/api/books/${newId}`, { title: "After Highest Deleted" })
+        ).status(),
+      ).toBe(200);
+      result = await capture("edit after highest deletion");
+      expect
+        .soft(result.batch.books.find((row) => row.id === newId)?.title)
+        .toBe("After Highest Deleted");
+      receipts.push({ initialCursor, finalCursor: cursor });
+    } finally {
+      // Preserve numeric/raw observations even when a soft assertion is red.
+      writeFileSync(
+        info.outputPath("sibling-cursors.json"),
+        JSON.stringify({ futureStream, receipts }, null, 2),
+      );
+      await a.context.close();
+      await b.context.close();
+    }
+  });
+}
+
+for (const operation of ["insert", "update", "delete"] as const) {
+  test(`account receipts cannot strand a delayed ${operation} across a concurrent pull`, async ({
+    browser,
+  }, info) => {
+    const { account, a, b } = await setUpPair(browser);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let barrier: Promise<unknown> | undefined;
+    const pending: Promise<unknown>[] = [];
+    const receipts: unknown[] = [];
+    try {
+      const first = await seedBook(account, a, b, `ordered-a-${operation}`, "First Before");
+      const second = await seedBook(account, a, b, `ordered-b-${operation}`, "Second Before");
+      const cursor = (await mirror(b.page)).syncMeta!.cursor!;
+      const targetId = operation === "insert" ? randomUUID() : first.bookId;
+      let blockerPid = 0;
+      const rollback = new Error("rollback disposable uncommitted insert barrier");
+      barrier = sql()
+        .begin(async (transaction) => {
+          const [connection] = await transaction<{ pid: number }[]>`select pg_backend_pid() as pid`;
+          blockerPid = connection!.pid;
+          if (operation === "insert") {
+            // The server insert waits for this uncommitted PK, then succeeds
+            // after rollback. No trigger, table lock or retained row is changed.
+            await transaction`insert into books (id, owner_id, title, author)
+            values (${targetId}::uuid, ${account.userId}, 'Uncommitted fixture', 'Fixture')`;
+          } else {
+            await transaction`select pg_advisory_xact_lock(hashtextextended(${`tags:${account.userId}`}, 0))`;
+          }
+          await gate;
+          if (operation === "insert") throw rollback;
+        })
+        .catch((error: unknown) => {
+          if (error !== rollback) throw error;
+        });
+      // Observe the fixture lock itself before launching either HTTP write.
+      await expect
+        .poll(async () => {
+          const [row] = await sql()<{ ready: boolean }[]>`select exists(
+          select 1 from pg_stat_activity where pid=${blockerPid} and state='idle in transaction'
+        ) as ready`;
+          return row!.ready;
+        })
+        .toBe(true);
+      const slow =
+        operation === "insert"
+          ? request(a, "POST", "/api/books/local", {
+              ...importPayload(fingerprint(`ordered-new-${operation}`), "First After"),
+              bookId: targetId,
+            })
+          : request(
+              a,
+              operation === "update" ? "PATCH" : "DELETE",
+              `/api/books/${targetId}`,
+              operation === "update" ? { title: "First After", tags: ["commit-order"] } : undefined,
+            );
+      pending.push(slow);
+      let firstPid = 0;
+      await expect
+        .poll(
+          async () => {
+            const [row] = await sql()<{ pid: number }[]>`select pid from pg_stat_activity
+          where ${blockerPid} = any(pg_blocking_pids(pid))`;
+            firstPid = row?.pid ?? 0;
+            return firstPid;
+          },
+          { message: "first real HTTP writer did not reach the scoped DB barrier" },
+        )
+        .toBeGreaterThan(0);
+
+      let fastCompleted = false;
+      const fast = request(a, "PATCH", `/api/books/${second.bookId}`, {
+        title: "Second After",
+      }).then((response) => {
+        fastCompleted = true;
+        return response;
+      });
+      pending.push(fast);
+      let fastBlocked = false;
+      await expect
+        .poll(
+          async () => {
+            const [row] = await sql()<{ blocked: boolean }[]>`select exists(
+          select 1 from pg_stat_activity where ${firstPid} = any(pg_blocking_pids(pid))
+        ) as blocked`;
+            fastBlocked = row!.blocked;
+            return fastCompleted || fastBlocked;
+          },
+          { message: "second writer neither completed nor waited behind the first writer" },
+        )
+        .toBe(true);
+      const during = await incremental(b, cursor);
+      receipts.push({
+        phase: "while first writer is blocked",
+        blockerPid,
+        firstPid,
+        fastCompleted,
+        fastBlocked,
+        batch: during,
+      });
+      release();
+      await barrier;
+      expect((await slow).status()).toBe(operation === "insert" ? 201 : 200);
+      expect((await fast).status()).toBe(200);
+      const after = await incremental(b, during.cursor);
+      receipts.push({ phase: "after both commits", batch: after });
+      // A full liveBookIds snapshot could conceal a stranded tombstone: assert
+      // the incremental stream itself, which older clients also consume.
+      if (operation === "delete") {
+        expect(after.tombstones?.some((row) => row.bookId === targetId)).toBe(true);
+      } else {
+        expect(after.books.find((row) => row.id === targetId)?.title).toBe("First After");
+      }
+      expect(after.books.find((row) => row.id === second.bookId)?.title).toBe("Second After");
+    } finally {
+      release();
+      await Promise.allSettled([...(barrier ? [barrier] : []), ...pending]);
+      writeFileSync(
+        info.outputPath("commit-order.json"),
+        JSON.stringify({ operation, receipts }, null, 2),
+      );
+      await a.context.close();
+      await b.context.close();
+    }
+  });
+}

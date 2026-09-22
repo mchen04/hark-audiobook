@@ -64,9 +64,12 @@ file backup, or point `HARK_ENV_FILE` at a separate new disposable database and
 matching credentials. A user row with a missing email/password credential is
 reported separately as an incomplete disposable identity; restoring an env
 backup cannot repair that condition. Inspect that fixture's provisioning or
-use a separate new test database. Database-read and verifier failures name the
-operation and a safe error category; raw messages, passwords and hashes are
-omitted. This helper does not rotate credentials or reset volumes.
+use a separate new test database. This retained-workflows helper categorizes
+identity, credential and auth-budget database reads, and password verification
+failures by operation and a safe error category. It omits raw messages, driver
+query/parameter properties, passwords and hashes. That guarantee is scoped to
+this helper, not all database calls in the test harness. It does not rotate
+credentials or reset volumes.
 
 On the configured disposable test database, this read-only query reports whether
 the retained identity and its credential exist without returning any password or
@@ -87,8 +90,9 @@ Retained browser workflows reuse the fixed `.111` test IP and read the real
 database sign-in and signup buckets before each attempt. They wait for a
 bucket's remaining idle window and extend that test's timeout. They leave two
 sign-in attempts and one signup attempt as headroom. Each call permits at most
-two waits totaling one real window plus 1,500 ms of slack (61.5 seconds for
-sign-in, 601.5 seconds for signup), then fails with a shared-IP/clock diagnosis.
+one wait bounded by one real window plus 1,500 ms of slack (61.5 seconds for
+sign-in, 601.5 seconds for signup). It rereads the bucket after that wait;
+renewed saturation fails with a shared-IP/clock diagnosis, without a second wait.
 Run these suites serially; an unexpectedly busy or future-dated bucket needs
 inspection, not a reset. The helper never clears buckets or rotates IPs.
 The bounded fake-clock budget tests cover exhaustion without that delay; two

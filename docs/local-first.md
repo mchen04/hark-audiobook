@@ -97,15 +97,34 @@ and would stop protecting anything the moment collections became cursored.
 Tag vocabulary and collection lists are small and user-level, so they are pulled
 in full on every sync rather than cursored.
 
-A server `updatedAt` is a **receipt time, not a client event clock**. Every write
-path sets it with `monotonicTimestamp()` from
-`src/server/db/monotonic-timestamp.ts`, which evaluates
-`greatest(clock_timestamp(), previous + interval '1 microsecond')` in the same
-statement that holds the row lock. A new route that writes `new Date()` instead
-reintroduces a real sync bug: host and database clocks differ by tens of
-milliseconds here, so a receipt can land behind the cursor a device already
-stored, and that change never propagates. Client event clocks such as
-`eventOccurredAt` are unaffected and stay the conflict authority of section 7.
+A server `updatedAt` is a **receipt time, not a client event clock**. The cursor
+is shared by books, playback states and tombstones. Every insert and update to
+those streams must first call `syncReceipt()` in a **read-committed transaction**,
+before other write locks. It takes an account advisory lock through commit, then
+reads the maximum receipt across all three streams in a separate statement.
+The allocated timestamp is at least the database clock and strictly above that
+maximum, including retained future values. Keep its database text/SQL precision;
+a JavaScript `Date` loses microseconds. Deletion allocates before removing the
+book/playback rows, transfers their floor to its tombstone, and prunes old
+tombstones using the database clock.
+
+This keeps sibling changes above an already-issued cursor and prevents a later
+writer from committing ahead of a blocked earlier receipt. Pulls retain their
+read-only repeatable-read snapshot; they need no writer lock. The existing
+timestamp cursor and installed-client protocol do not change, and no schema or
+data migration is needed. All server writers must use this rule; mixed old/new
+server binaries or direct database writes do not provide the ordering guarantee.
+The cost is serialization of cursor-bearing writes within one account and two
+receipt queries, using existing owner/timestamp indexes. Different accounts do
+not share a receipt lock.
+
+Whole-snapshot collections/preferences and uncursored sequence receipts still
+use `monotonicTimestamp()` under their row lock. Its per-row floor alone cannot
+order the account cursor. Neither host `new Date()`, transaction-start `now()`,
+nor an unlocked `clock_timestamp()` is safe for cursor-bearing writes. Client
+event clocks such as `eventOccurredAt` are unaffected and stay the conflict
+authority of section 7. Server receipt times can be ahead of wall time after
+retained skew; they express receipt order, not the user's listening time.
 
 ## 4. Local schema
 

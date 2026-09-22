@@ -191,3 +191,23 @@ it.each(["already saved", "attached normally"])(
     );
   },
 );
+
+it("keeps the resolved player mounted across equal identities and metadata/history updates", async () => {
+  readMedia.mockResolvedValue(media);
+  const { rerender } = render(<LocalMediaGate {...props} />);
+  const audio = await screen.findByLabelText("Resolved media");
+  for (const playerBook of [{ ...book }, { ...book, title: "Updated title" }]) {
+    rerender(
+      <LocalMediaGate
+        {...props}
+        playerBook={playerBook}
+        historySnapshot={{ entries: [], capturedAt: new Date().toISOString() }}
+      />,
+    );
+    // Identity changes would synchronously replace this with the checking gate.
+    expect(screen.getByLabelText("Resolved media")).toBe(audio);
+    await act(async () => {});
+    expect(screen.getByLabelText("Resolved media")).toBe(audio);
+  }
+  expect(readMedia).toHaveBeenCalledTimes(1);
+});

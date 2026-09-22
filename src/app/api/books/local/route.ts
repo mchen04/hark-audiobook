@@ -10,7 +10,7 @@ import { bookRegistrationSchema } from "@/server/api/mutation-schemas";
 import { withMutation } from "@/server/api/route-handler";
 import { getBookForUser } from "@/server/books/queries";
 import { db } from "@/server/db/client";
-import { monotonicTimestamp } from "@/server/db/monotonic-timestamp";
+import { syncReceipt } from "@/server/db/sync-receipt";
 import { books, chapters, mediaAssets } from "@/server/db/schema";
 import { validateUploadMetadata } from "@/server/media/filename";
 import { isSameLocalRegistration } from "@/server/media/local-registration-identity";
@@ -38,175 +38,180 @@ export const POST = withMutation(
       return Response.json({ error: "The chapter list is inconsistent." }, { status: 422 });
     }
 
-    const registration = await db.transaction(async (transaction) => {
-      async function insertChapterRows(bookId: string, chapterRows: ParsedChapter[]) {
-        for (let start = 0; start < chapterRows.length; start += CHAPTER_INSERT_BATCH) {
-          await transaction.insert(chapters).values(
-            chapterRows.slice(start, start + CHAPTER_INSERT_BATCH).map((chapter) => ({
-              bookId,
-              ...chapter,
-            })),
-          );
+    const registration = await db.transaction(
+      async (transaction) => {
+        const receipt = await syncReceipt(transaction, session.user.id);
+        async function insertChapterRows(bookId: string, chapterRows: ParsedChapter[]) {
+          for (let start = 0; start < chapterRows.length; start += CHAPTER_INSERT_BATCH) {
+            await transaction.insert(chapters).values(
+              chapterRows.slice(start, start + CHAPTER_INSERT_BATCH).map((chapter) => ({
+                bookId,
+                ...chapter,
+              })),
+            );
+          }
         }
-      }
 
-      // A device-named registration is idempotent on that name. The outbox
-      // replays a queued import until the server answers, and the answer to
-      // "this book already exists, and it is yours" is that the write landed —
-      // not a primary-key crash that would retry until the end of time.
-      const [claimed] = await transaction
-        .insert(books)
-        .values({
-          ...(data.bookId ? { id: data.bookId } : {}),
-          ownerId: session.user.id,
-          title: data.title,
-          author: data.author,
-          narrator: data.narrator,
-          chapterDiagnostic: data.chapterDiagnostic,
-        })
-        .onConflictDoNothing({ target: books.id })
-        .returning({ id: books.id });
-      if (!claimed) {
-        const [existing] = await transaction
-          .select({
-            id: books.id,
-            fingerprint: mediaAssets.fingerprint,
-            fingerprintKind: mediaAssets.fingerprintKind,
-            renditionKey: mediaAssets.renditionKey,
-            durationMs: mediaAssets.durationMs,
+        // A device-named registration is idempotent on that name. The outbox
+        // replays a queued import until the server answers, and the answer to
+        // "this book already exists, and it is yours" is that the write landed —
+        // not a primary-key crash that would retry until the end of time.
+        const [claimed] = await transaction
+          .insert(books)
+          .values({
+            ...(data.bookId ? { id: data.bookId } : {}),
+            ownerId: session.user.id,
+            title: data.title,
+            author: data.author,
+            narrator: data.narrator,
+            chapterDiagnostic: data.chapterDiagnostic,
+            updatedAt: receipt,
           })
-          .from(books)
-          .leftJoin(mediaAssets, eq(mediaAssets.bookId, books.id))
-          .where(and(eq(books.id, data.bookId!), eq(books.ownerId, session.user.id)))
-          .limit(1);
-        if (!existing) return { settled: null, registrationMismatch: false };
-        const existingChapters = await transaction
-          .select({
-            position: chapters.position,
-            title: chapters.title,
-            startMs: chapters.startMs,
-            endMs: chapters.endMs,
+          .onConflictDoNothing({ target: books.id })
+          .returning({ id: books.id });
+        if (!claimed) {
+          const [existing] = await transaction
+            .select({
+              id: books.id,
+              fingerprint: mediaAssets.fingerprint,
+              fingerprintKind: mediaAssets.fingerprintKind,
+              renditionKey: mediaAssets.renditionKey,
+              durationMs: mediaAssets.durationMs,
+            })
+            .from(books)
+            .leftJoin(mediaAssets, eq(mediaAssets.bookId, books.id))
+            .where(and(eq(books.id, data.bookId!), eq(books.ownerId, session.user.id)))
+            .limit(1);
+          if (!existing) return { settled: null, registrationMismatch: false };
+          const existingChapters = await transaction
+            .select({
+              position: chapters.position,
+              title: chapters.title,
+              startMs: chapters.startMs,
+              endMs: chapters.endMs,
+            })
+            .from(chapters)
+            .where(eq(chapters.bookId, existing.id))
+            .orderBy(chapters.position);
+          const registrationMismatch = !isSameLocalRegistration(
+            data,
+            existing.fingerprint &&
+              existing.fingerprintKind &&
+              existing.renditionKey &&
+              existing.durationMs
+              ? {
+                  fingerprint: existing.fingerprint,
+                  fingerprintKind: existing.fingerprintKind,
+                  renditionKey: existing.renditionKey,
+                  durationMs: existing.durationMs,
+                  chapters: existingChapters,
+                }
+              : null,
+          );
+          return { settled: existing.id, registrationMismatch };
+        }
+        const created = claimed;
+        const [registeredMedia] = await transaction
+          .insert(mediaAssets)
+          .values({
+            ownerId: session.user.id,
+            bookId: created.id,
+            originalFilename: filename,
+            mimeType: data.mimeType,
+            byteSize: data.byteSize,
+            fingerprint: data.fingerprint,
+            fingerprintKind: data.fingerprintKind,
+            renditionKey: data.renditionKey,
+            durationMs: data.durationMs,
           })
-          .from(chapters)
-          .where(eq(chapters.bookId, existing.id))
-          .orderBy(chapters.position);
-        const registrationMismatch = !isSameLocalRegistration(
-          data,
-          existing.fingerprint &&
-            existing.fingerprintKind &&
-            existing.renditionKey &&
-            existing.durationMs
-            ? {
-                fingerprint: existing.fingerprint,
-                fingerprintKind: existing.fingerprintKind,
-                renditionKey: existing.renditionKey,
-                durationMs: existing.durationMs,
-                chapters: existingChapters,
-              }
-            : null,
-        );
-        return { settled: existing.id, registrationMismatch };
-      }
-      const created = claimed;
-      const [registeredMedia] = await transaction
-        .insert(mediaAssets)
-        .values({
-          ownerId: session.user.id,
-          bookId: created.id,
-          originalFilename: filename,
-          mimeType: data.mimeType,
-          byteSize: data.byteSize,
-          fingerprint: data.fingerprint,
-          fingerprintKind: data.fingerprintKind,
-          renditionKey: data.renditionKey,
-          durationMs: data.durationMs,
-        })
-        // Targetless conflict handling works during both halves of the rollout:
-        // while the live server still needs the legacy fingerprint arbiter and
-        // after a later release removes it in favor of rendition identity.
-        .onConflictDoNothing()
-        .returning({ bookId: mediaAssets.bookId });
-      if (!registeredMedia) {
-        await transaction.delete(books).where(eq(books.id, created.id));
-        const [duplicate] = await transaction
-          .select({ bookId: mediaAssets.bookId, durationMs: mediaAssets.durationMs })
-          .from(mediaAssets)
-          .where(
-            and(
-              eq(mediaAssets.ownerId, session.user.id),
-              eq(mediaAssets.fingerprintKind, data.fingerprintKind),
-              eq(mediaAssets.fingerprint, data.fingerprint),
-              eq(mediaAssets.renditionKey, data.renditionKey),
-            ),
-          )
-          .limit(1);
-        if (!duplicate) {
-          const [legacyFingerprintOwner] = await transaction
-            .select({ bookId: mediaAssets.bookId })
+          // Targetless conflict handling works during both halves of the rollout:
+          // while the live server still needs the legacy fingerprint arbiter and
+          // after a later release removes it in favor of rendition identity.
+          .onConflictDoNothing()
+          .returning({ bookId: mediaAssets.bookId });
+        if (!registeredMedia) {
+          await transaction.delete(books).where(eq(books.id, created.id));
+          const [duplicate] = await transaction
+            .select({ bookId: mediaAssets.bookId, durationMs: mediaAssets.durationMs })
             .from(mediaAssets)
             .where(
               and(
                 eq(mediaAssets.ownerId, session.user.id),
                 eq(mediaAssets.fingerprintKind, data.fingerprintKind),
                 eq(mediaAssets.fingerprint, data.fingerprint),
+                eq(mediaAssets.renditionKey, data.renditionKey),
               ),
             )
             .limit(1);
-          if (legacyFingerprintOwner) {
-            return { renditionBlockedByExpandIndex: true as const };
+          if (!duplicate) {
+            const [legacyFingerprintOwner] = await transaction
+              .select({ bookId: mediaAssets.bookId })
+              .from(mediaAssets)
+              .where(
+                and(
+                  eq(mediaAssets.ownerId, session.user.id),
+                  eq(mediaAssets.fingerprintKind, data.fingerprintKind),
+                  eq(mediaAssets.fingerprint, data.fingerprint),
+                ),
+              )
+              .limit(1);
+            if (legacyFingerprintOwner) {
+              return { renditionBlockedByExpandIndex: true as const };
+            }
+            throw new Error("Duplicate media registration could not be resolved.");
           }
-          throw new Error("Duplicate media registration could not be resolved.");
-        }
 
-        await transaction
-          .select({ id: books.id })
-          .from(books)
-          .where(eq(books.id, duplicate.bookId))
-          .for("update")
-          .limit(1);
-        const existingChapters = await transaction
-          .select({
-            position: chapters.position,
-            title: chapters.title,
-            startMs: chapters.startMs,
-            endMs: chapters.endMs,
-          })
-          .from(chapters)
-          .where(eq(chapters.bookId, duplicate.bookId))
-          .orderBy(chapters.position);
-        const repairCandidate = reconcileChapterSequenceDuration(
-          data.chapters,
-          data.durationMs,
-          duplicate.durationMs,
-        );
-        const currentComplete = isValidChapterSequence(existingChapters, duplicate.durationMs);
-        if (!currentComplete && !repairCandidate) {
-          return {
-            bookId: duplicate.bookId,
-            created: false,
-            repaired: false,
-            repairBlocked: true,
-          };
-        }
-        const repaired = repairCandidate
-          ? shouldReplaceChapterSequence(existingChapters, repairCandidate, duplicate.durationMs)
-          : false;
-        if (repairCandidate && repaired) {
-          await transaction.delete(chapters).where(eq(chapters.bookId, duplicate.bookId));
-          await insertChapterRows(duplicate.bookId, repairCandidate);
           await transaction
-            .update(books)
-            .set({
-              chapterDiagnostic: data.chapterDiagnostic,
-              updatedAt: monotonicTimestamp(books.updatedAt),
+            .select({ id: books.id })
+            .from(books)
+            .where(eq(books.id, duplicate.bookId))
+            .for("update")
+            .limit(1);
+          const existingChapters = await transaction
+            .select({
+              position: chapters.position,
+              title: chapters.title,
+              startMs: chapters.startMs,
+              endMs: chapters.endMs,
             })
-            .where(eq(books.id, duplicate.bookId));
+            .from(chapters)
+            .where(eq(chapters.bookId, duplicate.bookId))
+            .orderBy(chapters.position);
+          const repairCandidate = reconcileChapterSequenceDuration(
+            data.chapters,
+            data.durationMs,
+            duplicate.durationMs,
+          );
+          const currentComplete = isValidChapterSequence(existingChapters, duplicate.durationMs);
+          if (!currentComplete && !repairCandidate) {
+            return {
+              bookId: duplicate.bookId,
+              created: false,
+              repaired: false,
+              repairBlocked: true,
+            };
+          }
+          const repaired = repairCandidate
+            ? shouldReplaceChapterSequence(existingChapters, repairCandidate, duplicate.durationMs)
+            : false;
+          if (repairCandidate && repaired) {
+            await transaction.delete(chapters).where(eq(chapters.bookId, duplicate.bookId));
+            await insertChapterRows(duplicate.bookId, repairCandidate);
+            await transaction
+              .update(books)
+              .set({
+                chapterDiagnostic: data.chapterDiagnostic,
+                updatedAt: receipt,
+              })
+              .where(eq(books.id, duplicate.bookId));
+          }
+          return { bookId: duplicate.bookId, created: false, repaired, repairBlocked: false };
         }
-        return { bookId: duplicate.bookId, created: false, repaired, repairBlocked: false };
-      }
-      await insertChapterRows(created.id, data.chapters);
-      return { bookId: created.id, created: true, repaired: false, repairBlocked: false };
-    });
+        await insertChapterRows(created.id, data.chapters);
+        return { bookId: created.id, created: true, repaired: false, repairBlocked: false };
+      },
+      { isolationLevel: "read committed" },
+    );
 
     if ("settled" in registration) {
       // The device already named this book and the server already holds it, so

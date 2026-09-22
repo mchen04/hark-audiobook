@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 import {
   ACCOUNT_A,
@@ -131,8 +131,8 @@ test("the online Library control replaces the player instead of only changing it
   try {
     await page.getByRole("link", { name: ON_DEVICE_BOOK.title, exact: true }).click();
     await expect(page.locator(".player-page")).toBeVisible({ timeout: 60_000 });
-    await page.getByRole("button", { name: "Play" }).click();
-    await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+    await page.getByRole("button", { name: "Play", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
 
     await leavePlayerFromTopbar(page);
 
@@ -149,8 +149,8 @@ test("the Library control keeps playback alive when the connection drops mid-boo
   try {
     await page.getByRole("link", { name: ON_DEVICE_BOOK.title, exact: true }).click();
     await expect(page.locator(".player-page")).toBeVisible({ timeout: 60_000 });
-    await page.getByRole("button", { name: "Play" }).click();
-    await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+    await page.getByRole("button", { name: "Play", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
     await cutNetwork(page);
 
     await leavePlayerFromTopbar(page);
@@ -158,7 +158,7 @@ test("the Library control keeps playback alive when the connection drops mid-boo
     await expectLibraryOnScreen(page);
     await expect(page.locator(".player-page")).toHaveCount(0);
     await expect(page.getByRole("complementary", { name: "Now playing" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
     await expect(page.locator("audio")).toHaveCount(1);
     expect(await page.locator("audio").evaluate((audio: HTMLAudioElement) => audio.paused)).toBe(
       false,
@@ -212,9 +212,11 @@ test("opening a missing book never hides the controls for the book still playing
   const page = await launchLibrary();
   try {
     await page.getByRole("link", { name: ON_DEVICE_BOOK.title, exact: true }).click();
-    await expect(page.getByRole("button", { name: "Play" })).toBeVisible({ timeout: 60_000 });
-    await page.getByRole("button", { name: "Play" }).click();
-    await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible({
+      timeout: 60_000,
+    });
+    await page.getByRole("button", { name: "Play", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
 
     await leavePlayerFromTopbar(page);
     await expectLibraryOnScreen(page);
@@ -225,7 +227,7 @@ test("opening a missing book never hides the controls for the book still playing
     });
     await expect(page.getByRole("button", { name: "Attach MP3" })).toBeVisible();
     await expect(page.getByRole("complementary", { name: "Now playing" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
   } finally {
     await page.close();
   }
@@ -298,10 +300,29 @@ test("deleting a missing book does not unload the different book still playing",
       fixture,
     ]);
     await importThroughUi(page, "deletion-playback.mp3", readFileSync(fixture));
-    await page.getByRole("link", { name: title, exact: true }).click();
-    await expect(page.getByRole("button", { name: "Play" })).toBeVisible({ timeout: 60_000 });
-    await page.getByRole("button", { name: "Play" }).click();
-    await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+    const link = page.getByRole("link", { name: title, exact: true });
+    const href = await link.getAttribute("href");
+    expect(href).toMatch(/^\/books\//);
+    // Pin the former race without a sleep: the real server completes the book
+    // response, but our loopback proxy holds delivery below the service worker.
+    // A substring "Play" also matches "Remove download of ... playback ...".
+    const held = (await network()).holdNextResponse("GET", href!);
+    const play = page.getByRole("button", { name: "Play", exact: true });
+    try {
+      await link.click();
+      expect(await held.upstreamStatus).toBe(200);
+      await expect(page.getByRole("button", { name: "Play", exact: false })).toHaveAccessibleName(
+        `Remove download of ${title}`,
+      );
+      await expect(play).toHaveCount(0);
+    } finally {
+      held.release();
+    }
+    await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible({
+      timeout: 60_000,
+    });
+    await play.click();
+    await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
     const source = await page.locator("audio").getAttribute("src");
 
     await leavePlayerFromTopbar(page);
@@ -310,19 +331,56 @@ test("deleting a missing book does not unload the different book still playing",
     await expect(page.getByRole("button", { name: "Attach MP3" })).toBeVisible({
       timeout: 60_000,
     });
+    const playing = page.getByRole("complementary", { name: "Now playing" });
+    await expect(playing).toContainText(title);
+    await expect(page.locator("audio")).toHaveAttribute("src", source!);
+    const browsingSample = await playbackPosition(page);
+    await expect.poll(() => playbackPosition(page)).toBeGreaterThan(browsingSample + 0.1);
+    const browsingAdvanced = await playbackPosition(page);
+    expect(browsingAdvanced).toBeGreaterThan(browsingSample + 0.1);
 
     await page.getByRole("button", { name: "Delete this book" }).click();
     await page.getByRole("button", { name: "Tap again to permanently delete" }).click();
 
     await expectLibraryOnScreen(page);
     await expect(page.getByRole("complementary", { name: "Now playing" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
     await expect(page.locator("audio")).toHaveCount(1);
     await expect(page.locator("audio")).toHaveAttribute("src", source!);
     expect(await page.locator("audio").evaluate((audio: HTMLAudioElement) => audio.paused)).toBe(
       false,
     );
+    await expect(playing).toContainText(title);
+    const deletionSample = await playbackPosition(page);
+    await expect.poll(() => playbackPosition(page)).toBeGreaterThan(deletionSample + 0.1);
+    const deletionAdvanced = await playbackPosition(page);
+    expect(deletionAdvanced).toBeGreaterThan(deletionSample + 0.1);
+    const sessionTitle = await page.evaluate(() => navigator.mediaSession.metadata?.title);
+    expect(sessionTitle).toBe(title);
+    // Written only after the real decoder and identity assertions above pass.
+    writeFileSync(
+      test.info().outputPath("missing-book-playback.json"),
+      JSON.stringify(
+        {
+          source,
+          title,
+          sessionTitle,
+          browsingSample,
+          browsingAdvanced,
+          deletionSample,
+          deletionAdvanced,
+          navigationControl:
+            "Book response held at loopback proxy; exact Play absent while Remove download is present",
+        },
+        null,
+        2,
+      ),
+    );
   } finally {
     await page.close();
   }
 });
+
+async function playbackPosition(page: Page): Promise<number> {
+  return page.locator("audio").evaluate((audio: HTMLAudioElement) => audio.currentTime);
+}

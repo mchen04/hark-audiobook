@@ -232,8 +232,9 @@ test("retained player, organization, transcript, settings, export and deletion w
     info.outputPath("collection-autoplay.json"),
     JSON.stringify(
       {
-        navigatedToNextBook: true,
-        decoderAdvancedWithoutSecondPlayClick: autoplayAdvanced > autoplaySample + 0.1,
+        nextBookTitle: await page
+          .getByRole("heading", { name: "Tiny Fixture Book", exact: true })
+          .textContent(),
         sampledPositionSeconds: autoplaySample,
         advancedPositionSeconds: autoplayAdvanced,
         autoplayQuery: new URL(page.url()).searchParams.get("autoplay"),

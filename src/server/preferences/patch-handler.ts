@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, eq } from "drizzle-orm";
+import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 
 import {
   DEFAULT_PREFERENCES,
@@ -48,7 +49,7 @@ export function makePreferencesPatch({ strict }: { strict: boolean }) {
         return Response.json({ error: "Invalid preference write id." }, { status: 400 });
       }
       const policy = applyPreferenceWritePolicy(data, defaultsVersionHeader);
-      const update = {
+      const update: PgUpdateSetSource<typeof userPreferences> = {
         ...policy.patch,
         updatedAt: monotonicTimestamp(userPreferences.updatedAt),
         ...(policy.smartRewindExplicit !== undefined

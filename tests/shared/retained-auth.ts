@@ -44,7 +44,10 @@ export async function findRetainedAccount(password: string): Promise<{ id: strin
   return user;
 }
 
-function operationFailure(stage: "database read" | "credential verification", error: unknown) {
+function operationFailure(
+  stage: "database read" | "credential verification" | "auth budget read",
+  error: unknown,
+) {
   // Raw driver/crypto messages and causes can contain connection strings,
   // inputs or hashes. Retain only known diagnostic categories, never their text.
   const code = error && typeof error === "object" && "code" in error ? error.code : null;
@@ -58,7 +61,7 @@ function operationFailure(stage: "database read" | "credential verification", er
           ? "RangeError"
           : "Error";
   const action =
-    stage === "database read"
+    stage !== "credential verification"
       ? "Check the local test database, HARK_ENV_FILE connection and migrations."
       : "Check the test runtime and disposable credential hash format; this is not a confirmed password mismatch.";
   return new Error(
@@ -76,10 +79,14 @@ export async function awaitRetainedAuthBudget(
   await awaitAuthBudget(
     operation,
     async () => {
-      const [row] = await sql()<{ count: number; last_request: string }[]>`
-      select count, last_request from rate_limit where key=${key}
-    `;
-      return row ? { count: row.count, lastRequest: Number(row.last_request) } : undefined;
+      try {
+        const [row] = await sql()<{ count: number; last_request: string }[]>`
+          select count, last_request from rate_limit where key=${key}
+        `;
+        return row ? { count: row.count, lastRequest: Number(row.last_request) } : undefined;
+      } catch (error) {
+        throw operationFailure("auth budget read", error);
+      }
     },
     onWait,
   );

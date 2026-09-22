@@ -42,19 +42,21 @@ it.each([
   },
 );
 
-it("rereads persistent storage after waiting instead of forgetting another consumer", async () => {
+it.each([0, 1, 500])("diagnoses renewed saturation %i ms into its single wait", async (offset) => {
   const start = Date.now();
   const read = vi
     .fn()
     .mockResolvedValueOnce({ count: 5, lastRequest: start - 599_000 })
-    .mockResolvedValueOnce({ count: 5, lastRequest: start })
+    .mockResolvedValueOnce({ count: 5, lastRequest: start + offset })
     .mockResolvedValue(undefined);
   const wait = vi.fn();
-  const pending = awaitAuthBudget("sign-up", read, wait);
+  const pending = awaitAuthBudget("sign-up", read, wait).catch((error: unknown) => error);
   await vi.runAllTimersAsync();
-  await pending;
-  expect(wait.mock.calls).toEqual([[2_500], [599_000]]);
-  expect(read).toHaveBeenCalledTimes(3);
+  const error = await pending;
+  expect(error).toBeInstanceOf(Error);
+  expect((error as Error).message).toContain("wait limit exceeded");
+  expect(wait.mock.calls).toEqual([[2_500]]);
+  expect(read).toHaveBeenCalledTimes(2);
 });
 
 it.each([

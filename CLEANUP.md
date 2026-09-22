@@ -1,5 +1,16 @@
 # Cleanup report
 
+Historical coordinator receipt for `9d64cca`; the checks below describe that
+cleanup pass. Current acceptance repairs and checks are recorded separately in
+`docs/evidence/architecture-ledger.md`.
+
+A4 clarification: deriving `incrementalMirrorMatchedEveryEdit` from the counter
+did not create an independent oracle. Like `strictlyIncreasing` and the autoplay
+boolean, it could only be written after matching assertions passed. The current
+specs omit these redundant flags and retain the measured timestamps/positions
+and executable assertions. The original report is preserved verbatim at
+`.data/objective/acceptance-followup/CLEANUP.md.9d64cca.txt`.
+
 Run ID: cc69bfbf83b04ef48ba75588e885d26b
 Status: complete
 

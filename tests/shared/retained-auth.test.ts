@@ -4,7 +4,11 @@ const { query, verify } = vi.hoisted(() => ({ query: vi.fn(), verify: vi.fn() })
 vi.mock("../sync/harness/app", () => ({ sql: () => query }));
 vi.mock("better-auth/crypto", () => ({ verifyPassword: verify }));
 
-import { findRetainedAccount, RETAINED_CREDENTIAL_DIAGNOSTIC } from "./retained-auth";
+import {
+  awaitRetainedAuthBudget,
+  findRetainedAccount,
+  RETAINED_CREDENTIAL_DIAGNOSTIC,
+} from "./retained-auth";
 
 beforeEach(() => {
   query.mockReset();
@@ -79,4 +83,27 @@ it("diagnoses verifier rejection as operational, preserving safe error category 
   expect(message).toContain("credential verification failed");
   expect(message).toContain("TypeError");
   expect(message).not.toContain("credential mismatch");
+});
+
+it("wraps budget read errors without driver text, query, parameters or cause", async () => {
+  const raw = Object.assign(new Error("private-connection-string"), {
+    code: "ECONNREFUSED",
+    query: "private-query",
+    parameters: ["private-parameter"],
+  });
+  query.mockRejectedValueOnce(raw);
+  const wait = vi.fn();
+  const error: unknown = await awaitRetainedAuthBudget("sign-in", wait).catch(
+    (caught: unknown) => caught,
+  );
+  expect(error instanceof Error).toBe(true);
+  expect(error === raw).toBe(false);
+  const message = (error as Error).message;
+  expect(message.includes("private-")).toBe(false);
+  expect(message).toContain("auth budget read failed (ECONNREFUSED)");
+  expect(message).toContain("Check the local test database");
+  for (const property of ["query", "parameters", "cause"]) {
+    expect(Object.hasOwn(error as object, property)).toBe(false);
+  }
+  expect(wait).not.toHaveBeenCalled();
 });
