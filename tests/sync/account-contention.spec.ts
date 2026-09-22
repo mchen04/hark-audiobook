@@ -327,11 +327,9 @@ test("the real player retains a busy progress write and replays it on relaunch",
     expect(during.books).toEqual([]);
     expect(during.playbackStates).toEqual([]);
     await page.screenshot({ path: info.outputPath("busy-player.png") });
-    // Close the app with the socket offline: a pagehide keepalive must not
-    // deliver behind this oracle's back. The existing outbox is already durable.
-    await context.setOffline(true);
+    // The held transaction rejects any departing pagehide keepalive too. Keep
+    // the socket up: this recovery is from a real SERVER busy response.
     await page.close();
-    await context.setOffline(false);
     const reopened = await context.newPage();
     reopened.on("pageerror", (error) => errors.push(error.name));
     // Same-origin 404 has no app/replay hook. Inspect what survived BEFORE mount.
@@ -339,7 +337,7 @@ test("the real player retains a busy progress write and replays it on relaunch",
     await attachDriver(reopened, account, device);
     const retained = (await outbox(reopened)).find((row) => row.entityId === bookId)!;
     observations.retainedAfterClose = retained;
-    expect(retained.payload.positionMs).toBe(5_000);
+    expect(retained.payload).toEqual(before.payload);
     expect(retained.deviceSequence).toBeGreaterThanOrEqual(before.deviceSequence);
     held.release();
     expect((await held.done).status).toBe(201);
@@ -367,6 +365,13 @@ test("the real player retains a busy progress write and replays it on relaunch",
       positionMs: 5_000,
       deviceSequence: retained.deviceSequence,
     });
+    const [ordering] = await sql()<
+      { ordered: boolean }[]
+    >`select b.updated_at < p.updated_at as ordered
+      from books b cross join playback_states p where b.id=${importing}::uuid
+      and p.user_id=${account.userId} and p.book_id=${bookId}::uuid`;
+    observations.ordering = ordering;
+    expect(ordering?.ordered).toBe(true);
     // Real decoder and preserved local bytes remain usable after retry.
     await reopened.getByRole("link", { name: title, exact: true }).click();
     await reopened.getByRole("button", { name: "Play", exact: true }).click();
@@ -382,6 +387,12 @@ test("the real player retains a busy progress write and replays it on relaunch",
     observations.advanced = await reopened
       .locator("audio")
       .evaluate((audio: HTMLAudioElement) => audio.currentTime);
+    const range = await reopened.locator("audio").evaluate(async (audio: HTMLAudioElement) => {
+      const response = await fetch(audio.currentSrc, { headers: { Range: "bytes=0-1023" } });
+      return { status: response.status, bytes: (await response.arrayBuffer()).byteLength };
+    });
+    observations.range = range;
+    expect(range).toEqual({ status: 206, bytes: 1024 });
     expect(errors).toEqual([]);
     await reopened.screenshot({ path: info.outputPath("recovered-player.png") });
   } finally {
