@@ -5,7 +5,7 @@ Hostname verified first: `mbp-old`. Baseline: `0e1f17eb18ce6a07c6d55c1790c860099
 Branch: `task/t_99d8ece2-hark`. One implementer, ordinary turns, no goal mode or delegation.
 No push, PR, merge, deployment, board edits, cleanup gate, or independent review executed by this implementer.
 
-Current handoff: **Bounded account-contention follow-up** below, tested source `5ce2afa`. Earlier candidate sections retain their original attribution.
+Current handoff: **Approved sign-out follow-up — F1–F7** below, served source `e510ffb1`. Earlier candidate sections retain their original attribution.
 
 ## Evidence policy
 
@@ -2009,3 +2009,208 @@ checks appropriate to that exact source rather than reusing this receipt. This
 handoff pauses for authorized supervisor cleanup and independent changed-area
 review; no reviewer, publication, board action, native goal or extra writer was
 started here. Runtime model/effort remain unobservable (requested Astra max).
+
+## Approved sign-out follow-up — F1–F7
+
+Michael's “approve of hark” and the independent PASS at **33f4ccd8** remain
+carried. This is a bounded repair of that review's changed areas, not another
+feature audit or an implementer-run review/cleanup gate. Host was verified first
+as **mbp-old**; one writer, ordinary turns, local edits/checks/commits only.
+The review was read in full and copied without alteration to
+`.data/objective/signout-followup/independent-review-input.md`.
+
+### Post-cleanup attribution (F5)
+
+The earlier contention section and `contention-fixes-source.json` describe their
+sealed source **5ce2afac**. Their app/harness-identity statement and old handoff
+verifier apply to that historical handoff only. Four subsequent authorized
+cleanup commits were **3a881003, 706358eb, 25e0ded9, 33f4ccd8**. In particular,
+3a881003 changed `tests/sync/two-device-convergence.spec.ts`; CLEANUP.md correctly
+says that cleanup did not execute it. The independent external review at
+33f4ccd8 then passed **44 sync, 33 parity, 8 iPhone WebKit, and 814 units** and
+closed that post-cleanup coverage gap. These are the external review's results,
+not new implementer runs. CLEANUP.md and the sealed receipts have not been
+rewritten. This section supplies the new handoff attribution and verifier.
+
+This round's source commits are **095ed406** (drain repair, seven regression
+cases, F3/F4/F7 corrections and two browser cases) and **e510ffb1** (browser
+fixture diagnostics/readiness and explicit allowance of a reproduced baseline
+Next/WebKit error). Application source is identical between those two commits.
+The following documentation commit seals the new evidence; its exact HEAD and
+clean status are recorded separately in `signout-followup-postseal/`.
+
+### Dispositions
+
+| Finding                   | Change and proof                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F1                        | Keep the existing per-account single-flight keys. After joining an ambient replay that did not use the drain's observer, inspect the remaining queue and start a fresh serialized pass. Unit cases cover both mutation and history replays, prohibit parallel sends, require actual busy retry/acknowledgement, and reject late follow-ups after the deadline. The real PWA case starts the shipping mount replay, holds its actual server 503, joins it through UI sign-out, then requires a new busy pass and later 200 before purge.                                                                                       |
+| F2                        | Wait between completed replay passes, outside entity/progress locks. The next pass reads fresh durable intent. A real persister unit test journals terminal 7,000 ms progress during the wait and verifies a newer sequence reaches replay; the browser invokes the installed pagehide handler while the real server is busy, checks the IDB journal before the one-second retry, then checks the accepted sequence/position in SQL before privacy purge.                                                                                                                                                                     |
+| Account/budget invariants | Original 8,000 ms budget and purge/report semantics retained. No fetch-identity single-flight key or parallel replay. Each send checks deadline, active identity and the existing account fence scope; a fence cancels the scope permanently even if reauthentication later reopens the account. Two unit boundaries cover fence/reopen and an active-account switch without changing account B's rows. Existing late accepted progress/preference and purge tests remain.                                                                                                                                                    |
+| F3                        | Pool comment now names **receipt-lock waiters** and explicitly says an admitted transaction keeps its connection until it finishes. No server SQL, lock, pool size, receipt or commit-order behavior changed.                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| F4                        | Inspected and copied the task-root **board-review-unit.log** and **board-review-unit-webstorage-disabled.log**: 14 failed + 793 passed = **807**, then **807 passed / 90 files**. Coordinator identifies that separate board-review run as 8b5adc2. The 809-test implementer control is a different run, as is the latest external review. Development docs now say “board reviewer's separate” run. `board-unit-attribution.json` records both copies' hashes; the review's proposed reassignment was not adopted. Node 26.3.1 with `NODE_OPTIONS=--no-experimental-webstorage` remains the supported local test invocation. |
+| F5                        | New attribution above; historical measurements and receipts remain sealed. New served-source and clean-handoff verification replaces reuse of the old verifier at a changed harness.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| F6                        | Fresh pre-edit metrics at 33f4ccd8 and final-source metrics at e510ffb1, in the same scope. Historical six-line test-count difference stays historical; no old metric file changed.                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| F7                        | Removed the requirement to sample a positive number of advisory waiters. The verified held writer plus 32 actual busy replies and eight successful peer responses establish real contention. Sampled ages/quiet samples remain finite observations/sanity checks: roughly 50 ms sampling can miss waits and zero folds in quiet periods. Neither a quiet sample nor the sampled maximum proves a continuous bound or an SLA.                                                                                                                                                                                                  |
+
+### Reproductions, failed outcomes and test limits
+
+All paths in this section are relative to `.data/objective/signout-followup/`.
+Nothing in a later passing run changes a prior failure's status.
+
+- `unit-red`: **5 failed / 33 passed**. F1 mutation/history follow-ups made zero
+  sends; both boundary cases sent after they should stop. The first F2 test had
+  failed to mark its player position changed and was a **fixture failure**, not
+  proof of F2. Its complete test source is retained.
+- `unit-red-terminal`: after correcting that fixture, **5 failed / 33 passed**;
+  F2 now fails because the real persister's terminal journal misses the 250 ms
+  window while the old retry holds the lock. `unit-green`: **38/38**, including
+  all seven added cases. These use fake IndexedDB and controlled fetches; they
+  are deterministic unit proof, not live-server evidence.
+- `browser-red`: F1 reproduced one busy reply followed by sign-out and lost
+  delivery. F2 had an incorrect Settings navigation from the full player; the
+  held fixture then hit its 20-second request timeout. This is a fixture error,
+  retained with screenshots and raw output. Navigation now uses Library first.
+- `browser-red-corrected`: **2 failed / 0 passed** on the rebuilt **33f4ccd8**
+  application, build `zh-vTXQioLNkK313VRZ3b`, with 65 served asset hashes checked.
+  F1 observed one 503 instead of a new drain pass. F2 still held 5,000 ms in the
+  outbox at the 600 ms deadline instead of journalling 7,000 ms. These are the
+  live red proofs. The tests themselves were new; product code was the baseline.
+- `served-baseline`: initial provenance probe was launched before the server
+  listened and failed with ECONNREFUSED. The separate `served-baseline-ready`
+  check passed. The local server helper now waits at most five seconds for its
+  own process to listen before probing; no application timeout changed.
+- `browser-green` (a **name, not its result**) was **2 failed** at 095ed406. F1
+  delivered the edit in 1.368 s, then failed the newly added all-page-errors
+  assertion on a login RSC fetch error. F2 could not establish the import
+  barrier; the old helper did not retain that HTTP outcome, so its root cause
+  is **not established**. The diagnostic helper now fails immediately with a
+  HTTP status/body, without request headers, if the import finishes before blocking, handles
+  its eventual rejection until teardown observes it, and setup asserts the
+  initial import outbox is empty. No held-import retry was added.
+- `browser-diagnostic`: **2 failed**. Both new drain workflows passed their
+  delivery/storage assertions; terminal progress journalled in **176.7 ms** and
+  was accepted at **7,000 ms / sequence 2**. Both failed only on the same Next
+  login-RSC error. This run does not count as a passing browser check.
+- `browser-baseline-rsc-control`: exact baseline `src/` application (excluding
+  tests) and `public/` at **33f4ccd8**, rebuilt as `bWW2EhNuCeJNuhAF0cx74`,
+  reproduced the identical WebKit login-RSC message and stack in
+  `12czkog7d-pir.js:1:99505`. The temporary two-file substitution, checkout HEAD
+  095ed406, source identity, restore and served hashes are separately recorded;
+  it is not mislabeled as an unmodified 095ed406 build. This **failed** control
+  still exhibits F1. It establishes the navigation error predates this repair;
+  it does not establish its underlying framework/browser cause.
+
+The two new sign-out tests retain every page error in JSON and reject all except
+that **exact same-origin login-RSC message/Next stack signature**. A framework
+chunk/signature change requires revisiting the allowance. There is no claim of
+error-free WebKit navigation: the known error and the isolated unroot-caused
+barrier failure remain disclosed. No navigation product change was added.
+
+Browser F1's response buffer sits in the existing loopback proxy **below the
+service worker**; it changes delivery timing of a real SQL-produced 503, not its
+status/body. Its temporary `IDBIndex.prototype.getAll` wrapper delegates requests
+unchanged, observes completion of both initial drain reads, then restores itself
+on the next task. This makes the drain/ambient overlap observable; it does not
+replace either replay map. F2 uses a synthetic `PageTransitionEvent('pagehide')`
+with the actual installed handler, persister, fetch, SQL admission and IndexedDB.
+It proves the callback path while the page remains alive, **not native iPhone
+suspension or killing the process during the wait**. Fixture accounts/IP budgets
+are reused; real limiter waits are preserved. New contention cases target only their own
+disposable IDs for teardown; retained parity cases use their established
+dedicated-account fixture setup. Ports 3100/3199 were untouched.
+
+### Fresh source costs (F6)
+
+`signout-followup-source.json` links the full raw metrics and hashes. Same method
+as every prior phase: authored src TS/TSX excluding tests, plus public/sw.js;
+TypeScript token-occupied LOC; ESLint classic cyclomatic complexity. Tests/harness,
+CSS and generated files remain separate. Bundle means **all static build
+JS/CSS/WASM**, not initial transfer.
+
+| Metric                                  | Clean 33f4ccd8 before edits |  Final source e510ffb1 |
+| --------------------------------------- | --------------------------: | ---------------------: |
+| App files / code LOC                    |                180 / 23,338 |           180 / 23,373 |
+| App physical lines                      |                      27,422 |                 27,457 |
+| Cyclomatic total / functions / above 10 |          5,475 / 1,751 / 79 |     5,493 / 1,758 / 80 |
+| Tests/harness physical / code lines     |             38,215 / 34,707 |        38,660 / 35,152 |
+| CSS physical / code lines               |               3,149 / 2,645 |          3,149 / 2,645 |
+| Generated JSON physical lines           |                      58,251 |                 58,251 |
+| All-static bytes / gzip                 |      28,540,827 / 7,555,948 | 28,541,364 / 7,556,128 |
+
+The repair adds **35 app code lines, 18 complexity points, 537 raw / 180 gzip
+bytes**. Baseline bundle costs came from the cleanup build on disk
+`xuHsYbWiBCbTVkih8R3_Q`, not the stale intake server. Final costs belong to the
+fresh build below. Original startup/import/narration/playback/heap benchmarks
+remain attributed to **be79d4e / source snapshot 4964071**. No new benchmark of
+those paths, full resume matrix, launch-perf, or broad retained-feature audit was
+performed in this bounded round. Prior C2–C6 and historical limitations remain
+non-gating and disclosed; none is silently marked repaired here.
+
+### Final executed checks and coverage
+
+Served application and harness: **e510ffb1cfed227bdb51a521d664dc56859061e2**,
+build **eraZMsI8a2sO5E9SdmcO_**, owned **:3000 / PID 32307**. The provenance
+receipt verifies the process directory, root/standalone build IDs, HTML build
+marker and **65 served/disk asset hashes**. Tests use the guarded disposable
+`.env.test` database at 127.0.0.1:54329. All exact argv, runtime, durations and exit
+statuses are retained in the named raw `.json`/`.log` command receipts.
+
+| Raw command prefix        | Executed result                                                                                                                                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `quick-verified`          | `NODE_OPTIONS=--no-experimental-webstorage` + existing test env loader + `pnpm verify:quick`: **exit 0**, format/lint/types, **821 units / 92 files**, production build; **32.935 s**.                  |
+| `served-verified`         | **Exit 0**, exact e510ffb1 build and 65 served hashes.                                                                                                                                                  |
+| `browser-verified`        | **Exit 0, 18/18** (**5 parity + 13 sync**), **143.739 s**, including the real 51 s sign-in budget wait. Four specs, explicit title selection recorded in the receipt; this is not a full-project claim. |
+| `browser-repeat-verified` | **Exit 0, 4/4**, two consecutive iterations of both new cases, **83.378 s**, including a real 56 s sign-in budget wait. Fixed `--repeat-each=2`, no test retries.                                       |
+| `source-verified`         | **Exit 0**, fresh source metrics above.                                                                                                                                                                 |
+| `history-preservation`    | **Exit 0**, all **1,686 artifacts / six historical manifests** still match byte sizes and SHA256.                                                                                                       |
+
+| Preserved behavior                         | Executed proof on this source                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Concurrent ambient replay → busy sign-out  | Three final real WebKit executions, each **503 → 503 → 200**, edit verified in SQL, then empty outbox and no active identity. Drains **1.343–1.353 s**, within 8 s.                                                                                                                                                                                               |
+| Terminal write during retry wait           | Three final real WebKit executions; journal updated in **170.2–175.1 ms**, accepted **7,000 ms / sequence 2**, then purge. Drains **1.308–1.355 s**. Seven new deterministic unit cases separately cover joined replay, late replies and account fencing.                                                                                                         |
+| Account privacy / purge / crash recovery   | All five retained account-purge parity cases: empty account residue, switch, interrupted purge, late accepted progress, playing peer revocation. These read actual IndexedDB/Cache Storage/localStorage after positive seeding.                                                                                                                                   |
+| Outbox and completed playback recovery     | Both retained outbox-durability cases plus real server-busy player close/relaunch. Final player decoder **5.000 → 5.229 s**, range **206 / 1,024 bytes**, no player page errors.                                                                                                                                                                                  |
+| Receipt admission / pool / cursor ordering | Held-import 40-request load case plus all six future-cursor/delayed-commit cases. **40/40** responses before a **2,044.8 ms** release; 32 real busy responses, eight peer 200s; busy max **876.9 ms**, peer max **813.4 ms**. Sampled max **9 waiters / 99.7 ms**, last sample zero. Finite sampled observations, not continuous occupancy or latency guarantees. |
+
+`verified-summary.json` links the six assertion-gated sign-out observation files.
+Both new cases preserve the known login-RSC error when it occurs (five of the
+six final observations); their green status covers the documented functional
+assertions and absence of **other** page errors, not absence of that error.
+
+Screenshots are unique under `browser-verified-results/` and
+`browser-repeat-verified-results/`. Visual inspection opened
+`account-contention-termina-c4d61-h-intent-reaches-the-server-sync/terminal-during-drain.png`
+(Settings, disabled sign-out, retained mini-player) and
+`account-contention-sign-ou-02a17-ries-real-server-contention-sync/ambient-signout-delivered.png`
+(login after verified server delivery and local purge). The JSON assertions,
+not screenshots alone, establish positions, sequences, timing and delivery.
+
+### Seal and supervisor handoff
+
+`docs/evidence/signout-followup-artifacts.json` seals this round's raw files,
+including every red/diagnostic outcome and frozen server logs. Its command index
+is `.data/objective/signout-followup/command-outcomes.json`. Post-seal formatting,
+manifest verification, local documentation commit and clean handoff results live
+outside that immutable root in `.data/objective/signout-followup-postseal/`.
+
+Recommended bounded read-only supervisor checks (use fresh output destinations):
+
+```sh
+git status --short
+git diff --check 33f4ccd..HEAD
+git diff --stat 33f4ccd..HEAD
+python3 .data/objective/signout-followup/check-historical-artifacts.py
+python3 .data/objective/signout-followup/check-artifacts.py
+node .data/objective/signout-followup/verify-final-handoff.mjs verified
+```
+
+The new handoff verifier permits documentation-only differences from served
+**e510ffb1** and requires a clean tree and matching live assets. If cleanup
+changes application or harness source or rebuilds `.next`, establish new
+provenance and appropriate checks rather than reusing this receipt. No original
+performance measurement is invalidated or relabelled. Runtime model/effort are
+not independently observable; the requested setting remains Astra max.
+
+Implementation is paused for the authorized bounded supervisor cleanup and
+independent changed-area review. Neither was launched here. Michael's approval
+is preserved; no publication or board action occurred.

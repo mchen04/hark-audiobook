@@ -1,0 +1,977 @@
+{
+  "servedSourceCommit": "e510ffb1cfed227bdb51a521d664dc56859061e2",
+  "buildId": "eraZMsI8a2sO5E9SdmcO_",
+  "method": "Immutable red/green command receipts, source snapshots, browser JSON and screenshots; live server logs excluded in favor of frozen copies. All failures retained, including fixture failures, matched baseline WebKit login-RSC error and the first candidate barrier failure without a recorded HTTP outcome. No retrospective passing labels. Post-seal results go to signout-followup-postseal.",
+  "artifacts": [
+    {
+      "file": ".data/objective/signout-followup/account-contention.diagnostic-tests.ts.txt",
+      "bytes": 34193,
+      "sha256": "c4af1336be933a9a8ebc84c7741647a92afe4e1e2aa0d38adc4e3253a9d3a206"
+    },
+    {
+      "file": ".data/objective/signout-followup/account-contention.first-browser-tests.ts.txt",
+      "bytes": 33335,
+      "sha256": "2568ea1bbaaf736384b82b6748197352ca86f200dca6f7c0a6bbf6beec773242"
+    },
+    {
+      "file": ".data/objective/signout-followup/account-contention.first-candidate.ts.txt",
+      "bytes": 33610,
+      "sha256": "acb660aa7398a57fd2fbf74b9468de0ff824d40d2114f6e2d7fc794833749cae"
+    },
+    {
+      "file": ".data/objective/signout-followup/account-contention.red-tests.ts.txt",
+      "bytes": 33610,
+      "sha256": "acb660aa7398a57fd2fbf74b9468de0ff824d40d2114f6e2d7fc794833749cae"
+    },
+    {
+      "file": ".data/objective/signout-followup/account-purge.first-tests.ts.txt",
+      "bytes": 40944,
+      "sha256": "09746c0e185cd114282c1b096dda88f7ac2d43d89c13666a13aae1ef4079ddc5"
+    },
+    {
+      "file": ".data/objective/signout-followup/account-purge.red-tests.ts.txt",
+      "bytes": 41027,
+      "sha256": "8b9361313433d95befef15eea71b0ea79459559814235f5fe5d8203f85c8ec00"
+    },
+    {
+      "file": ".data/objective/signout-followup/baseline-control-restoration.json",
+      "bytes": 362,
+      "sha256": "ff501f6986059ba13044acb0ab3f1bfc39dc650d4d3455001cdd6dd5c9a8a29c"
+    },
+    {
+      "file": ".data/objective/signout-followup/baseline-control-source.json",
+      "bytes": 401,
+      "sha256": "b228c6090107f27f4e1b53cd7f8b6665028364e9c66163b7d0b15908b5157058"
+    },
+    {
+      "file": ".data/objective/signout-followup/board-review-unit-webstorage-disabled.log",
+      "bytes": 387,
+      "sha256": "0ede99ffb26bf45c637218ce8392402dc3b086b09da1d63275bd27d7651fdcb4"
+    },
+    {
+      "file": ".data/objective/signout-followup/board-review-unit.log",
+      "bytes": 8869,
+      "sha256": "6530779398cf188d344aaf8118b50a19c31a398f543cbb1bcb2e31b7f8ca291b"
+    },
+    {
+      "file": ".data/objective/signout-followup/board-unit-attribution.json",
+      "bytes": 941,
+      "sha256": "22d75d497ab408fdcddba8f56d83469c2615c9c59413498de3bb52e1ae8ccdc4"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-baseline-rsc-control-results/.last-run.json",
+      "bytes": 96,
+      "sha256": "d8c53e07477a68dc4e0d5abb0562f19771659b6bb3f05b4180156f22d73db82f"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-baseline-rsc-control-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/ambient-signout.json",
+      "bytes": 470,
+      "sha256": "adb6a65c040c8d3b1bbd56e1c51243d3b8dfaa9faca7c68e2b9023028258ce70"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-baseline-rsc-control-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/error-context.md",
+      "bytes": 11159,
+      "sha256": "c9adab1402b219a7064bd5dcdbd7bed14e5a232acfae396fb6b6716550a70cc2"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-baseline-rsc-control-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/test-failed-1.png",
+      "bytes": 176053,
+      "sha256": "45c342b87813b46564dcd0e94d71eba395ab977b4dfff8a8bc679b9df89ca502"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-baseline-rsc-control-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/test-failed-2.png",
+      "bytes": 590466,
+      "sha256": "32e7f0bb2a5447931f77b682b6b2873ea26ef5ee49a4b9b35b6dc5d5dcbdaf26"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-baseline-rsc-control.json",
+      "bytes": 749,
+      "sha256": "8cc3a03f0bcf1b5d49db97764b2d78118992f3e0cc1958d22814c0eb98419820"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-baseline-rsc-control.log",
+      "bytes": 3345,
+      "sha256": "7d59f37605323509c0a2038b3616d1faf0517506c5e5979cbc573ce199611475"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-diagnostic-results/.last-run.json",
+      "bytes": 145,
+      "sha256": "d5bde80cd3eb248f243b9b022e0c37492736498eec37e4c9de32709f744e0bf2"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-diagnostic-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/ambient-busy-drain.png",
+      "bytes": 202468,
+      "sha256": "1d49a6abb71a2cd305056f5e7d7be534fda513baae3373562e29fb7c5d9a12e6"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-diagnostic-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/ambient-signout.json",
+      "bytes": 714,
+      "sha256": "e2bd1d8e224c0c7f473975b1df41659d0f3dd45254429560213d3a8fea9e722c"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-diagnostic-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/error-context.md",
+      "bytes": 11666,
+      "sha256": "e7dd9c687602a17dd7e932ae4e59dca5e9974fd577c9fdbb7f88a1209cb64ec0"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-diagnostic-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/test-failed-1.png",
+      "bytes": 403007,
+      "sha256": "ffdb4936725304c5677805cd36d06a38a6e74726cf8d028976a03afac08e1a0b"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-diagnostic-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/test-failed-2.png",
+      "bytes": 601547,
+      "sha256": "60a34bc7b85cedeae9cfe594c53c63a9d3693b59476d9149c92427ecc4e998d0"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-diagnostic-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/error-context.md",
+      "bytes": 7092,
+      "sha256": "59f2482fe36d6046eda2e89be84f175c3ba6b423318f062c37e838f5559c6653"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-diagnostic-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/terminal-during-drain.png",
+      "bytes": 226038,
+      "sha256": "92eb061aa0445c1834e7572380a9ea54d9fb4c7432ffb43377afa3adc0f2709b"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-diagnostic-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/terminal-progress.mp3",
+      "bytes": 240645,
+      "sha256": "dbe8dc483094de6919a152c93adc992aca79d0fbca9b8c5cd2389d1d63ae3628"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-diagnostic-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/terminal-signout.json",
+      "bytes": 2022,
+      "sha256": "3fdbde103527a03175186adbabff248a426ba59bb8f778499655f083483f7195"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-diagnostic-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/test-failed-1.png",
+      "bytes": 403007,
+      "sha256": "ffdb4936725304c5677805cd36d06a38a6e74726cf8d028976a03afac08e1a0b"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-diagnostic-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/test-failed-2.png",
+      "bytes": 676641,
+      "sha256": "8f74f52b8e14a6865d83e54173939218afe731421f7e99f69685c73aabec7837"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-diagnostic.json",
+      "bytes": 757,
+      "sha256": "785da4411b27b92e50dbf3eeb9a8cd94b04b09bc02312ee7ba8443acb1f5d6d1"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-diagnostic.log",
+      "bytes": 7111,
+      "sha256": "6c9b61beacc4b3d84cb5c4008d85f8b9d1916f02c37edf194954e73922be1ec3"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-green-results/.last-run.json",
+      "bytes": 145,
+      "sha256": "d5bde80cd3eb248f243b9b022e0c37492736498eec37e4c9de32709f744e0bf2"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-green-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/ambient-busy-drain.png",
+      "bytes": 202468,
+      "sha256": "1d49a6abb71a2cd305056f5e7d7be534fda513baae3373562e29fb7c5d9a12e6"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-green-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/ambient-signout.json",
+      "bytes": 456,
+      "sha256": "090fad1473b9d85cd9d17fcee67c0a830bdf66513c2e55e8e933669384a09726"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-green-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/error-context.md",
+      "bytes": 11443,
+      "sha256": "2ef627d08fd65ca2451c379e02fd876201b957e0576e4e1928c670881989cfcb"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-green-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/test-failed-1.png",
+      "bytes": 403007,
+      "sha256": "ffdb4936725304c5677805cd36d06a38a6e74726cf8d028976a03afac08e1a0b"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-green-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/test-failed-2.png",
+      "bytes": 601424,
+      "sha256": "3d9150f17dc3d1db0506732ce81e5a7a61f943946147c7aa15a2a97214193d69"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-green-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/error-context.md",
+      "bytes": 9548,
+      "sha256": "96f13636b8545f1a4ecb4ce7738914feb747de73727fe830b14b8f6715b66948"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-green-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/terminal-progress.mp3",
+      "bytes": 240645,
+      "sha256": "cf3cc6f78ae1e8dfae9542de554df0526774ce6ecc3793a77d5d540c5db081c6"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-green-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/terminal-signout.json",
+      "bytes": 119,
+      "sha256": "b7c29560f991b9be0b9bf34060b0ec2997a5200abaab056441b4b9a12b43ca77"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-green-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/test-failed-1.png",
+      "bytes": 338889,
+      "sha256": "f4b6eaffe788a6ebd714994bd12ea30ed8caebe87aafb87faa613ab6dbd21ce1"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-green.json",
+      "bytes": 747,
+      "sha256": "588bfb512801d96467883e0cd25bb4da8ac61c1be768414467e035d631378cbc"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-green.log",
+      "bytes": 5777,
+      "sha256": "179695cb71b19ea4430000bf68f159f67d2cc3a1c777e32a864ad1096080fc5c"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red-corrected-results/.last-run.json",
+      "bytes": 145,
+      "sha256": "d5bde80cd3eb248f243b9b022e0c37492736498eec37e4c9de32709f744e0bf2"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red-corrected-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/ambient-signout.json",
+      "bytes": 210,
+      "sha256": "36a4032eebcac15f4c79ddd6d79bcd7cf3f5f06500c07f774b449b68586aad1e"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red-corrected-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/error-context.md",
+      "bytes": 11306,
+      "sha256": "c867d79d4c53866125257b9a976dfcc563a0b4aff5510ba2759115f0c5f18a0e"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red-corrected-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/test-failed-1.png",
+      "bytes": 176053,
+      "sha256": "45c342b87813b46564dcd0e94d71eba395ab977b4dfff8a8bc679b9df89ca502"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red-corrected-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/test-failed-2.png",
+      "bytes": 590466,
+      "sha256": "32e7f0bb2a5447931f77b682b6b2873ea26ef5ee49a4b9b35b6dc5d5dcbdaf26"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red-corrected-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/error-context.md",
+      "bytes": 8180,
+      "sha256": "1127da900e4f30971cf228600fabeacedabce59df7c3529a75f3ee67fe3f63dd"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red-corrected-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/terminal-progress.mp3",
+      "bytes": 240645,
+      "sha256": "89f1c901ff5c6e2aa24941b9ee07de94c977211116126adf58ac6d6242890d9d"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red-corrected-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/terminal-signout.json",
+      "bytes": 313,
+      "sha256": "f5b9cfff5763814ac6d916194dd67f70a9f1bacdc8dcc7484e7135e9ef234eda"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red-corrected-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/test-failed-1.png",
+      "bytes": 225161,
+      "sha256": "644c55f93b7acc951eb0554e9e5cd99183152f7bd443698941f857f40707bb69"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red-corrected.json",
+      "bytes": 763,
+      "sha256": "b2f21780a618a55c95554fc62706ee3b8518822e10d6cb31d69a39f840f68964"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red-corrected.log",
+      "bytes": 5834,
+      "sha256": "329d4dd42d7ba3319fbe81e87b6ce411e391a63ba3a948a24c65b4326bdd0f39"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red-results/.last-run.json",
+      "bytes": 145,
+      "sha256": "d5bde80cd3eb248f243b9b022e0c37492736498eec37e4c9de32709f744e0bf2"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/ambient-signout.json",
+      "bytes": 209,
+      "sha256": "e550cfeb369d1da6900f3aab1c37a20f1aa53ea5eb2178b2a90703fa8ddfe855"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/error-context.md",
+      "bytes": 11317,
+      "sha256": "a405b75415cbc20e84f5f434e4e53d7f561ede4b42c69f5450e0d115f16df4de"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/test-failed-1.png",
+      "bytes": 176053,
+      "sha256": "45c342b87813b46564dcd0e94d71eba395ab977b4dfff8a8bc679b9df89ca502"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/test-failed-2.png",
+      "bytes": 585106,
+      "sha256": "19f03d0459d2482e0c60a5f6550cb316fabbe565477ebd9e11c731eaebc7be80"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/error-context.md",
+      "bytes": 9894,
+      "sha256": "e4b0017d7a2321fa3ec011bddfd3f519950f4616d9717eb4f01bf89d57f1ba9d"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/terminal-progress.mp3",
+      "bytes": 240645,
+      "sha256": "e56c19836944ffd7c83814de2555d71d953bf95c96676c3964ef6721ac7835b7"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/terminal-signout.json",
+      "bytes": 234,
+      "sha256": "ccccb946b9eb11c1e9972915ebf6dae67fddcaeca05b4a8c032f5f0f4713ca6c"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/test-failed-1.png",
+      "bytes": 336273,
+      "sha256": "f39c902dfa00dd018b8eea1586a09cc36089fc448a110718f198ca7d4791b7f3"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red.json",
+      "bytes": 743,
+      "sha256": "8be7210b982049ba7053fdde452e5276395d4b6c576ef88649b50624cc823dcf"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-red.log",
+      "bytes": 7493,
+      "sha256": "13006cde4ba516dd7af03146b2974ca64c0d14a690110289207ff04cc7d0eb7b"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-repeat-verified-results/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-repeat-verified-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/ambient-busy-drain.png",
+      "bytes": 202468,
+      "sha256": "1d49a6abb71a2cd305056f5e7d7be534fda513baae3373562e29fb7c5d9a12e6"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-repeat-verified-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/ambient-signout-delivered.png",
+      "bytes": 403007,
+      "sha256": "ffdb4936725304c5677805cd36d06a38a6e74726cf8d028976a03afac08e1a0b"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-repeat-verified-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/ambient-signout.json",
+      "bytes": 744,
+      "sha256": "b8e6f77b111d1dea4f9d96cc8afafe3f819d7aa6ad192a44c9252181b91c3232"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-repeat-verified-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync-repeat1/ambient-busy-drain.png",
+      "bytes": 202468,
+      "sha256": "1d49a6abb71a2cd305056f5e7d7be534fda513baae3373562e29fb7c5d9a12e6"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-repeat-verified-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync-repeat1/ambient-signout-delivered.png",
+      "bytes": 403007,
+      "sha256": "ffdb4936725304c5677805cd36d06a38a6e74726cf8d028976a03afac08e1a0b"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-repeat-verified-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync-repeat1/ambient-signout.json",
+      "bytes": 745,
+      "sha256": "566a31617153373e858c92202a125b2ee7e7813eae8976a54042cf8eda682a71"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-repeat-verified-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/terminal-during-drain.png",
+      "bytes": 225008,
+      "sha256": "eb0d2bce0d16452e7c41f2e6f155f18d50818d94a2156a699ef7be4059fb2195"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-repeat-verified-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/terminal-progress.mp3",
+      "bytes": 240645,
+      "sha256": "6d98bab2249940b5f46d0c96687cfbd416d21b471ce7ada3e311e0291de5ff13"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-repeat-verified-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/terminal-signout-delivered.png",
+      "bytes": 403007,
+      "sha256": "ffdb4936725304c5677805cd36d06a38a6e74726cf8d028976a03afac08e1a0b"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-repeat-verified-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/terminal-signout.json",
+      "bytes": 2052,
+      "sha256": "1ebacbd9302165fa8bfd0707c2a0ffa33322e17f1f701eeb384d43b5860291f4"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-repeat-verified-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync-repeat1/terminal-during-drain.png",
+      "bytes": 226429,
+      "sha256": "22abf599fe362a493047b52c71ec8cbe627d6c629d5d27b5174a081a4fba7430"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-repeat-verified-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync-repeat1/terminal-progress.mp3",
+      "bytes": 240645,
+      "sha256": "27fc01010840dd53f49a7980b0266709f2ddf819abc1ba6be37be9cca06adc9c"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-repeat-verified-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync-repeat1/terminal-signout-delivered.png",
+      "bytes": 403007,
+      "sha256": "ffdb4936725304c5677805cd36d06a38a6e74726cf8d028976a03afac08e1a0b"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-repeat-verified-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync-repeat1/terminal-signout.json",
+      "bytes": 2055,
+      "sha256": "2412d37f8e7148e9a950fda84d17287d1605fb9a3caf2b2845ce2a65aa72e30a"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-repeat-verified.json",
+      "bytes": 790,
+      "sha256": "9d688c197387d4253831f3247d51e01220597750ee813578d2955f133514c0e1"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-repeat-verified.log",
+      "bytes": 2010,
+      "sha256": "9544f0aff3f9a31fe6a6fb973962f162d5a08471bc58fae41e31d13ab03424e5"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/account-contention-a-held--32e85-ut-starving-another-account-sync/contention.json",
+      "bytes": 57207,
+      "sha256": "9e7ba4e0418f82645a42cc621a72b4122409d096ad457cafc3c328c53646430f"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/ambient-busy-drain.png",
+      "bytes": 202468,
+      "sha256": "1d49a6abb71a2cd305056f5e7d7be534fda513baae3373562e29fb7c5d9a12e6"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/ambient-signout-delivered.png",
+      "bytes": 403007,
+      "sha256": "ffdb4936725304c5677805cd36d06a38a6e74726cf8d028976a03afac08e1a0b"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/account-contention-sign-ou-02a17-ries-real-server-contention-sync/ambient-signout.json",
+      "bytes": 746,
+      "sha256": "719c57d152230826cf4b6d856f6379190b2e70bd4d83bbb15554386454ea7b65"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/signout-busy.png",
+      "bytes": 202468,
+      "sha256": "1d49a6abb71a2cd305056f5e7d7be534fda513baae3373562e29fb7c5d9a12e6"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/signout-delivered.png",
+      "bytes": 403007,
+      "sha256": "ffdb4936725304c5677805cd36d06a38a6e74726cf8d028976a03afac08e1a0b"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/signout-recovery.json",
+      "bytes": 1089,
+      "sha256": "853b49908bebe668d662c9f732ff0d12385c6c3074332f7e204f6e56ba161206"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/terminal-during-drain.png",
+      "bytes": 226121,
+      "sha256": "5d0e9510160affe2542676f48b0e37013c0634649414b3caa7751802b6300b7e"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/terminal-progress.mp3",
+      "bytes": 240645,
+      "sha256": "cda99a025c34ddb8d06d80b60f9865e7a37b84f605597dc00f37594397276d08"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/terminal-signout-delivered.png",
+      "bytes": 403007,
+      "sha256": "ffdb4936725304c5677805cd36d06a38a6e74726cf8d028976a03afac08e1a0b"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/account-contention-termina-c4d61-h-intent-reaches-the-server-sync/terminal-signout.json",
+      "bytes": 1763,
+      "sha256": "9d2a76280c4db58b5e3874bcb2158232b5566d0dbd2079566a6816ec24cc34bf"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/busy-player.png",
+      "bytes": 477742,
+      "sha256": "f7e8ded763da71705c1add739e7afe69cbb0e86f0796d256eff6e5233505e697"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/contention-player.mp3",
+      "bytes": 240645,
+      "sha256": "bd4039d7000a883cecee855b4be080e5d1e56abaf221c9e9f4e96ac07a331883"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/player-recovery.json",
+      "bytes": 5308,
+      "sha256": "2112ee1fe5387c25e1102e2ddbf809f4772bba17e372a38e7471ef23ac52bdb3"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/recovered-player.png",
+      "bytes": 476652,
+      "sha256": "f0e95fd01dc133920ed2f87ca4b69baa818c4282b9d84596e4dcbbb90f8adb2e"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/two-device-convergence-acc-21d52-er-a-future-playback-cursor-sync/sibling-cursors.json",
+      "bytes": 35616,
+      "sha256": "92e4b4a77121281ad1c0054f83c17e67a3847b4e13dd4a5c8886bff964d4ceaf"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/two-device-convergence-acc-5fede-te-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 2529,
+      "sha256": "9d55922193026006431d497a70dcb38acb1c30cd0368b535a9b7090ae0acbd24"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/two-device-convergence-acc-acfec-rt-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 3724,
+      "sha256": "610eb19205f75c7389b58649ecc578826b388a22a52b7846005d1fa19cc9e86a"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/two-device-convergence-acc-ca14d-te-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 3866,
+      "sha256": "643801eda3dd42a56dbae74475721e16a4e87aa300be67e843c969e7e3f7a60d"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/two-device-convergence-acc-f5738--after-a-future-book-cursor-sync/sibling-cursors.json",
+      "bytes": 32010,
+      "sha256": "a58f1c6754ea6383f553997bb99c0b108826852115b872cd5d59d214430a7388"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified-results/two-device-convergence-acc-fc5c9-r-a-future-tombstone-cursor-sync/sibling-cursors.json",
+      "bytes": 22810,
+      "sha256": "f8d0f64b02951de0b0f4d664d0245cdaa9fb0d9167ae2b804d75c94a4b9e61e9"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified.json",
+      "bytes": 1021,
+      "sha256": "5a847ab7d92fbc252cb8a8646a0eeec7a6bd19775316057decc7bd2c2d83482a"
+    },
+    {
+      "file": ".data/objective/signout-followup/browser-verified.log",
+      "bytes": 5925,
+      "sha256": "bafd04d1281db2558344aef73a3eb20bb673d98d4e21ccb8df45e1eb5bc94538"
+    },
+    {
+      "file": ".data/objective/signout-followup/build-baseline-control.json",
+      "bytes": 487,
+      "sha256": "20dc8c50e8b2eb322f5396b8f5bed29c8a3c836a8f21fc4d77be8a824339b8c2"
+    },
+    {
+      "file": ".data/objective/signout-followup/build-baseline-control.log",
+      "bytes": 1936,
+      "sha256": "98bb7b44c41ab553ec18e83938d2e69088495f520855980d0253e989f9ae3444"
+    },
+    {
+      "file": ".data/objective/signout-followup/build-baseline.json",
+      "bytes": 479,
+      "sha256": "6d84a4abe996d8664cd683b736d7e8f6f6bc1e2585ccbcbdd68a5eec23e2918a"
+    },
+    {
+      "file": ".data/objective/signout-followup/build-baseline.log",
+      "bytes": 1936,
+      "sha256": "3f2ada929245e4cb916c218641e21cc660b91299c07be2801d465cd9d24fa3dd"
+    },
+    {
+      "file": ".data/objective/signout-followup/candidate-app-0.txt",
+      "bytes": 21756,
+      "sha256": "d16ca61e1cf08bbf30f899748464e14797bc6d0f47335a3d365764d3416bb351"
+    },
+    {
+      "file": ".data/objective/signout-followup/candidate-app-1.txt",
+      "bytes": 1869,
+      "sha256": "860d67bef545c60ea2dd5cb1175bc35772e4d023bd50fb8262077808fd1a067c"
+    },
+    {
+      "file": ".data/objective/signout-followup/check-artifacts.py",
+      "bytes": 383,
+      "sha256": "bd2ecf430d5bbde34b0460f908269a9645f16d1e4f757f7c02185edbb11817a4"
+    },
+    {
+      "file": ".data/objective/signout-followup/check-historical-artifacts.py",
+      "bytes": 1004,
+      "sha256": "7384975d750a0c18a8a4dfe67f9961970d977aefde5200716c406ea725609686"
+    },
+    {
+      "file": ".data/objective/signout-followup/cleanup-input.md",
+      "bytes": 2700,
+      "sha256": "632c923f1e4d7918dfd221f8bf2e069e1b25674740346438bb53fa7fa450fb7d"
+    },
+    {
+      "file": ".data/objective/signout-followup/command-outcomes.json",
+      "bytes": 23340,
+      "sha256": "b41253ad9c298ac059d98a8c4eca827182067fa9bcbf63319b3230770b82e9e8"
+    },
+    {
+      "file": ".data/objective/signout-followup/commit-browser-proof.json",
+      "bytes": 443,
+      "sha256": "dc5d99a2516fcd9347c35f3e703959510e3f113c616b571853c3fd63ea8a7797"
+    },
+    {
+      "file": ".data/objective/signout-followup/commit-browser-proof.log",
+      "bytes": 156,
+      "sha256": "e4338311d53bb67cd6fc457db03e6cc0ff158d464cf91543bec99b9f5e3343e8"
+    },
+    {
+      "file": ".data/objective/signout-followup/commit-source.json",
+      "bytes": 411,
+      "sha256": "2120609d6fbb36897daa6ac1b5f911ee11938798fb49d37b9d44cb8c46e4d4a1"
+    },
+    {
+      "file": ".data/objective/signout-followup/commit-source.log",
+      "bytes": 133,
+      "sha256": "b6a197a3c92cdea3a60bea69e67565a8fd781fb6e0521510d97a5b56ab7d14a0"
+    },
+    {
+      "file": ".data/objective/signout-followup/docs-final.json",
+      "bytes": 351,
+      "sha256": "a3b9347136e8e09dd541a0bb36fde2dc43298d1f2e3e81fa3241a2fe99d9f85b"
+    },
+    {
+      "file": ".data/objective/signout-followup/docs-final.log",
+      "bytes": 186,
+      "sha256": "5f34cdea77ce2413e605d3156aa93d71eb572d282aa57e2682f9f4083f6b5466"
+    },
+    {
+      "file": ".data/objective/signout-followup/focused-browser-selection.json",
+      "bytes": 948,
+      "sha256": "a004a97a662452e1f36d22aa31f30ad76ff52b36161aeecdaaab2902b0abd1aa"
+    },
+    {
+      "file": ".data/objective/signout-followup/focused-browser-selection.log",
+      "bytes": 2502,
+      "sha256": "319649175ecd555bd4f7ec7785b08c7136244878612b8bd940da363ea0e49f22"
+    },
+    {
+      "file": ".data/objective/signout-followup/history-preservation-final.json",
+      "bytes": 419,
+      "sha256": "d70c49adfad570ac5269936c2fe753c6f9e86abad8cfae59d8b7d38681de7ba1"
+    },
+    {
+      "file": ".data/objective/signout-followup/history-preservation-final.log",
+      "bytes": 686,
+      "sha256": "82e15dcfa6f3441f0293ea9d0b4b6daddf082bb4184b144e8507239b62f28da5"
+    },
+    {
+      "file": ".data/objective/signout-followup/history-preservation.json",
+      "bytes": 413,
+      "sha256": "a582c7cfc5a8b80e3a1c9d205eb226d29a034133ed0446c40ad7290a564d12bf"
+    },
+    {
+      "file": ".data/objective/signout-followup/history-preservation.log",
+      "bytes": 686,
+      "sha256": "82e15dcfa6f3441f0293ea9d0b4b6daddf082bb4184b144e8507239b62f28da5"
+    },
+    {
+      "file": ".data/objective/signout-followup/independent-review-input.md",
+      "bytes": 17670,
+      "sha256": "7b6fd0e9cdbf76e938bce9bc1eac90efb05e88858e2a114fe61d43d6125e926d"
+    },
+    {
+      "file": ".data/objective/signout-followup/intake.json",
+      "bytes": 389,
+      "sha256": "13b39fcc3b33eada7d0406f5419a990a0ec487c4222581e90d82f02435b8e3fd"
+    },
+    {
+      "file": ".data/objective/signout-followup/metrics-baseline.json",
+      "bytes": 432,
+      "sha256": "3dd71c2be127c066d3ac9a4fe675a249b43ebc553876bcfba60135de209692f2"
+    },
+    {
+      "file": ".data/objective/signout-followup/metrics-baseline.log",
+      "bytes": 934,
+      "sha256": "ed18c9511da19b8bb87336c6c810d97191ca8eda7ed7eed362b29fe49e0eb228"
+    },
+    {
+      "file": ".data/objective/signout-followup/metrics-final.json",
+      "bytes": 426,
+      "sha256": "8dd580852b358086c8209e60ca214c5e6135cd5019086d2fffa204aaa7881098"
+    },
+    {
+      "file": ".data/objective/signout-followup/metrics-final.log",
+      "bytes": 934,
+      "sha256": "07d06fed2205772ea826b2c9cb1fd2ab8367d9c1f54992fbb5e6ddba88f1afb1"
+    },
+    {
+      "file": ".data/objective/signout-followup/owned-server.py",
+      "bytes": 2937,
+      "sha256": "0f17c2f644d6e67a91abb864e6ff0f8984b52478048e585b65ec48b8a72135c8"
+    },
+    {
+      "file": ".data/objective/signout-followup/quick-final.json",
+      "bytes": 483,
+      "sha256": "dee55e078a02cf0e03ae4dfca01e709284737312663dc7c47b50b73762849ba9"
+    },
+    {
+      "file": ".data/objective/signout-followup/quick-final.log",
+      "bytes": 2871,
+      "sha256": "62784e8d89a6ffe995926908385ebf716ad2b882ba0640734af62f9e810935f9"
+    },
+    {
+      "file": ".data/objective/signout-followup/quick-verified.json",
+      "bytes": 486,
+      "sha256": "ee5dc5b2851e9bd79a73ad861166196b28ef9f8b5277923c824655ba5af9d3fa"
+    },
+    {
+      "file": ".data/objective/signout-followup/quick-verified.log",
+      "bytes": 2871,
+      "sha256": "c050b5f44990c0494f7d77edec0193df6c5e4113f9940fb2fd7a279972eb2bd9"
+    },
+    {
+      "file": ".data/objective/signout-followup/seal-evidence.py",
+      "bytes": 2359,
+      "sha256": "445f2f72c63f9e7efbea336721eea05953589d411255cf8d7fbd21507ccc5a87"
+    },
+    {
+      "file": ".data/objective/signout-followup/served-baseline-control.json",
+      "bytes": 459,
+      "sha256": "768c5f310319d9859e4bd7b9f563b5de310cbb7debcf9c7c42435fd3257c5bb7"
+    },
+    {
+      "file": ".data/objective/signout-followup/served-baseline-control.log",
+      "bytes": 199,
+      "sha256": "b050faca307b7ad135fd245dcfc19ee57b495d69f2e36ecddf72d848f5ac6a34"
+    },
+    {
+      "file": ".data/objective/signout-followup/served-baseline-ready.json",
+      "bytes": 447,
+      "sha256": "915730b538a2a9b50e6d242cc2b7b15a599ee374e263f6933fde077263e0454c"
+    },
+    {
+      "file": ".data/objective/signout-followup/served-baseline-ready.log",
+      "bytes": 199,
+      "sha256": "fb959904f4ab3fd1f00629ba7af89b46b01d6093f4ced5d21c8e9e1a370244db"
+    },
+    {
+      "file": ".data/objective/signout-followup/served-baseline.json",
+      "bytes": 434,
+      "sha256": "ffdb4df16bd9daaf9787910fdabe4291fdff9593e5a380942857f9ac67698d56"
+    },
+    {
+      "file": ".data/objective/signout-followup/served-baseline.log",
+      "bytes": 891,
+      "sha256": "d26a5bd74a2b353008302ba21058ead991ac9b4b95a693c6131bd22288eca05a"
+    },
+    {
+      "file": ".data/objective/signout-followup/served-final.json",
+      "bytes": 426,
+      "sha256": "10050494fe5ac5be7bf2fb82f430c56cd31080154be86d8f12bf325add618ed5"
+    },
+    {
+      "file": ".data/objective/signout-followup/served-final.log",
+      "bytes": 199,
+      "sha256": "a7b4f57ed1cedcdc1601ece71878e380c696fc1c138057a8d2e3eef74956fe2b"
+    },
+    {
+      "file": ".data/objective/signout-followup/served-verified.json",
+      "bytes": 435,
+      "sha256": "b70b23464de5edc888960013b57e3831d0f83e215ebbf4b08047b4e6a36086fa"
+    },
+    {
+      "file": ".data/objective/signout-followup/served-verified.log",
+      "bytes": 199,
+      "sha256": "8c74bc9404e7dd95938cdb41e3387b564143cd390377c7fd67f533fd09751908"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-baseline-control-sealed.log",
+      "bytes": 190,
+      "sha256": "c1450d6c91004f5520a315a4188f26830b3025d6d39d41084190c804844778e8"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-baseline-control.json",
+      "bytes": 588,
+      "sha256": "d99fe46669bb3ae283a51f93a5ebc0fb8ba31534dd97574718b5b92b5607f211"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-baseline-frozen.log",
+      "bytes": 190,
+      "sha256": "c1450d6c91004f5520a315a4188f26830b3025d6d39d41084190c804844778e8"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-baseline-sealed.log",
+      "bytes": 190,
+      "sha256": "c1450d6c91004f5520a315a4188f26830b3025d6d39d41084190c804844778e8"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-baseline.json",
+      "bytes": 420,
+      "sha256": "343eb8cb3451ee4dd4d4fc39aa48c0342ad277c30d3efda4857d33fca8d4ce37"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-final-sealed.log",
+      "bytes": 190,
+      "sha256": "c1450d6c91004f5520a315a4188f26830b3025d6d39d41084190c804844778e8"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-final.json",
+      "bytes": 420,
+      "sha256": "d6440d8393822f174ee3ce8f5e074e0e06c1e020b2ff7559653fd7ea5ce09702"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-log-freeze.json",
+      "bytes": 837,
+      "sha256": "03a88f947616c0bd434975f71a2f85f81c6eb37f3b776ce50fcdd0dc9293693d"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-start-baseline-control.json",
+      "bytes": 445,
+      "sha256": "ae6ba886b73c1cf16246108ca0e2e7307e40017ee85a72b0fa7cae63e1a7e84e"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-start-baseline-control.log",
+      "bytes": 588,
+      "sha256": "d99fe46669bb3ae283a51f93a5ebc0fb8ba31534dd97574718b5b92b5607f211"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-start-baseline.json",
+      "bytes": 428,
+      "sha256": "e8876fc2d4daab0f850ec410d05382ed83e7a8200e0daf9a692df4d11f0b32e3"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-start-baseline.log",
+      "bytes": 420,
+      "sha256": "343eb8cb3451ee4dd4d4fc39aa48c0342ad277c30d3efda4857d33fca8d4ce37"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-start-final.json",
+      "bytes": 423,
+      "sha256": "7648691f7414b4bb5f7f9233fccd5cdbf504c2c6bf51d0d7ccef77aee00e91db"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-start-final.log",
+      "bytes": 420,
+      "sha256": "d6440d8393822f174ee3ce8f5e074e0e06c1e020b2ff7559653fd7ea5ce09702"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-start-verified.json",
+      "bytes": 429,
+      "sha256": "910be892afd797984edae80c536851ec02f72ada287483165e7811e5f2293462"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-start-verified.log",
+      "bytes": 420,
+      "sha256": "5d673d33d7e1e2d63d069fc6cb6bf2dc75b3626451476a11654b9c240be2b185"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-stop-baseline-control.json",
+      "bytes": 456,
+      "sha256": "4b2b30167b04f9e9ee15917cec301b760d72aad01f59786d886c3a914dfa4d46"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-stop-baseline-control.log",
+      "bytes": 123,
+      "sha256": "c6cf0f0ec3c4b045ac1d98c9bfbde26a71a3f20627691f350e6690e8c97ff4f6"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-stop-baseline.json",
+      "bytes": 440,
+      "sha256": "322874703e6dd5a07096b78b427eeafe8191f2f2bd8243a5407786bd60bd2938"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-stop-baseline.log",
+      "bytes": 123,
+      "sha256": "47eb7a00b56a54d4edb1d3ad47ee27f9256810f5f171c4f58448e8c0added684"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-stop-candidate.json",
+      "bytes": 442,
+      "sha256": "70227f5672a2f0587c8e250bde9cf288c124c4386968e6df85868ad2c9efbd31"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-stop-candidate.log",
+      "bytes": 123,
+      "sha256": "73fa278ff1b99bbc268cf54855abd244907653e0ddbad5c00fd140fb5376da63"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-stop-intake.json",
+      "bytes": 436,
+      "sha256": "b609ced3236b50e03744cd7187b6488b1f81dbbffb213a985e7a67b9b1fb94d8"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-stop-intake.log",
+      "bytes": 123,
+      "sha256": "195f4d492c01a480dd54cd96c9a25f96b34f419205469a1c1ef3a5b21a1ca75a"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-verified-sealed.log",
+      "bytes": 190,
+      "sha256": "c1450d6c91004f5520a315a4188f26830b3025d6d39d41084190c804844778e8"
+    },
+    {
+      "file": ".data/objective/signout-followup/server-verified.json",
+      "bytes": 420,
+      "sha256": "5d673d33d7e1e2d63d069fc6cb6bf2dc75b3626451476a11654b9c240be2b185"
+    },
+    {
+      "file": ".data/objective/signout-followup/source-baseline.json",
+      "bytes": 342860,
+      "sha256": "9e985b243d8b5704b8f4ac39d3f1a6415db4457cd047085fdd453d77f2340ee0"
+    },
+    {
+      "file": ".data/objective/signout-followup/source-final.json",
+      "bytes": 344172,
+      "sha256": "13bd8072240988e906196f3a08c3974df07991f827ac2da3035f3c9b3943abd9"
+    },
+    {
+      "file": ".data/objective/signout-followup/source-verified-data.json",
+      "bytes": 344172,
+      "sha256": "d4d96e14eac2f4daad2aadba7c6fb07a927f1aa2c86c9551e61247fe6f837da1"
+    },
+    {
+      "file": ".data/objective/signout-followup/source-verified.json",
+      "bytes": 436,
+      "sha256": "61331acfa14fa6084ab3bd4306e0660ccf05c26fa40207bac6e77dc571557854"
+    },
+    {
+      "file": ".data/objective/signout-followup/source-verified.log",
+      "bytes": 934,
+      "sha256": "899582c1c242f3a609350440c4b5662aad450c1e055c820fda898195aa062022"
+    },
+    {
+      "file": ".data/objective/signout-followup/typecheck-first.json",
+      "bytes": 353,
+      "sha256": "9cc5f012d64de401af9146e354c73862c1c023effb99d7dbc15a3945382f7426"
+    },
+    {
+      "file": ".data/objective/signout-followup/typecheck-first.log",
+      "bytes": 111,
+      "sha256": "ea30ad7ff274f7da8986350b03b433de64985ed753453eabc5fbd7d51a0b7725"
+    },
+    {
+      "file": ".data/objective/signout-followup/unit-green.json",
+      "bytes": 473,
+      "sha256": "6f43a47f2b151092eef7334b71a2b6c00d8fc8f8b8e8e0ff68bee7be4491f854"
+    },
+    {
+      "file": ".data/objective/signout-followup/unit-green.log",
+      "bytes": 247,
+      "sha256": "3e936882bdba6c3f7c7e2b51bfd7dc56e5892abcc59739983b561c3e74e18068"
+    },
+    {
+      "file": ".data/objective/signout-followup/unit-red-terminal.json",
+      "bytes": 480,
+      "sha256": "3bf59d870e00ca72998dcb6563ec0d0c2d3d3d369d4649d4516e78e60aa08c1d"
+    },
+    {
+      "file": ".data/objective/signout-followup/unit-red-terminal.log",
+      "bytes": 3353,
+      "sha256": "ccdcdfd3932b705e9ff0a8b343c90c1f9c331d9d6800f7bad0d93061d8c0c45b"
+    },
+    {
+      "file": ".data/objective/signout-followup/unit-red.json",
+      "bytes": 471,
+      "sha256": "36e78bd67f95b3c802d702a10d83fc7734c4255b785b3686e3f815cfb696219b"
+    },
+    {
+      "file": ".data/objective/signout-followup/unit-red.log",
+      "bytes": 3208,
+      "sha256": "638d6594a78fb849228b5887b503707c218d066d8b90c4d8f93a5544ce198893"
+    },
+    {
+      "file": ".data/objective/signout-followup/verified-summary.json",
+      "bytes": 5157,
+      "sha256": "085f5c3d1e55491f497c9d2c599f050054ae6f24e88db3c0d717d3383ba94141"
+    },
+    {
+      "file": ".data/objective/signout-followup/verify-final-handoff.mjs",
+      "bytes": 2112,
+      "sha256": "cde5764e231557114b59466380e54899ee7d2821948067bb8d5f731cedd6e25c"
+    },
+    {
+      "file": ".data/objective/signout-followup/verify-served-build-v2.mjs",
+      "bytes": 2419,
+      "sha256": "0acc3dde5ddc9a4594726a3ef0715be51fc89149a96a2a4fc56055eee44c5444"
+    },
+    {
+      "file": ".data/objective/signout-followup/with-test-env.mjs",
+      "bytes": 487,
+      "sha256": "97a78a9c129a91a030a253293ac66e9a2c17e523a977e51c7ded53556bc81ac7"
+    }
+  ]
+}

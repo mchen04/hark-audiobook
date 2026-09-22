@@ -1,0 +1,52 @@
+{
+  "commit": "e510ffb1cfed227bdb51a521d664dc56859061e2",
+  "method": "App src TS/TSX excluding test/spec plus public/sw.js; token-occupied code lines exclude comments/blank lines; ESLint classic complexity per function including short-circuit and optional paths. CSS, tests, generated separately. Bundle is all build static JS/CSS/WASM, not initial transfer.",
+  "app": {
+    "files": 180,
+    "physical": 27457,
+    "nonblank": 25594,
+    "code": 23373
+  },
+  "tests": {
+    "files": 138,
+    "physical": 38660,
+    "nonblank": 35404,
+    "code": 35152
+  },
+  "css": {
+    "files": 7,
+    "physical": 3149,
+    "nonblank": 2735,
+    "code": 2645
+  },
+  "generated": {
+    "files": 30,
+    "physical": 58251,
+    "nonblank": 58251,
+    "code": 58251
+  },
+  "complexity": {
+    "functions": 1758,
+    "total": 5493,
+    "max": 70,
+    "above10": 80
+  },
+  "bundle": {
+    "files": 60,
+    "bytes": 28541364,
+    "gzip": 7556128
+  },
+  "buildId": "eraZMsI8a2sO5E9SdmcO_",
+  "detail": {
+    "file": ".data/objective/signout-followup/source-verified-data.json",
+    "sha256": "d4d96e14eac2f4daad2aadba7c6fb07a927f1aa2c86c9551e61247fe6f837da1"
+  },
+  "roundBaseline": {
+    "commit": "33f4ccd8b7d91dbfc65c872833fbd63709690872",
+    "file": ".data/objective/signout-followup/source-baseline.json",
+    "sha256": "9e985b243d8b5704b8f4ac39d3f1a6415db4457cd047085fdd453d77f2340ee0",
+    "diskBuildId": "xuHsYbWiBCbTVkih8R3_Q",
+    "note": "Source measured clean before any edit. All-static bundle costs from cleanup build on disk; not a browser timing or stale-server claim."
+  },
+  "originalBenchmark": "be79d4e / source snapshot 4964071; no startup/import/heap timing rerun or relabelling in this bounded sign-out round"
+}
