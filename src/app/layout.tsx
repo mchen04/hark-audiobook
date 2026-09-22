@@ -12,7 +12,7 @@ export const metadata: Metadata = {
     default: "Hark",
     template: "%s | Hark",
   },
-  description: "A private, offline-ready MP3 audiobook player.",
+  description: "A private audiobook player with local document narration and offline listening.",
   manifest: "/manifest.webmanifest",
   icons: {
     icon: "/icons/icon-192.png",

@@ -521,7 +521,7 @@ test("sign-out retries a busy edit within its existing drain budget before purgi
 });
 
 /** Exact pre-existing WebKit/Next login-RSC error reproduced on 33f4ccd and
- * 095ed406 (architecture-ledger.md, sign-out follow-up). Keep it in raw evidence;
+ * 095ed406 (historical sign-out follow-up receipts). Keep it in raw evidence;
  * reject all other page errors. This fixture does not certify error-free Next
  * navigation or fix that framework fetch path.
  */

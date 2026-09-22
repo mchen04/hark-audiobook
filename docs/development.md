@@ -1,215 +1,180 @@
-# Development
-
-Last reviewed: 2026-09-21
-
-Local setup, the test database, every command, and what a green run does and
-does not prove.
+# Setup and contributing
 
 ## Prerequisites
 
-- Node.js >= 20.19
-- pnpm 9.6
-- Docker, for the local test database
-- FFmpeg, for generated MP3 contract and browser fixtures
+- Node 22 is the GitHub Actions runtime; pnpm is pinned to 9.6.0. The package
+  minimum is Node 20.19, but the commands below use Node 22's `--run` support.
+- Docker with Compose for the disposable test database.
+- FFmpeg on `PATH` for generated browser audio fixtures.
+- Playwright WebKit and Chromium for browser suites.
 
-### Unit-test runtime
+```sh
+pnpm install --frozen-lockfile
+pnpm exec playwright install webkit chromium
+```
 
-CI uses Node 22. This checkout is also verified with Node **26.3.1** using
-`NODE_OPTIONS=--no-experimental-webstorage`. Node 26's experimental global
-`localStorage` masks jsdom storage: the board reviewer's separate default-runtime run at
-`8b5adc2` had 14 setup failures; with that option all 807 tests passed. Those are
-test-host failures, not production-browser storage results. The task-root
-`board-review-unit.log` and `board-review-unit-webstorage-disabled.log` preserve
-that run; the later implementer control with 809 tests is a different run.
+On Linux, use `pnpm exec playwright install --with-deps webkit chromium` to also
+install browser system dependencies. See [package scripts](../package.json) and
+[CI workflow](../.github/workflows/ci.yml) for the executable command definitions.
 
-Use the option for every Vitest entry point, including the combined quick gate:
+## Local test environment
+
+For a **new** disposable setup:
+
+```sh
+test -f .env.test || cp .env.test.example .env.test
+pnpm db:test:up
+pnpm prepare:browser-assets
+node --env-file=.env.test --run dev
+```
+
+Open [localhost:3000](http://localhost:3000). `db:test:up` starts the Compose
+Postgres service at `127.0.0.1:54329`, checks `pg_trgm`, applies ordered migrations,
+and seeds the account named in `.env.test`. It fills only blank signing secrets
+and test passwords. Keep this ignored env file with its matching retained database.
+
+`node --run` does not execute package pre/post hooks. Preparing assets explicitly
+above covers development; `verify:quick` calls `pnpm build`, which does execute
+its prebuild and postbuild hooks. A direct `pnpm dev` instead loads Next's
+`.env.local` and runs its predev hook.
+
+For a separate development database, copy `.env.example` to `.env.local` **only if
+that file does not already exist**, set its database URL and fresh auth secret,
+then use `pnpm db:migrate` and `pnpm dev`. Next and Drizzle normally load Next env
+files. Browser/test tooling explicitly reads `.env.test`, or `HARK_ENV_FILE` when
+set, and rejects nonlocal database hosts. Existing process env values take
+precedence over file values: do not run test tooling with a production
+`DATABASE_URL` exported in the shell.
+
+### Retained fixtures and credentials
+
+The browser suites use disposable identities and stable suite-specific loopback
+IP headers. Retained-workflow runs reuse their account; deletion tests still use
+a separate disposable identity. Real auth limits remain enabled. Budget helpers
+read the actual bucket, make at most one bounded wait, and recheck; they do not
+clear rate limits or rotate IPs to evade them. Run suites serially on a shared
+fixture database. The maximum wait follows the real window (one minute for
+sign-in, ten minutes for signup), plus scheduling slack; an inconsistent or
+still-busy bucket fails with a diagnostic.
+
+A retained-workflow preflight distinguishes:
+
+| Failure                                       | Safe next step                                                                                                                              |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| No retained identity                          | The harness can create its disposable fixture normally.                                                                                     |
+| Identity exists without a password credential | Inspect that disposable identity's provisioning; an env backup alone cannot create the missing credential.                                  |
+| Password mismatch                             | Restore the env file that matches the retained test database, or point `HARK_ENV_FILE` at a separately provisioned new disposable database. |
+| Database/crypto/budget operation failed       | Check the reported category, local connection, migrations, and runtime; it is not evidence of a password mismatch.                          |
+
+Do not reset an existing database/volume or replace credentials to make a test
+pass. Diagnostics omit passwords, hashes, and raw driver text. `db:test:seed` is
+an explicit **write**: it replaces the configured seeded account's password;
+it is not a repair for the separate retained-workflow identity.
+
+### Database commands
+
+| Command                                          | Effect                                                                                    |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `pnpm db:test:up`                                | Start local Compose service, migrate, and seed.                                           |
+| `pnpm db:test:migrate`                           | Apply migrations using the named test env.                                                |
+| `pnpm db:test:seed`                              | Seed/update the configured disposable account.                                            |
+| `pnpm db:test:guard`                             | Exercise the local-host guard.                                                            |
+| `pnpm db:test:down`                              | Stop the Compose service and retain its volume.                                           |
+| `pnpm db:test:reset`                             | Destroy the test volume and rebuild; only for a fixture you explicitly intend to discard. |
+| `node scripts/test-db.mjs psql -- -c 'select 1'` | Run a query inside the local Compose service.                                             |
+
+There is no `db:test:psql` package script. An env override does not provision a
+separate Compose service: the checked-in Compose file has a fixed container and
+port. Provision a separate disposable database deliberately before selecting it.
+
+## Checks
+
+On Node 22, after local test setup:
+
+```sh
+node --env-file=.env.test --run verify:quick
+pnpm verify:browser
+```
+
+`verify:quick` runs Prettier, ESLint, TypeScript, all Vitest suites, and the
+production build. `verify:browser` runs all five CI browser projects in order.
+For a focused run:
+
+```sh
+pnpm test
+pnpm test:idb-migrate
+pnpm test:e2e:ios
+pnpm test:e2e:parity
+pnpm test:sync
+pnpm test:resume:ci
+pnpm test:e2e:launch
+```
+
+**Node 26:** its experimental native `localStorage` interferes with the unit
+suite's storage doubles. Disable it for these commands:
 
 ```sh
 NODE_OPTIONS=--no-experimental-webstorage pnpm test
-NODE_OPTIONS=--no-experimental-webstorage pnpm test:watch
-NODE_OPTIONS=--no-experimental-webstorage node --env-file=.env.test scripts/record-check.mjs .data/recheck-quick pnpm verify:quick
+NODE_OPTIONS=--no-experimental-webstorage node --env-file=.env.test --run verify:quick
 ```
 
-The quick gate also needs build environment variables; the last command loads
-the existing disposable `.env.test` without regenerating it. Use a fresh output
-prefix for each recorded run. The option changes the test host only, not browser
-storage, authentication, or the database. The package's Node minimum is not a
-claim that every newer Node default suits jsdom.
+This flag is a unit runtime requirement on Node 26, not an app storage setting.
+Node 22 CI uses no such flag. Do not treat a different runtime/options combination
+as the same test run.
 
-## Setup
+Playwright builds the production bundle and starts `scripts/run-standalone.mjs`
+using the explicitly selected test env and a local-database guard. It normally
+refuses a port already in use. `HARK_REUSE_SERVER=1` is an opt-in for a server
+you own whose source, build, origin, and disposable database you have verified;
+a dev server or stale production build is not valid evidence for a new commit.
+Failure traces/screenshots go to `test-results/`. Do not run against a personal
+library. See [iPhone coverage](ios-pwa-testing.md), [resume limits](resume-durability-device-check.md),
+and the [launch protocol](../tests/perf/BASELINE.md).
 
-```sh
-cp .env.example .env.local   # then fill in the values below
-pnpm install
-pnpm db:migrate
-pnpm dev                     # http://localhost:3000
-```
+`pnpm test:resume` includes two hidden-state cases that can report `UNCOVERED`
+when the browser cannot reproduce real iOS suspension. CI uses `test:resume:ci`
+to exclude those cases explicitly; that exclusion is not a physical-device pass.
 
-Use `pnpm build && pnpm start` instead of `pnpm dev` when you need the service
-worker: it ships only in the production build, so offline behavior, the launch
-shell, and range serving cannot be exercised in dev.
+## CI
 
-### Environment variables
+The workflow runs on pull requests, pushes to `main`, and manual dispatches:
 
-| Variable             | Purpose                                                          |
-| -------------------- | ---------------------------------------------------------------- |
-| `DATABASE_URL`       | Postgres connection (Neon or any Postgres 15+). Never commit it. |
-| `BETTER_AUTH_SECRET` | Session signing secret.                                          |
-| `BETTER_AUTH_URL`    | The app's own origin, e.g. `http://localhost:3000`.              |
+- `Verify quick`
+- `Browser (iPhone WebKit)`
+- `Browser (Offline parity)`
+- `Browser (Sync integrity)`
+- `Browser (Resume durability)`
+- `Browser (Launch performance)`
 
-`RESEND_API_KEY` and `MAIL_FROM` are optional; together they enable
-password-reset email in production (see [operations.md](operations.md)). In
-development, reset mails are written to `.data/mail/` instead.
+Each job uses Node 22, a frozen pnpm install, and its own local Postgres fixture.
+Browser jobs build the app and retain failure artifacts. Acceptance must inspect
+all six conclusions for the candidate being merged; an earlier branch run is not
+proof for a changed head. Repository protection is configured on GitHub, not by
+this document. Recheck it before publication. Also inspect hosting integrations:
+a push or merge can trigger deployment independently of GitHub Actions.
 
-## Test database
+## Contributing
 
-Tests never touch the hosted database. Its cold start makes runs slow and
-flaky, suites must work offline, and parallel runs against one shared remote
-database interfere with each other.
+Keep changes scoped to the private audiobook workflow. Preserve account
+ownership, local media, rendition identity, receipt ordering, and migration
+compatibility. Add regression coverage where behavior changes and run the
+relevant browser project as well as the quick gate. Describe what ran, its source
+commit/runtime, and any failures or unexercised paths.
 
-`docker-compose.yml` provides a local Postgres 18 matching the hosted server's
-major version and locale (builtin `C.UTF-8`), with the `pg_trgm` extension that
-migration 0009 needs, published on `127.0.0.1:54329`.
+Update these docs and [CHANGELOG](../CHANGELOG.md) when behavior changes.
+`pnpm format:check` checks formatting; `pnpm exec prettier --write <changed-files>`
+formats a scoped edit. Check relative links against tracked files and anchors,
+and external links for reachability; the repo has no dedicated link-check script.
 
-```sh
-cp .env.test.example .env.test   # local-only, gitignored
-node scripts/test-db.mjs         # generates secrets, then starts, migrates, seeds
-```
+Keep `drizzle/meta/*.json`, ordered SQL migrations, pinned assets, fixtures, and
+`pnpm-lock.yaml`: they are required inputs. `public/sw.js` is authored source.
+Do not commit `.next`, dependencies, env secrets, user files, mail captures,
+Playwright output, coverage, or generated review/cleanup reports. Keep process
+receipts outside the repository.
 
-Everything test-related reads `.env.test`, never `.env.local`. Override the
-file with `HARK_ENV_FILE=<path>` or `--env-file=<path>`.
-
-Keep that file with its disposable database: regenerating
-`HARK_TEST_ACCOUNT_PASSWORD` while retaining the database makes existing test
-accounts reject login. The retained-workflows helper verifies its single
-disposable account's password hash before resetting any fixture content. On a
-mismatch it stops with a credential-free diagnostic. Restore the matching env
-file backup, or point `HARK_ENV_FILE` at a separate new disposable database and
-matching credentials. A user row with a missing email/password credential is
-reported separately as an incomplete disposable identity; restoring an env
-backup cannot repair that condition. Inspect that fixture's provisioning or
-use a separate new test database. This retained-workflows helper categorizes
-identity, credential and auth-budget database reads, and password verification
-failures by operation and a safe error category. It omits raw messages, driver
-query/parameter properties, passwords and hashes. That guarantee is scoped to
-this helper, not all database calls in the test harness. It does not rotate
-credentials or reset volumes.
-
-On the configured disposable test database, this read-only query reports whether
-the retained identity and its credential exist without returning any password or
-hash. Zero rows means signup is appropriate; a user with no credential needs
-provisioning repair or a separate new fixture database, not a password retry.
-
-```sql
-SELECT u.id,
-       count(a.id) AS credential_rows,
-       coalesce(bool_or(nullif(a.password, '') IS NOT NULL), false) AS credential_present
-FROM "user" u
-LEFT JOIN account a ON a.user_id = u.id AND a.provider_id = 'credential'
-WHERE u.email = 'retained-workflows@hark.test'
-GROUP BY u.id;
-```
-
-Retained browser workflows reuse the fixed `.111` test IP and read the real
-database sign-in and signup buckets before each attempt. They wait for a
-bucket's remaining idle window and extend that test's timeout. They leave two
-sign-in attempts and one signup attempt as headroom. Each call permits at most
-one wait bounded by one real window plus 1,500 ms of slack (61.5 seconds for
-sign-in, 601.5 seconds for signup). It rereads the bucket after that wait;
-renewed saturation fails with a shared-IP/clock diagnosis, without a second wait.
-Run these suites serially; an unexpectedly busy or future-dated bucket needs
-inspection, not a reset. The helper never clears buckets or rotates IPs.
-The bounded fake-clock budget tests cover exhaustion without that delay; two
-consecutive full browser runs exercise real authentication and account deletion.
-Other browser projects retain their existing per-project sign-in budgeting.
-
-`scripts/lib/assert-local-database.mjs` aborts the e2e config, the standalone
-test server, and the bootstrap script if `DATABASE_URL` ever points at a hosted
-provider such as Neon.
-
-## Commands
-
-### Gates
-
-| Command               | What it does                                                                                                                                               |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm verify`         | The complete executable local gate: `verify:quick` plus every browser gate. Start the test database and install the pinned browsers first.                 |
-| `pnpm verify:quick`   | The fast non-browser gate: format check, lint, typecheck, all Vitest suites, and a production build.                                                       |
-| `pnpm verify:browser` | Every executable Playwright gate, matching the browser matrix in `.github/workflows/ci.yml`. The two real-iOS hidden-state gaps stay deliberately outside. |
-
-### Suites
-
-| Command                      | What it covers                                                                                                                                                                                                                       |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pnpm test`                  | Vitest: MP3 and transcript parsing contracts, service-worker range/navigation/shell logic, progress conflict policy, the outbox and the mirror, IndexedDB upgrades, playback.                                                        |
-| `pnpm test:idb-migrate`      | Just the IndexedDB upgrade suite. Every shipped version of both databases is opened from a fixture and carried forward, so downloads, transcripts, and a pending deletion journal survive `chapterline-offline-v1` v7 and outbox v5. |
-| `pnpm test:e2e:ios`          | Production iPhone/WebKit flow: register, choose from Downloads, play, seek, relaunch, play offline.                                                                                                                                  |
-| `pnpm test:e2e:launch`       | The launch benchmark in `tests/perf/`: warm launch to real library content over four networks (fast, slow, 3000ms cold database, offline), asserting p95, spread, server document hits, and Postgres queries.                        |
-| `pnpm test:e2e:parity`       | The parity project in `tests/parity/`, whose harness removes the network at the socket rather than through Playwright interception — interception sits above the service worker and can be bypassed.                                 |
-| `pnpm test:sync`             | Data integrity in `tests/sync/`: outbox durability and coalescing, two-device convergence, progress conflicts, mirror/audio eviction recovery, lossless re-import, and a seeded mutation fuzz across offline/online transitions.     |
-| `pnpm test:resume:ci`        | The 24 resume-durability rows the pinned WebKit engine can execute honestly. Excludes only T1 hidden online/offline, because Playwright WebKit cannot produce a real hidden transition.                                              |
-| `pnpm test:resume`           | The full 26-row resume oracle, including the two T1 rows that intentionally fail as `UNCOVERED` unless the engine can genuinely background the page. Use it when evaluating a new engine or a real-device bridge.                    |
-| `pnpm verify:kestrel-export` | Clean-room Kestrel graph reproduction: downloads the exact pinned public model weights into a temporary directory, uses the pinned Python/ONNX/NumPy recipe, and requires byte-for-byte matches with every committed ONNX graph.     |
-
-One sync spec makes its edits by clicking the real controls with the network
-off. The fuzz drives the engine directly, so only that one spec can prove the
-shipping UI actually uses the engine.
-
-### Database and data
-
-| Command                              | What it does                                                                                                                                                                         |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `node scripts/test-db.mjs`           | Starts the local Postgres container, migrates it, seeds the e2e account. Subcommands `up`, `reset`, `down`, `migrate`, `seed`, `guard`, `psql` are also exposed as `pnpm db:test:*`. |
-| `pnpm db:migrate`                    | Applies ordered SQL migrations. Idempotent, and proven from an empty database.                                                                                                       |
-| `pnpm db:generate`                   | Generates the next migration plus its snapshot from the schema.                                                                                                                      |
-| `node scripts/seed-perf.mjs <email>` | Seeds 1,000 books / ~60k rows onto an existing account for performance work.                                                                                                         |
-
-## Continuous integration
-
-Pull requests run `Verify quick` and five `Browser (…)` jobs — iPhone WebKit,
-Offline parity, Sync integrity, Resume durability, and Launch performance — as
-separate, required-capable checks. Each job provisions its own local Postgres
-and project-pinned browser binaries. Failed browser jobs retain their
-screenshots and traces as artifacts.
-
-The resume job runs 24 proven cells. The two real-iOS hidden-state cells stay
-explicit in [resume-durability-device-check.md](resume-durability-device-check.md)
-rather than making CI permanently red.
-
-Protect `main` with `Verify quick` and every `Browser (…)` check before treating
-a green deployment as a merge gate.
-
-## What a green run does not prove
-
-Three limits are worth stating before reading a green run as more than it is.
-
-- **The launch benchmark does not run on WebKit.** It measures in a Chromium
-  persistent context with iPhone 15 emulation. In Playwright 1.61.1, WebKit's
-  persistent context accepts `cache.put()` but returns nothing from
-  `cache.match()` — in the page and in the service worker alike — so the app's
-  worker cannot even install there. The harness probes WebKit first on every run
-  and will switch back automatically when that is fixed. Until then, WebKit PWA
-  coverage comes from `tests/e2e/iphone-pwa.spec.ts`.
-- **The outbox drains only while the app is open.** iOS will not wake a closed
-  PWA, so an offline write reaches the server on the next foregrounded launch or
-  reconnect, never before.
-- **Audio evicted by the OS is gone.** It exists nowhere but the device, so the
-  book stays visible with its metadata and asks for the original MP3 or document
-  again.
-
-Browser verification uses the repository's Playwright tooling against a production
-build. It does not require computer-use or node_repl MCP servers. The iPhone
-project includes real MP3 transport, settings, organization, transcript, data
-export/deletion, document format narration, cancellation and legacy-rendition
-checks, plus `tests/e2e/privacy-transport.spec.ts`, which calibrates what the
-browser can observe about cross-origin requests between two loopback origins it
-owns. Large traces and generated fixtures belong in ignored output folders.
-
-For the objective checkout's isolated database and browser paths, exact commands
-and raw outcomes are in [the evidence ledger](evidence/architecture-ledger.md).
-`node scripts/record-check.mjs <output-prefix> <command> [args...]` preserves
-commands, elapsed time, exit status and raw output. Source counts use
-`node scripts/measure-source.mjs <output.json>` after a production build.
-`node scripts/measure-browser.mjs baseline|final core|library` runs the comparable
-real Chromium PWA measurements; `library` expects the launch benchmark's seeded
-1,000-book test account.
+Reusable measurement helpers remain available: `scripts/measure-source.mjs`
+counts application TS/TSX and the service worker separately from tests, CSS, and
+migration snapshots; `scripts/measure-browser.mjs` measures live browser work.
+Source measurements require a build and their own output path. Build-wide asset
+size is not initial transfer size. Preserve the measured commit and command;
+do not relabel old browser measurements after a source change.

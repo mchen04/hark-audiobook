@@ -40,17 +40,10 @@ import { notifyLibraryChanged } from "./library-revision";
  * would leave a mirrored change with no queued write, which is a lost write and
  * is not recoverable from anything.
  *
- * KNOWN DEVIATION from `docs/local-first.md` section 5 rule 1: the outbox lives
- * in `chapterline-sync-v1` and the mirror in `chapterline-offline-v1`, and
- * IndexedDB transactions cannot span two databases — `IDBDatabase.transaction`
- * takes store names within one connection and there is no cross-database
- * primitive in the specification. Section 4 keeps the two databases separate on
- * purpose, so "one transaction" for both is unimplementable as written. What is
- * implemented instead is the ordering that carries the same guarantee, and it
- * is the same shape `deletion-journal.ts` already uses (journal row committed,
- * then bytes removed). Within each database the write is a single transaction:
- * the outbox row lands atomically, and the whole mirror patch lands atomically
- * across every store it touches.
+ * `docs/local-first.md` section 5 rule 1 describes this ordering. The outbox
+ * lives in `chapterline-sync-v1` and the mirror in `chapterline-offline-v1`;
+ * IndexedDB cannot transact across both. Each database commits its own write
+ * atomically, with intent first, as in `deletion-journal.ts`.
  */
 
 const PATCH_STORES = [

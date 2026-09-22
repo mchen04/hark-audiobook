@@ -143,8 +143,8 @@ export function SettingsClient({ email }: { email: string }) {
         <h2 id="settings-data-title">Your data</h2>
         <p className="details-hint">
           Download a JSON copy of your books&apos; metadata, chapters, progress, playback history,
-          legacy saved positions, collections, and listening sessions. Your MP3 files are your own
-          originals and are not included.
+          legacy saved positions, tags, collections, preferences, and listening sessions. Audio,
+          source documents, covers, and transcripts are not included.
         </p>
         <a className="secondary-button" href="/api/account/export" download>
           <DownloadSimple size={17} aria-hidden="true" />

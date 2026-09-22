@@ -1,76 +1,51 @@
-# iPhone PWA verification
+# iPhone PWA testing
 
-Last reviewed: 2026-07-28
+## Automated production checks
 
-Hark has a repeatable iPhone-shaped WebKit gate and a short physical-device
-gate. The automated run catches Safari engine differences in auth cookies, the
-Files picker, MP3 parsing, device storage, media range requests, playback, seeking,
-reloads, and offline playback. A physical iPhone remains authoritative for the
-Home Screen container and OS-level audio controls.
-
-## Automated WebKit gate
-
-Install WebKit once, start the local test database, then run the scenario:
+Follow [local setup](development.md#local-test-environment), then run:
 
 ```sh
-pnpm exec playwright install webkit
-cp .env.test.example .env.test   # the bootstrap below generates its secrets
-node scripts/test-db.mjs
 pnpm test:e2e:ios
 ```
 
-The run reads `.env.test` (never `.env.local`) and refuses to start if
-`DATABASE_URL` points at a hosted database — the suite registers accounts and
-imports books, so it must own its data. Both the Playwright config and the
-standalone server print the `DATABASE_URL` host they connected to.
+The `iphone-webkit` project uses Playwright WebKit with an iPhone 15 profile,
+real production build, service worker, and disposable local Postgres fixtures.
+The harness normally builds and starts its own server. Reuse is allowed only
+when the served commit/build and local fixture environment are known; do not
+reuse an unrelated server or personal library. See [checks](development.md#checks).
 
-The test builds and starts the production app, uses Playwright's iPhone 15 WebKit
-profile, exposes `navigator.standalone` as an installed Home Screen app does, and
-chooses `tests/fixtures/Downloads/Chapterline-iPhone-Test.mp3` through the file
-picker. It then verifies:
+The [iPhone specs](../tests/e2e) exercise import/playback, local narration,
+retained controls, account changes, and offline/recovery behavior. The full
+`pnpm verify:browser` command also covers parity, sync, resume, and launch.
+Failures retain screenshots and traces under ignored `test-results/`.
 
-1. Account creation retains a WebKit session.
-2. An MP3 chosen from the simulated Downloads folder imports into device storage.
-3. Online playback starts, advances, seeks, and survives a page relaunch.
-4. The production service worker controls the page.
-5. With all ordinary network requests blocked, the Downloads UI opens the stored
-   book and WebKit plays it through the service worker's ranged media response.
-6. No uncaught page or console errors occurred before the deliberate network cut.
+This is an automated WebKit check, not an installed app on a physical iPhone.
+Persistent-context suites probe browser storage support and can use Chromium
+when persistent WebKit cannot serve its own cached entries. Read the browser
+selected in the raw output; do not label that run physical iOS coverage.
 
-`BETTER_AUTH_URL` must exactly match `PLAYWRIGHT_BASE_URL` (both default to
-`http://localhost:3000`). Local HTTP cookies remain non-Secure; deployed HTTPS
-cookies remain Secure.
+## Physical installation and listening
 
-The suite always builds and starts its own server, because a server already
-listening on the port may be a dev server wired to a hosted database. Set
-`HARK_REUSE_SERVER=1` to reuse one deliberately.
+Use a disposable account and source files, on an HTTPS instance you are authorized
+to test. Do not change production data to complete this checklist.
 
-## Physical iPhone release gate
+1. Open in Safari, sign in, and add the site to the Home Screen from Share.
+   Launch from the icon and record iOS/device/build details.
+2. Use **Choose a book** to import an MP3. Confirm chapters and duration, then
+   exercise play/pause, seeks, speed, skips, sleep timer, and smart rewind.
+3. Import a short text document. Keep the app open; check progress and cancel one
+   attempt. Complete another. Its audio should become playable only after saving.
+   A different completed book can keep playing during narration.
+4. Use **On this device**, search, tags, archive, and collections. Enable collection
+   autoplay only for that check. Inspect read-along text for a source with cues.
+5. After the shell and audio are saved, disconnect networking. Relaunch, browse,
+   and play. Reconnect and confirm queued metadata/position changes sync.
+6. Remove only this test book's download, then attach the matching source. Confirm
+   its existing position and organization survive. A different source must not
+   replace it silently.
+7. On a second device, sign into the disposable account, sync metadata, and attach
+   the same source there. Check progress changes and account isolation.
+8. Run the separate [screen-off resume procedure](resume-durability-device-check.md).
 
-Use the HTTPS deployment intended for release. Apple documents the install flow as
-Safari → Share → Add to Home Screen → enable **Open as Web App** → Add.
-
-1. Save a known-good MP3 to **Files → Downloads** on the iPhone.
-2. Open the deployment in Safari, install it, close Safari, and launch only from
-   the new Home Screen icon.
-3. Sign in, tap **Choose MP3**, choose the file from Downloads, and wait for the
-   imported book to appear.
-   For this storage migration, an existing download may instead ask for the
-   original MP3 once so it can be rewritten into iPhone-safe chunks.
-4. Open it; play, pause, seek to the middle, change speed, lock the phone, and
-   confirm audio continues and the lock-screen play/pause control works.
-5. Force-quit the web app, enable Airplane Mode, relaunch from the Home Screen,
-   open **Downloads**, then play and seek the same book.
-6. Disable Airplane Mode, relaunch once, and confirm the saved position remains.
-
-If anything fails, enable **Settings → Apps → Safari → Advanced → Web Inspector**,
-connect the iPhone to this Mac, trust it, and inspect the foreground app from
-Safari's **Develop → iPhone → Home Screen Web Apps** menu. Inspect the service
-worker separately under that device's **Service Workers** section. Capture the
-first console error and the failing `/offline-media/…` response, including its
-status and `Range`/`Content-Range` headers.
-
-Apple references:
-
-- <https://support.apple.com/guide/iphone/iphea86e5236/ios>
-- <https://developer.apple.com/documentation/safari-developer-tools/inspecting-ios>
+Record pass/fail per step, screenshots where useful, and any skipped paths. A
+checklist in the repository is a procedure, not evidence that it was executed.
