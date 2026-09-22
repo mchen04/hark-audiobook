@@ -31,7 +31,7 @@ NODE_OPTIONS=--no-experimental-webstorage node --env-file=.env.test scripts/reco
 The quick gate also needs build environment variables; the last command loads
 the existing disposable `.env.test` without regenerating it. Use a fresh output
 prefix for each recorded run. The option changes the test host only, not browser
-storage, authentication, or the database, and the package's Node minimum is not a
+storage, authentication, or the database. The package's Node minimum is not a
 claim that every newer Node default suits jsdom.
 
 ## Setup
