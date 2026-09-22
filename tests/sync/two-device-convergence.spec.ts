@@ -759,9 +759,9 @@ for (const operation of ["insert", "update", "delete"] as const) {
         )
         .toBeGreaterThan(0);
 
-      const fast = request(a, "PATCH", `/api/books/${second.bookId}`, {
-        title: "Second After",
-      });
+      const secondEdit = () =>
+        request(a, "PATCH", `/api/books/${second.bookId}`, { title: "Second After" });
+      const fast = secondEdit();
       pending.push(fast);
       // Busy admission rolls back promptly, without allocating or publishing a
       // later receipt. The same intent retries after the first commit below.
@@ -782,13 +782,7 @@ for (const operation of ["insert", "update", "delete"] as const) {
       release();
       await barrier;
       expect((await slow).status()).toBe(operation === "insert" ? 201 : 200);
-      expect(
-        (
-          await request(a, "PATCH", `/api/books/${second.bookId}`, {
-            title: "Second After",
-          })
-        ).status(),
-      ).toBe(200);
+      expect((await secondEdit()).status()).toBe(200);
       const after = await incremental(b, during.cursor);
       receipts.push({ phase: "after both commits", batch: after });
       // A full liveBookIds snapshot could conceal a stranded tombstone: assert

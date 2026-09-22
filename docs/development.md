@@ -17,8 +17,8 @@ does not prove.
 CI uses Node 22. This checkout is also verified with Node **26.3.1** using
 `NODE_OPTIONS=--no-experimental-webstorage`. Node 26's experimental global
 `localStorage` masks jsdom storage: the reviewer's default-runtime run at
-`8b5adc2` had 14 setup failures; with that option all 807 tests passed.
-These are test-host failures, not production-browser storage results.
+`8b5adc2` had 14 setup failures; with that option all 807 tests passed. Those are
+test-host failures, not production-browser storage results.
 
 Use the option for every Vitest entry point, including the combined quick gate:
 
@@ -30,9 +30,9 @@ NODE_OPTIONS=--no-experimental-webstorage node --env-file=.env.test scripts/reco
 
 The quick gate also needs build environment variables; the last command loads
 the existing disposable `.env.test` without regenerating it. Use a fresh output
-prefix for each recorded run. The package's Node minimum is not a claim that
-every newer Node default is compatible with jsdom. The option does not alter
-browser storage, authentication, or the database.
+prefix for each recorded run. The option changes the test host only, not browser
+storage, authentication, or the database, and the package's Node minimum is not a
+claim that every newer Node default suits jsdom.
 
 ## Setup
 

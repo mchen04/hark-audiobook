@@ -116,23 +116,26 @@ data migration is needed. All server writers must use this rule; mixed old/new
 server binaries or direct database writes do not provide the ordering guarantee.
 The cost is serialization of cursor-bearing writes within one account and four
 receipt queries, using existing owner/timestamp indexes. Different accounts do
-not share a receipt lock. Admission uses a transaction-local **100ms lock_timeout**
-around `pg_advisory_xact_lock`, restoring the caller's setting before other work.
-Brief concurrent writes can finish; a timeout returns **503 / Retry-After: 1**
-before reading receipt or progress state. The transaction rolls back and releases
-its shared pool connection. Progress ownership and no-op/conflict decisions remain
-inside serialization, so even a
-deleted-book heartbeat may get a retryable busy response before a later 404.
-The existing client retains 5xx writes durably and replays on mount/reconnect;
-the player also sends its current state on transport actions and heartbeats.
-The sign-out drain retries this hinted busy response at one-second intervals
-within its existing eight-second budget. It never extends that budget or starts
-a retry after the drain ends; undelivered writes are still reported and privacy
-purging still completes. Ordinary background replay does not schedule from
-`Retry-After`, so a paused app may retain the write until its next mount/reconnect.
-There is no separate pool, state-read race, or server-side retry loop. This bounds
-**account-lock admission**, not arbitrary database queries, pool checkout under
-unlimited load, or the duration of the admitted import itself.
+not share a receipt lock.
+
+Admission is bounded. `syncReceipt()` sets a transaction-local **100ms
+lock_timeout** around `pg_advisory_xact_lock` and restores the caller's setting
+before any other work, so brief concurrent writes still finish. A timeout returns
+**503 / Retry-After: 1** before any receipt or progress read; the transaction
+rolls back and releases its pooled connection. Ownership and no-op/conflict
+decisions stay inside serialization, so even a deleted-book heartbeat can get a
+retryable busy response before its later 404. This bounds **account-lock
+admission** only: not arbitrary queries, not pool checkout under unlimited load,
+not the admitted write itself. The server never retries; the client does.
+
+The client already retains 5xx writes durably and replays them on mount or
+reconnect, and the player resends its current state on transport actions and
+heartbeats. The sign-out drain additionally retries this hinted busy response
+once a second inside its existing eight-second budget. It never extends that
+budget and never starts a retry after the drain ends; undelivered writes are
+still reported and privacy purging still completes. Ordinary background replay
+does not schedule from `Retry-After`, so a paused app may hold the write until
+its next mount or reconnect.
 
 Whole-snapshot collections/preferences and uncursored sequence receipts still
 use `monotonicTimestamp()` under their row lock. Its per-row floor alone cannot
