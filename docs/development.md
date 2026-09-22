@@ -122,6 +122,11 @@ This flag is a unit runtime requirement on Node 26, not an app storage setting.
 Node 22 CI uses no such flag. Do not treat a different runtime/options combination
 as the same test run.
 
+Vitest has coverage reporters configured, but no coverage provider is installed
+in the pinned dependencies. `pnpm test` reports outcomes and timing, not line or
+branch coverage. Report coverage as unmeasured unless a compatible provider was
+actually used; passing test counts are not coverage percentages.
+
 Playwright builds the production bundle and starts `scripts/run-standalone.mjs`
 using the explicitly selected test env and a local-database guard. It normally
 refuses a port already in use. `HARK_REUSE_SERVER=1` is an opt-in for a server
@@ -162,6 +167,13 @@ relevant browser project as well as the quick gate. Describe what ran, its sourc
 commit/runtime, and any failures or unexercised paths.
 
 Update these docs and [CHANGELOG](../CHANGELOG.md) when behavior changes.
+When pruning tests, retain regressions, unique boundaries, and failing cases.
+Prove suspected redundancy with targeted mutations and verify the surviving
+suite still detects them. Restore each mutation before continuing. Keep justified
+deletions in a separate commit and compare the same commands before and after,
+including runtime, counts, and any available coverage. No deletion is preferable
+to removing protection whose redundancy has not been demonstrated.
+
 `pnpm format:check` checks formatting; `pnpm exec prettier --write <changed-files>`
 formats a scoped edit. Check relative links against tracked files and anchors,
 and external links for reachability; the repo has no dedicated link-check script.
