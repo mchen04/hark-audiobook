@@ -372,6 +372,11 @@ playable; byte size and "remove the download" survive in the merged view.
   an external store (`playback-time-store.ts`) so timeupdate ticks don't
   re-render the player tree; chapter selection binary-searches on the hot path.
   The provider is the single sink for progress-conflict reconciliation.
+  Within one account, browsing a book without local audio keeps the different
+  active book playing, with its own controls and Media Session identity.
+  Deleting that missing book leaves the active book playing. The media gate
+  resolves the requested identity before mounting its player; changing account
+  still fences and clears the departing account's playback.
 - `src/lib/document-import/`: the format adapters, the chunker, `rendition.ts`
   (exact supported rendition identity), `narration-estimate.ts` (length and
   remaining time) and the account-owned import controller (progress/cancellation).

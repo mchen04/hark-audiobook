@@ -5,6 +5,8 @@ Hostname verified first: `mbp-old`. Baseline: `0e1f17eb18ce6a07c6d55c1790c860099
 Branch: `task/t_99d8ece2-hark`. One implementer, ordinary turns, no goal mode or delegation.
 No push, PR, merge, deployment, board edits, cleanup gate, or independent review executed by this implementer.
 
+Current handoff: **Acceptance follow-up A0–A8** below, tested source `4eb7531`. Earlier candidate sections retain their original attribution.
+
 ## Evidence policy
 
 Raw output lives under `.data/objective/`, primarily its `baseline/` and `final/`
@@ -1349,3 +1351,275 @@ the two excluded physical-background resume cases, browser instrumentation,
 privacy capture gaps and launch-engine fallback remain explicit limits. The
 implementer pauses for authorized cleanup if needed and independent external
 review; acceptance belongs to those external gates.
+
+## Acceptance follow-up A0–A8 — baseline `9d64cca`
+
+This section is the current handoff; earlier sections are historical receipts of
+those named candidates. The complete independent input is preserved as
+`.data/objective/acceptance-followup/review-input.md`. Hostname was verified
+first as **mbp-old**. One implementer used ordinary turns, no goal mode,
+delegation, reviewer launch, board operation or publication. No real user data,
+credentials, database or volume was reset. Only existing disposable fixture
+accounts and newly created fixture books were exercised.
+
+Local source/test commits:
+
+- `8aa80bc` — Order account sync receipts and pin acceptance regressions.
+- `4eb753159d0b76d0af53f63ecc82a55fb349d46b` — Keep tombstone guard independent of transaction formatting.
+
+Every final browser command below used the owned **:3000**, PID **99089**, source
+**4eb7531**, build **67odRKvsW44du2uiJrN4M**. Process cwd, both build-id files,
+HTML build marker and **65 live/disk asset hashes** were checked. Reviewer
+ports 3100/3199 were untouched. The final documentation commit is recorded by
+`.data/objective/acceptance-followup-handoff.{json,log}`; its verifier permits
+only docs/CLEANUP changes relative to this tested source, requires a clean
+checkout, and rechecks the exact owned process/build and all asset hashes.
+
+### Finding dispositions
+
+| Finding | Disposition and evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A0      | **Selector root cause fixed.** The non-exact `Play` locator matched `Remove download of Deletion playback witness` during navigation. Native event observations show the trash click, followed by the deletion journal and removal of the just-stored audio. Exact Play/Pause selectors replace the ambiguous ones. The real navigation response is held below the service worker: the old match is demonstrably the trash button, and the exact Play control must be absent until navigation completes. Reverting that selector fails deterministically. No import/storage code change or retry-to-green was used. |
+| A1      | **One wait is the explicit contract.** The retained helper permits one remaining idle window plus 1,500 ms slack, rereads the real bucket, and diagnoses renewed saturation. Tests cover interfering requests at 0, 1 and 500 ms, headroom, expired and future buckets. Rates and stable IPs are unchanged.                                                                                                                                                                                                                                                                                                         |
+| A2      | **Budget-read errors are wrapped.** Only known safe error categories and an actionable stage are returned; raw driver text, query, parameters and cause are not propagated. The unit probe asserts the actual thrown object/message and property absence without logging dummy secrets. Development prose scopes this guarantee to the retained helper.                                                                                                                                                                                                                                                             |
+| A3      | **SQL-capable update shape restored.** `PgUpdateSetSource<typeof userPreferences>` keeps SQL receipts and excess-property checking. Adding an unknown literal property produces TS2353; the original source was restored.                                                                                                                                                                                                                                                                                                                                                                                           |
+| A4      | **Redundant artifact flags/counter removed.** Real timestamps, sampled/advanced positions and measured next-book title remain, with the assertions. `CLEANUP.md` now explicitly says its derived counter was control-flow-equivalent to the earlier literal. Its original report is preserved verbatim; earlier JSONs and outcomes were not rewritten. These success artifacts remain assertion-gated, not independent oracles.                                                                                                                                                                                     |
+| A5      | **Future receipts no longer strand new sibling writes.** All cursor-bearing book/import, playback and tombstone writes allocate above the account-wide maximum, including retained future rows. Three real two-device cases seed a future book, playback or tombstone receipt and check a sibling edit, new import, progress, deletion, and an edit after deleting the highest receipt. Baseline: all three red. Final: each passed three times, plus full sync.                                                                                                                                                    |
+| A6      | **Receipt order follows commit order.** The same account transaction lock covers allocation through commit; the maximum is read in a separate statement after acquiring it, at explicit READ COMMITTED isolation. Inserts also receive the allocated receipt. Scoped real database barriers reproduce delayed insert/update/delete followed by a concurrent write and pull. Baseline: all three strand the first write. Final: the second writer waits; the incremental stream includes both commits. No clock change, settling sleep or relaxed cursor assertion.                                                  |
+| A7      | **Continue the different book while browsing/deleting missing audio.** This follows the existing `opening a missing book never hides the controls...` and A0 cases. The strengthened A0 requires the same audio source, title and media-session identity and measures advancement from sampled positions while the missing gate is shown and after deletion. No new stop-on-navigation behavior was introduced.                                                                                                                                                                                                     |
+| A8      | **The identity key's negative direction is pinned.** Value-equal props and changed title/history must retain the same resolved player DOM node and perform no additional media lookup. Adding the full book/history to the key kills the new test. Existing positive account/book/rendition tests remain.                                                                                                                                                                                                                                                                                                           |
+
+### Reproduction boundaries and sync semantics
+
+The unchanged baseline A0 case failed **1/3** here; the reviewer observed 3/3 on
+both its candidates. Delegating observations reproduced **1/3** and later
+**1/5**; other bounded diagnostic runs passed. None was substituted for the
+failure. The decisive trace (`a0-observed-events-five-artifacts/.../a0-observations.json`)
+records the title-link click at **1790037492877**, a click on
+`book-device-remove` at **1790037492908**, and the fresh book's deletion journal
+at **1790037492909**. The raw error context names the missing-audio gate. Its
+automatic failure PNG shows the shared seed library after the failing page was
+closed; that PNG is not claimed as an image of the missing gate.
+
+The diagnostic wrappers delegated `IDBObjectStore.prototype.put/delete/clear`,
+`Cache.prototype.put/delete/match`, and `caches.delete`; they logged metadata,
+not audio/document bytes. A second observer captured native pointer/mouse/click
+events and closest button/link HTML. Playwright recorded metadata API response
+bodies. These were installed on the context's existing pages, not service-worker
+or other worker globals. Call observations are not transaction-commit proofs
+on their own and can affect timing. Final A0 uses none of these wrappers: its
+only scheduling control holds the real book response at the loopback proxy.
+
+The six corrected-origin baseline sync cases fail against the unchanged
+9d64cca production build. The earlier six-case attempt omitted the mutation
+Origin header and was rejected with 403; its barrier timeouts are setup failures,
+not receipt-order proof. Both attempts and raw artifacts are retained. A6 uses
+only a disposable uncommitted book PK (rolled back) or the disposable account's
+tag advisory lock, with `pg_blocking_pids` polling; it creates no trigger or
+broad table lock. A5 edits only scoped fixture timestamps, not database/host clocks.
+
+`syncReceipt` keeps the existing cursor and wire protocol and needs no schema
+migration. Its account lock is acquired before other writer locks and held
+through commit. The next READ COMMITTED statement sees the preceding commit;
+a single statement that both waited and read could retain a stale snapshot.
+The floor spans books, playback states and tombstones, so a future row cannot
+outrun a sibling. Deletion allocates before removing the highest row and
+transfers its floor to a tombstone; pruning uses the database clock. Pulls keep
+their read-only repeatable-read snapshots. User event clocks, positions,
+sequences, book identities and local audio are not replaced with receipt time.
+
+The cost is serialization within an account: a long import can delay its other
+cursor writes. Different accounts have separate locks. All server writers must
+use this rule; mixed old/new server binaries or direct database edits do not
+provide the guarantee. No data backfill or client reset was performed: these
+regressions prove ordering for writes through the corrected server, not automatic
+repair of an edit a device had already missed under an older server.
+
+### Exact executed checks
+
+All prefixes below are under `.data/objective/acceptance-followup/`. Each has
+raw combined output plus exact argv, hostname, cwd, UTC times and exit status.
+`command-summary.json` also indexes helper, mutation and measurement outcomes.
+
+| Prefix                            | Exit | Seconds | Exact outcome                                                               |
+| --------------------------------- | ---: | ------: | --------------------------------------------------------------------------- |
+| `baseline-quick`                  |    0 |  48.387 | 803 units / 90 files; format/lint/types/build                               |
+| `baseline-source-check`           |    1 |   3.086 | Bad --output= invocation; ENOENT; not a source result                       |
+| `baseline-source-corrected`       |    0 |   2.391 | Correct positional invocation; clean baseline source/build scan             |
+| `a0-baseline-original`            |    1 |  41.814 | Unchanged case: 1 failed / 2 passed                                         |
+| `a0-observed-baseline`            |    1 |  40.872 | Delegating storage observations: 1 failed / 2 passed                        |
+| `a0-observed-events`              |    0 |   9.894 | 1 passed; diagnostic only                                                   |
+| `a0-observed-events-three`        |    0 |  26.701 | 3 passed; diagnostic only                                                   |
+| `a0-observed-events-five`         |    1 |  56.878 | 1 failed / 4 passed; decisive trash-click trace                             |
+| `a0-deterministic-navigation`     |    0 |  26.809 | 3 passed on baseline server with exact selector and held navigation         |
+| `a0-selector-mutation`            |    1 |  25.060 | 1 failed; exact source restored                                             |
+| `a1-a2-red`                       |    1 |   3.069 | 2 failed / 27 passed                                                        |
+| `a1-a2-a8-green`                  |    0 |   2.769 | 29 passed                                                                   |
+| `a8-identity-mutation`            |    1 |   2.810 | 1 failed / 9 skipped; original identity restored                            |
+| `a3-unknown-column-mutation`      |    2 |   3.298 | TS2353 unknownPreferenceProbe; original source restored                     |
+| `a5-a6-baseline-red`              |    1 |  61.153 | 6 setup failures: missing Origin header (403), including 3 barrier timeouts |
+| `a5-a6-baseline-origin-corrected` |    1 |  20.593 | 6 actual cursor/commit-order failures                                       |
+| `type-first`                      |    2 |   3.513 | 3 new-test TypeScript errors; corrected without weakening assertions        |
+| `precommit-checks`                |    0 |   2.268 | tsc passed                                                                  |
+| `quick-candidate-1`               |    1 |  21.756 | 806 passed / 1 static guard failed; no build                                |
+| `transaction-guard-green`         |    0 |   1.121 | 8 passed                                                                    |
+| `transaction-guard-mutation`      |    1 |   0.931 | 1 failed / 7 skipped; original tombstone insert restored                    |
+| `quick-candidate-2`               |    1 |  32.197 | 807 passed / 90 files; build failed due missing test env                    |
+| `quick-candidate-3`               |    0 |  31.137 | Complete gate: format/lint/types/807 units in 90 files/production build     |
+| `provenance-candidate-1`          |    0 |   1.363 | Source/process/build/HTML and 65 served/disk hashes                         |
+| `a5-a6-candidate-1`               |    0 |  36.412 | 18 passed: six adversarial cases × 3                                        |
+| `parity-sync-candidate-1`         |    0 | 251.206 | 74 passed: 33 parity + 41 sync                                              |
+| `a0-candidate-1-repeat`           |    0 |  28.416 | 3 passed: final held-navigation/playback regression                         |
+| `iphone-candidate-1-run-1`        |    0 | 106.637 | 8 passed; real sign-in idle wait                                            |
+| `iphone-candidate-1-run-2`        |    0 | 112.316 | 8 passed; consecutive run, real sign-in idle wait                           |
+| `resume-candidate-1`              |    0 | 680.493 | 24 passed; 22 oracle rows; two unsupported cases excluded                   |
+| `launch-candidate-1`              |    0 |  25.195 | 1 passed: 4 profiles × 6 launches                                           |
+| `baseline-write-cost`             |    0 |   0.844 | API-only baseline: 5 warmups + 30 measured progress requests                |
+| `candidate-write-cost`            |    0 |   0.547 | Same bounded API probe on final server                                      |
+| `source-candidate-1-check`        |    0 |   2.890 | Fresh final app/test/CSS/generated/complexity/bundle metrics                |
+| `clock-candidate-1`               |    0 |   0.296 | Read-only DB/host clock probe                                               |
+| `provenance-after-browser`        |    0 |   1.153 | Same build/process/65 served hashes after all browser checks                |
+| `historical-preservation-final`   |    0 |   0.637 | 978 prior indexed artifacts match by size/hash                              |
+
+The first quick attempt's one failure came from the static tombstone guard's
+format-dependent regex. It now parses transaction callback boundaries; removing
+the tombstone insert still fails that guard. The next quick attempt passed all
+807 units but lacked DATABASE_URL/BETTER_AUTH_SECRET for the build. The final
+quick command uses the same guarded `.env.test` loader as the baseline. Neither
+failed quick receipt is labelled passing. The initial metric invocation's bad
+`--output=` syntax (the script takes a positional path) and the initial three
+TypeScript errors in the new tests are also preserved with their corrections.
+
+### Retained-workflow coverage on the served candidate
+
+| Retained workflow / state                                                  | Executed evidence                                                                                                                                                                                                                                                       |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Loading, genuinely empty, first-sync unreachable and recovery              | Both retained WebKit runs: first-sync gate, reconnect, stalled-sync import; empty/error/recovered screenshots.                                                                                                                                                          |
+| MP3 import, local storage and initial playback                             | Full parity and both retained runs; A0 real 90-second decoder fixture plus held navigation, three additional final repetitions.                                                                                                                                         |
+| Document import/narration and cancellation                                 | Both retained runs import TXT, Markdown, HTML, PDF, DOCX and EPUB; real local narration completes before playback; cancel and legacy rendition refusal are exercised.                                                                                                   |
+| Chapters, speed, skips, sleep timer, smart rewind, history and transcripts | Both retained workflow journeys and supported resume project.                                                                                                                                                                                                           |
+| Organization, search, tags, archive and collections                        | Full parity/sync plus both retained UI journeys, including offline edits/reconnect and collection membership/tag-edge incremental pulls.                                                                                                                                |
+| Collection autoplay                                                        | Both runs observe Tiny Fixture Book advancing from a settled sample without a second Play click: 0.2495→0.5230 s and 0.1833→0.4551 s.                                                                                                                                   |
+| Committed attachment cancellation                                          | Both runs: real range response 206/1,024 bytes, ready player at 0 s, paused, zero play calls after cancel; one after deliberate manual Play. No second attachment.                                                                                                      |
+| Missing-book browsing/deletion                                             | A0 keeps the different source/title/media-session identity and advances during browsing and after deletion. All three final repetitions record actual position pairs.                                                                                                   |
+| Offline storage, eviction and reattachment                                 | Full parity/sync: cache loss, offline cold routes, reimport identity, pending predecessor deletion, stale-tab rejection and closed-tab recovery.                                                                                                                        |
+| Accounts, isolation, sync, export, deletion and diagnostics                | Full parity/sync plus both retained journeys; real account deletion remains covered. No auth limiter was reset, disabled or bypassed.                                                                                                                                   |
+| Clock skew and transaction order                                           | 18 final adversarial cases plus all six in full sync; metadata, progress and tombstone streams checked, including raw tombstones so full ID snapshots cannot conceal a missed deletion.                                                                                 |
+| Playback durability                                                        | 24 selected cases passed; 22 oracle rows identify build 67odRKvsW44du2uiJrN4M. The two physical-background cases remain excluded. Individual drift measurements range from 0 to 187 ms against unchanged limits; see raw rows for cycle and paused-writer measurements. |
+| Warm launch                                                                | Four profiles × six launches; see current launch table below.                                                                                                                                                                                                           |
+
+The two retained runs reused `.111` and the retained fixture. Read-only bucket
+snapshots show absent → 1 → 2 for signup and 1 → 2 for sign-in after real idle
+resets. Both runs took real 62-second sign-in waits. The bounded unit cases prove
+renewed saturation fails after one wait; live runs do not pretend to saturate
+and wait out the ten-minute signup bucket.
+
+Each retained run observed **99 app-origin wire requests / 11 bodies** and
+**256 browser observations**, with URL/JSON/Blob/multipart/beacon positive
+controls and no fixture document text detected. The separate executed
+cross-origin loopback collector observed JSON, string, Blob, multipart, beacon
+and worker bodies. WebKit did not expose the Blob body or worker request/body
+through its browser event channel. This is controlled loopback sentinel traffic,
+not a cloud document upload. It does not certify arbitrary destinations,
+encoded/encrypted payloads or binary audio. Existing committed-attachment
+IDB/BroadcastChannel barriers and their pending-user versus committed-origin
+fence limits remain as documented in the earlier S2 section; mocks are not
+substituted for these live paths.
+
+### Source and cost measurements
+
+[acceptance-followup-source.json](acceptance-followup-source.json) is a fresh
+scan of **4eb7531** and its build, separate from every earlier source receipt.
+Scope is unchanged: app src TS/TSX excluding tests plus authored `public/sw.js`;
+TypeScript token-occupied LOC excludes comments/blank lines; ESLint classic
+cyclomatic complexity is per function. Tests/harness, CSS and generated schema
+JSON are separate. Static bundle totals include lazy runtimes and are not initial
+transfer sizes. Older `a6eecfb` and cleanup receipts remain historical.
+
+| Metric                          | Original 0e1f17e | Baseline 9d64cca | Tested source 4eb7531 |
+| ------------------------------- | ---------------: | ---------------: | --------------------: |
+| App files                       |              185 |              179 |                   180 |
+| App physical LOC                |           28,134 |           27,316 |                27,365 |
+| App token-occupied LOC          |           23,950 |           23,258 |                23,290 |
+| Test/harness physical LOC       |           35,655 |           37,225 |                37,620 |
+| Test/harness token-occupied LOC |           32,148 |           33,736 |                34,130 |
+| CSS physical LOC                |            3,249 |            3,149 |                 3,149 |
+| Generated schema JSON LOC       |           58,251 |           58,251 |                58,251 |
+| Function count                  |            1,810 |            1,747 |                 1,748 |
+| Cyclomatic complexity sum       |            5,623 |            5,455 |                 5,456 |
+| Maximum complexity              |               70 |               70 |                    70 |
+| Functions above 10              |               84 |               79 |                    79 |
+| Static JS/CSS/WASM bytes        |       28,550,966 |       28,540,585 |            28,540,585 |
+| Sum of individual gzip bytes    |        7,559,946 |        7,555,842 |             7,555,842 |
+
+The calibrated browser responsiveness/import/heap benchmark stays attributed
+to **be79d4e / source snapshot 4964071**. No new heap/responsiveness comparison
+was run or retroactively attributed here. The fresh API-only receipt-cost probe
+uses the same existing disposable session, 5 warmups and 30 sequential saved
+progress requests on each server. Median/p95: baseline **12.492/36.601 ms**,
+final **8.842/11.476 ms**. This noisy small loopback sample shows no measured
+slowdown, not a performance-improvement or contention-scale claim. Its source
+script is `scripts/measure-sync-receipts.mjs`; only its newly created fixture
+book is deleted. The floor SELECT took **0.283 ms** in the final EXPLAIN ANALYZE;
+the planner chose the existing book/playback indexes and a small tombstone
+sequential scan. A read-only clock probe found seven short samples **9.21–9.58 ms
+behind** the host midpoint; the slower 20-ms first sample was +0.049 ms and is
+kept separately. No clock was changed.
+
+The fresh launch acceptance run used the existing fallback to persistent
+**Chromium with iPhone 15 emulation**: WebKit returned null for persistent Cache
+Storage read-back and rejected CDP throttling. This is not WebKit or physical-iPhone
+startup certification. The 8M-iteration calibration measured 7 ms at 1× and
+14 ms at calibrated 2.19×, targeting the existing 16-ms reference.
+
+| Current profile     |    p50 | p95/max | Timeouts | Document/API/asset hits and DB queries |
+| ------------------- | -----: | ------: | -------: | -------------------------------------- |
+| A, 0 ms latency     | 154 ms |  162 ms |        0 | 0 / 0 / 0 / 0                          |
+| B, 400 ms latency   | 159 ms |  163 ms |        0 | 0 / 0 / 0 / 0                          |
+| C, 3,000 ms latency | 167 ms |  179 ms |        0 | 0 / 0 / 0 / 0                          |
+| D, offline          | 175 ms |  202 ms |        0 | 0 / 0 / 0 / 0                          |
+
+All 24 launches painted 50 actual cards from the 1,000-book fixture, using the
+cached document with 0 wire bytes. The p95 spread was 40 ms, under the unchanged
+150-ms limit, and every profile met the unchanged 500-ms limit. Browser process
+spawn is excluded (p95 129 ms); measured harness overhead p95 was 55 ms. These
+are current acceptance observations, not a replacement for the original
+before/after benchmark or evidence of a new speedup.
+
+### Evidence preservation and external handoff
+
+All **978** indexed historical artifacts (311 original + 112 first-fix + 360
+residual-fix + 195 acceptance-fix) were rehashed without a mismatch. The new
+[acceptance-followup-artifacts.json](acceptance-followup-artifacts.json) indexes
+this round's raw outcomes, mutations, scripts, metrics and screenshots. Active
+server log output is mutable and excluded; a captured snapshot is indexed.
+Seal/check/final-format/handoff receipts live outside the indexed root to avoid
+self-reference. No red receipt was overwritten or relabelled. Temporary trace
+observers were removed; their exact source copies remain in the evidence root.
+No regression test was deleted; redundant artifact counters/flags were pruned
+because their assertions and numeric witnesses provide the protection.
+
+`visual-inspection.json` records the actual viewed PNG paths: the paused player
+after durable cancellation, first-sync unreachable gate, and completed-document
+library. The latter shows four visible cards; six formats are established by
+executed assertions and narration JSON, not inferred from one screenshot.
+Physical iPhone, Home Screen, lock-screen and OS background behavior remain
+unverified. The supported resume instrument uses ephemeral WebKit contexts,
+scoped renderer termination, fixture cache/cookie restoration and documented
+second-tap allowances. The two `T1 hidden (online|offline)` cases stay excluded.
+
+Recommended bounded external cleanup/review checks, with no publication:
+
+```sh
+git diff --check 9d64cca HEAD
+pnpm format:check
+python3 .data/objective/acceptance-followup/check-historical-artifacts.py
+python3 .data/objective/acceptance-followup/check-artifacts.py
+node .data/objective/acceptance-followup/verify-final-handoff.mjs candidate-1
+```
+
+Exact full quick/browser commands are in the raw receipts. Reruns must use fresh
+output paths. A quick build replaces `.next`; restart only the owned :3000 and
+record new build/served provenance if rebuilding. Leave reviewer :3100/:3199
+untouched. The implementer pauses for authorized cleanup if needed and external
+changed-area review; no independent reviewer or cleanup coordinator was run here.
