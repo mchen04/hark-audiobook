@@ -136,10 +136,9 @@ budget. It joins any ambient per-account replay before making a fresh pass;
 entity locks are released during the wait so terminal progress can journal and
 the next pass reads the newest intent. A fence (even if later reopened), a new
 active account, or the drain deadline prevents further sends. It never extends
-that budget; undelivered writes are
-still reported and privacy purging still completes. Ordinary background replay
-does not schedule from `Retry-After`, so a paused app may hold the write until
-its next mount or reconnect.
+that budget; undelivered writes are still reported and privacy purging still
+completes. Ordinary background replay does not schedule from `Retry-After`, so
+a paused app may hold the write until its next mount or reconnect.
 
 Whole-snapshot collections/preferences and uncursored sequence receipts still
 use `monotonicTimestamp()` under their row lock. Its per-row floor alone cannot

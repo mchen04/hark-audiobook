@@ -447,19 +447,19 @@ export async function drainBeforeSignOut(
   const drain = Promise.all([
     queued.length
       ? drainQueue(
-          (send) => replayQueuedMutations(userId, send),
+          (drainFetch) => replayQueuedMutations(userId, drainFetch),
           async () => (await listQueuedMutations(userId)).length > 0,
         )
       : Promise.resolve(),
     actions.length
       ? drainQueue(
-          (send) => replayPlaybackHistory(userId, send),
+          (drainFetch) => replayPlaybackHistory(userId, drainFetch),
           async () => (await listPendingPlaybackActions(userId)).length > 0,
         )
       : Promise.resolve(),
     preferences.length
       ? drainQueue(
-          (send) => flushPendingPreferences(userId, send),
+          (drainFetch) => flushPendingPreferences(userId, drainFetch),
           async () => listPendingPreferenceWrites(userId).length > 0,
         )
       : Promise.resolve(),

@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
@@ -21,6 +21,13 @@ test.afterAll(async () => {
   await closeSql();
   await (await network()).close();
 });
+
+/** Page errors are evidence: keep the message and stack, not just the name. */
+function recordPageErrors(page: Page, errors: string[]): void {
+  page.on("pageerror", (error) =>
+    errors.push(`${error.name}: ${error.message}\n${error.stack ?? ""}`),
+  );
+}
 
 function registration(bookId: string) {
   return {
@@ -283,9 +290,7 @@ test("the real player retains a busy progress write and replays it on relaunch",
   let held: Awaited<ReturnType<typeof heldImport>> | undefined;
   const observations: Record<string, unknown> = {};
   const errors: string[] = [];
-  page.on("pageerror", (error) =>
-    errors.push(`${error.name}: ${error.message}\n${error.stack ?? ""}`),
-  );
+  recordPageErrors(page, errors);
   try {
     await page.goto(`${APP_ORIGIN}/library`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("[data-launch-ready]", { state: "attached" });
@@ -346,9 +351,7 @@ test("the real player retains a busy progress write and replays it on relaunch",
     // the socket up: this recovery is from a real SERVER busy response.
     await page.close();
     const reopened = await context.newPage();
-    reopened.on("pageerror", (error) =>
-      errors.push(`${error.name}: ${error.message}\n${error.stack ?? ""}`),
-    );
+    recordPageErrors(reopened, errors);
     // Same-origin 404 has no app/replay hook. Inspect what survived BEFORE mount.
     await reopened.goto(`${APP_ORIGIN}/__hark_sync_probe__`, { waitUntil: "domcontentloaded" });
     await attachDriver(reopened, account, device);
@@ -546,9 +549,7 @@ test("sign-out joins a held ambient replay then retries real server contention",
   const responses: Array<{ atMs: number; status: number }> = [];
   const errors: string[] = [];
   const observations: Record<string, unknown> = { responses, errors };
-  page.on("pageerror", (error) =>
-    errors.push(`${error.name}: ${error.message}\n${error.stack ?? ""}`),
-  );
+  recordPageErrors(page, errors);
   page.on("response", (response) => {
     if (
       response.url().endsWith(`/api/books/${bookId}`) &&
@@ -670,9 +671,7 @@ test("terminal progress journals while busy sign-out waits and its fresh intent 
   }> = [];
   const errors: string[] = [];
   const observations: Record<string, unknown> = { responses, errors };
-  page.on("pageerror", (error) =>
-    errors.push(`${error.name}: ${error.message}\n${error.stack ?? ""}`),
-  );
+  recordPageErrors(page, errors);
   page.on("response", (response) => {
     if (bookId && response.url().endsWith(`/api/books/${bookId}/progress`)) {
       const body = response.request().postDataJSON();
