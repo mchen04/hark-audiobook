@@ -532,6 +532,45 @@ describe("sign-out drains before it purges", () => {
     expect(await listQueuedMutations(USER_A)).toStrictEqual([]);
   });
 
+  it("retries hinted account contention with the same intent before purging", async () => {
+    await seedAccount(USER_A);
+    storage.setItem(ACTIVE_USER_KEY, USER_A);
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(null, { status: 503, headers: { "Retry-After": "1" } }))
+      .mockResolvedValueOnce(ok());
+    const started = performance.now();
+
+    const outcome = await purgeOnSignOut(USER_A, { fetchFn, drainTimeoutMs: 2_000 });
+
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(fetchFn.mock.calls[1]).toEqual(fetchFn.mock.calls[0]);
+    expect(performance.now() - started).toBeGreaterThanOrEqual(950);
+    expect(outcome.undelivered).toEqual([]);
+    expect(outcome.failure).toBe(null);
+    expect(await listQueuedMutations(USER_A)).toEqual([]);
+  });
+
+  it("does not retry a late busy response after the sign-out budget expires", async () => {
+    await seedAccount(USER_A);
+    let respond!: (response: Response) => void;
+    const fetchFn = vi.fn<typeof fetch>().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          respond = resolve;
+        }),
+    );
+
+    const outcome = await purgeOnSignOut(USER_A, { fetchFn, drainTimeoutMs: 25 });
+    expect(outcome.undelivered.map((write) => write.kind)).toEqual(["metadata"]);
+    respond(new Response(null, { status: 503, headers: { "Retry-After": "1" } }));
+    await replayQueuedMutations(USER_A, fetchFn);
+
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(await listQueuedMutations(USER_A)).toEqual([]);
+    expect(await listLocalUserIds()).not.toContain(USER_A);
+  });
+
   /**
    * A preference change is the one user write that is not an outbox row: its
    * only record on the device is a flag in `chapterline:preferences:<userId>`,

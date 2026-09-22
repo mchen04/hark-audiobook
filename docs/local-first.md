@@ -114,18 +114,23 @@ read-only repeatable-read snapshot; they need no writer lock. The existing
 timestamp cursor and installed-client protocol do not change, and no schema or
 data migration is needed. All server writers must use this rule; mixed old/new
 server binaries or direct database writes do not provide the ordering guarantee.
-The cost is serialization of cursor-bearing writes within one account and two
+The cost is serialization of cursor-bearing writes within one account and four
 receipt queries, using existing owner/timestamp indexes. Different accounts do
-not share a receipt lock. Admission uses `pg_try_advisory_xact_lock`: a busy
-account returns **503 / Retry-After: 1** without waiting on that lock or reading
-state. The transaction rolls back and releases its shared pool connection.
-Ownership and no-op/conflict decisions remain inside serialization, so even a
+not share a receipt lock. Admission uses a transaction-local **100ms lock_timeout**
+around `pg_advisory_xact_lock`, restoring the caller's setting before other work.
+Brief concurrent writes can finish; a timeout returns **503 / Retry-After: 1**
+before reading receipt or progress state. The transaction rolls back and releases
+its shared pool connection. Progress ownership and no-op/conflict decisions remain
+inside serialization, so even a
 deleted-book heartbeat may get a retryable busy response before a later 404.
 The existing client retains 5xx writes durably and replays on mount/reconnect;
 the player also sends its current state on transport actions and heartbeats.
-It does not automatically schedule retries from `Retry-After`. A paused app
-may retain the write until its next mount/reconnect. No waiting queue, separate
-pool, state-read race, or server-side retry loop is introduced. This bounds
+The sign-out drain retries this hinted busy response at one-second intervals
+within its existing eight-second budget. It never extends that budget or starts
+a retry after the drain ends; undelivered writes are still reported and privacy
+purging still completes. Ordinary background replay does not schedule from
+`Retry-After`, so a paused app may retain the write until its next mount/reconnect.
+There is no separate pool, state-read race, or server-side retry loop. This bounds
 **account-lock admission**, not arbitrary database queries, pool checkout under
 unlimited load, or the duration of the admitted import itself.
 

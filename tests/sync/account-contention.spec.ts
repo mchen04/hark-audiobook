@@ -191,11 +191,15 @@ test("a held import bounds contending progress without starving another account"
     // Fixed observation window, NOT a wait/retry-until-green. On the red server
     // the barrier is still released after 2s, so the whole experiment is bounded.
     while (performance.now() - started < 2_000) {
-      const [row] = await sql()<{ waiters: number }[]>`select count(*)::int as waiters
+      const [row] = await sql()<
+        { waiters: number; oldestWaitMs: number }[]
+      >`select count(*)::int as waiters,
+        coalesce(max(extract(epoch from (clock_timestamp() - query_start)) * 1000), 0)::float8 as "oldestWaitMs"
         from pg_stat_activity where ${held.writerPid} = any(pg_blocking_pids(pid))`;
       samples.push({
         atMs: performance.now() - started,
         waiters: row!.waiters,
+        oldestWaitMs: row!.oldestWaitMs,
         completed: completed.length,
       });
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -219,7 +223,9 @@ test("a held import bounds contending progress without starving another account"
     expect.soft(Math.max(...results.map((row) => row.elapsedMs))).toBeLessThan(1_500);
     expect.soft(peerResults.map((row) => row.status)).toEqual(Array(8).fill(200));
     expect.soft(Math.max(...peerResults.map((row) => row.elapsedMs))).toBeLessThan(1_000);
-    expect.soft(Math.max(...samples.map((row) => row.waiters))).toBe(0);
+    expect.soft(Math.max(...samples.map((row) => row.waiters))).toBeGreaterThan(0);
+    expect.soft(Math.max(...samples.map((row) => row.oldestWaitMs))).toBeLessThan(200);
+    expect.soft(samples.at(-1)!.waiters).toBe(0);
 
     // A bounded, explicit retry of each failed intent after release. These are
     // API probes; genuine UI/outbox recovery is the separate case below.
@@ -404,6 +410,96 @@ test("the real player retains a busy progress write and replays it on relaunch",
     const api = await browser.newContext({ storageState });
     if (bookId) await call(api.request, "DELETE", `/api/books/${bookId}`);
     await call(api.request, "DELETE", `/api/books/${importing}`);
+    await api.close();
+  }
+});
+
+test("sign-out retries a busy edit within its existing drain budget before purging", async ({
+  browser,
+}, info) => {
+  test.setTimeout(45_000);
+  const account = await ensureAccount(browser, ACCOUNT_A);
+  const { context, page } = await openDevice(
+    browser,
+    "contention-signout-0001",
+    await sessionFor(browser, account),
+  );
+  const bookId = randomUUID();
+  const importing = randomUUID();
+  const renamed = `Edit before busy sign-out ${randomUUID()}`;
+  const responses: Array<{ atMs: number; status: number; retryAfter: string | undefined }> = [];
+  const observations: Record<string, unknown> = { responses };
+  let held: Awaited<ReturnType<typeof heldImport>> | undefined;
+  const started = performance.now();
+  page.on("response", (response) => {
+    if (
+      response.url().endsWith(`/api/books/${bookId}`) &&
+      response.request().method() === "PATCH"
+    ) {
+      responses.push({
+        atMs: performance.now() - started,
+        status: response.status(),
+        retryAfter: response.headers()["retry-after"],
+      });
+    }
+  });
+  try {
+    expect(
+      (await call(context.request, "POST", "/api/books/local", registration(bookId))).status,
+    ).toBe(201);
+    await page.goto(`${APP_ORIGIN}/settings`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("button", { name: /Sign out/ })).toBeVisible();
+    await attachDriver(page, account, "contention-signout-0001");
+    held = await heldImport(context.request, account.userId, importing);
+    await page.evaluate(
+      async ({ bookId, renamed }) => {
+        await window.__harkSync.commit({ kind: "rename", bookId, fields: { title: renamed } });
+      },
+      { bookId, renamed },
+    );
+    expect(
+      (await outbox(page)).some((row) => row.entityId === bookId && row.payload.title === renamed),
+    ).toBe(true);
+    const beforeSignOut = responses.length;
+    await page.getByRole("button", { name: /Sign out/ }).click();
+    // Two real busy responses pin a production retry; no driver replay, mocked
+    // fetch, synthetic online event, or test retry sends this write.
+    await expect
+      .poll(() => responses.slice(beforeSignOut).filter((row) => row.status === 503).length, {
+        timeout: 4_000,
+      })
+      .toBeGreaterThanOrEqual(2);
+    const busy = responses.slice(beforeSignOut).filter((row) => row.status === 503);
+    expect(busy.every((row) => row.retryAfter === "1")).toBe(true);
+    expect(busy[1]!.atMs - busy[0]!.atMs).toBeGreaterThanOrEqual(950);
+    observations.queuedDuringDrain = await outbox(page);
+    expect(
+      (await outbox(page)).some((row) => row.entityId === bookId && row.payload.title === renamed),
+    ).toBe(true);
+    await page.screenshot({ path: info.outputPath("signout-busy.png") });
+    held.release();
+    expect((await held.done).status).toBe(201);
+    await page.waitForURL(/\/login/, { timeout: 8_000 });
+    expect(responses.some((row) => row.status === 200)).toBe(true);
+    const [saved] = await sql()<
+      { title: string }[]
+    >`select title from books where owner_id=${account.userId} and id=${bookId}::uuid`;
+    observations.saved = saved;
+    expect(saved?.title).toBe(renamed);
+    await attachDriver(page, account, "contention-signout-0001");
+    expect(await outbox(page)).toEqual([]);
+    expect(await page.evaluate(() => localStorage.getItem("chapterline:active-user"))).toBe(null);
+    await page.screenshot({ path: info.outputPath("signout-delivered.png") });
+  } finally {
+    held?.release();
+    if (held) await Promise.allSettled([held.done]);
+    observations.finalUrl = page.url();
+    writeFileSync(info.outputPath("signout-recovery.json"), JSON.stringify(observations, null, 2));
+    await context.close();
+    // The UI invalidated its session. Reauthenticate the reusable disposable
+    // fixture normally, then delete only this case's two new IDs.
+    const api = await browser.newContext({ storageState: await sessionFor(browser, account) });
+    for (const id of [bookId, importing]) await call(api.request, "DELETE", `/api/books/${id}`);
     await api.close();
   }
 });

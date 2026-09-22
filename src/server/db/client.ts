@@ -30,8 +30,8 @@ export function resetQueryCount(): void {
 const sqlClient =
   globalDatabase.sqlClient ??
   postgres(env.DATABASE_URL, {
-    // Shared with auth and reads. Sync receipt writers use nonblocking account
-    // admission so one account's long import cannot fill this pool with waiters.
+    // Shared with auth and reads. Sync receipt admission waits at most 100ms
+    // per connection, so one account's import cannot pin this pool indefinitely.
     max: process.env.NODE_ENV === "production" ? 10 : 3,
     idle_timeout: 20,
     connect_timeout: 10,

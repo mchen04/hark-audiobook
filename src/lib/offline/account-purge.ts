@@ -395,24 +395,45 @@ export async function drainBeforeSignOut(
   if (!queued.length && !actions.length && !preferences.length) return [];
 
   const timeoutMs = options.drainTimeoutMs ?? SIGN_OUT_DRAIN_TIMEOUT_MS;
+  const deadline = performance.now() + timeoutMs;
+  let finished = false;
+  const send = options.fetchFn ?? fetch;
+  const drainFetch: typeof fetch = async (input, init) => {
+    let response = await send(input, init);
+    // Only the server's bounded account-admission failure asks for this retry.
+    // Keep the durable intent and the same request identity; spend the existing
+    // sign-out budget, never extend it or start a retry after the purge begins.
+    while (
+      response.status === 503 &&
+      response.headers.get("Retry-After") === "1" &&
+      !finished &&
+      performance.now() + 1_000 < deadline
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      if (finished || performance.now() >= deadline) break;
+      response = await send(input, init);
+    }
+    return response;
+  };
   let expire: ReturnType<typeof setTimeout> | undefined;
   const bound = new Promise<void>((resolve) => {
     expire = setTimeout(resolve, timeoutMs);
   });
   const drain = Promise.all([
     queued.length
-      ? replayQueuedMutations(userId, options.fetchFn).catch(() => undefined)
+      ? replayQueuedMutations(userId, drainFetch).catch(() => undefined)
       : Promise.resolve(),
     actions.length
-      ? replayPlaybackHistory(userId, options.fetchFn).catch(() => undefined)
+      ? replayPlaybackHistory(userId, drainFetch).catch(() => undefined)
       : Promise.resolve(),
     preferences.length
-      ? flushPendingPreferences(userId, options.fetchFn).catch(() => undefined)
+      ? flushPendingPreferences(userId, drainFetch).catch(() => undefined)
       : Promise.resolve(),
   ]).then(() => undefined);
   try {
     await Promise.race([drain, bound]);
   } finally {
+    finished = true;
     clearTimeout(expire);
   }
 

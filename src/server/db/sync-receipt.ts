@@ -25,13 +25,25 @@ export class SyncBusyError extends Error {
  * as database text: a JS Date would discard the cursor's microseconds.
  */
 export async function syncReceipt(transaction: Transaction, userId: string) {
-  // Never queue behind an import while pinning a shared pool connection. A busy
-  // account returns a retryable 503, including for stale/deleted-book heartbeats:
-  // ownership and conflict reads must stay AFTER admission, inside serialization.
-  const [lock] = await transaction.execute<{ acquired: boolean }>(
-    sql`select pg_try_advisory_xact_lock(hashtextextended(${`hark:sync:${userId}`}, 0)) as acquired`,
-  );
-  if (!lock?.acquired) throw new SyncBusyError();
+  // Brief concurrent drains may finish; an import must not pin every pool slot
+  // with indefinite waiters. Save/restore the caller's timeout, changing it only
+  // for account admission. MATERIALIZED reads the old value before set_config.
+  const [previous] = await transaction.execute<{ timeout: string }>(sql`
+    with previous as materialized (select current_setting('lock_timeout') as timeout)
+    select timeout, set_config('lock_timeout', '100ms', true) from previous
+  `);
+  try {
+    await transaction.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`hark:sync:${userId}`}, 0))`,
+    );
+  } catch (error) {
+    const cause = error instanceof Error && error.cause ? error.cause : error;
+    if (cause && typeof cause === "object" && "code" in cause && cause.code === "55P03") {
+      throw new SyncBusyError();
+    }
+    throw error;
+  }
+  await transaction.execute(sql`select set_config('lock_timeout', ${previous!.timeout}, true)`);
   const rows = await transaction.execute<{ value: string }>(sql`
     select greatest(
       clock_timestamp(),
