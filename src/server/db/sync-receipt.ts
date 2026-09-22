@@ -3,6 +3,13 @@ import { sql } from "drizzle-orm";
 import type { Transaction } from "./client";
 import { books, bookTombstones, playbackStates } from "./schema";
 
+/** The transaction did no work; the durable client intent can be retried. */
+export class SyncBusyError extends Error {
+  constructor() {
+    super("Account sync is busy. Retry shortly.");
+  }
+}
+
 /**
  * Allocate a receipt for the account-wide sync cursor in a READ COMMITTED
  * transaction, before any cursor-bearing write or other write lock.
@@ -14,13 +21,17 @@ import { books, bookTombstones, playbackStates } from "./schema";
  *
  * All three streams share a floor, including retained ahead-of-clock receipts.
  * Deletion allocates before removing rows and carries that floor into its
- * tombstone. Each MAX uses an existing (owner, timestamp) index. Keep the value
+ * tombstone. The MAX queries have (owner, timestamp) indexes. Keep the value
  * as database text: a JS Date would discard the cursor's microseconds.
  */
 export async function syncReceipt(transaction: Transaction, userId: string) {
-  await transaction.execute(
-    sql`select pg_advisory_xact_lock(hashtextextended(${`hark:sync:${userId}`}, 0))`,
+  // Never queue behind an import while pinning a shared pool connection. A busy
+  // account returns a retryable 503, including for stale/deleted-book heartbeats:
+  // ownership and conflict reads must stay AFTER admission, inside serialization.
+  const [lock] = await transaction.execute<{ acquired: boolean }>(
+    sql`select pg_try_advisory_xact_lock(hashtextextended(${`hark:sync:${userId}`}, 0)) as acquired`,
   );
+  if (!lock?.acquired) throw new SyncBusyError();
   const rows = await transaction.execute<{ value: string }>(sql`
     select greatest(
       clock_timestamp(),

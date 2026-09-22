@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 
 import { auth } from "@/server/auth";
+import { SyncBusyError } from "@/server/db/sync-receipt";
 import { isTrustedMutationOrigin } from "@/server/security/request-origin";
 
 type RouteSession = NonNullable<Awaited<ReturnType<typeof auth.api.getSession>>>;
@@ -89,7 +90,15 @@ export function withMutation(
       if (!parsed.success) return Response.json({ error: invalidBody }, { status: 400 });
       context.data = parsed.data;
     }
-    return handler(context);
+    try {
+      return await handler(context);
+    } catch (error) {
+      if (!(error instanceof SyncBusyError)) throw error;
+      return Response.json(
+        { error: error.message },
+        { status: 503, headers: { "Retry-After": "1" } },
+      );
+    }
   };
 }
 

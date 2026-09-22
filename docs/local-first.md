@@ -116,7 +116,18 @@ data migration is needed. All server writers must use this rule; mixed old/new
 server binaries or direct database writes do not provide the ordering guarantee.
 The cost is serialization of cursor-bearing writes within one account and two
 receipt queries, using existing owner/timestamp indexes. Different accounts do
-not share a receipt lock.
+not share a receipt lock. Admission uses `pg_try_advisory_xact_lock`: a busy
+account returns **503 / Retry-After: 1** without waiting on that lock or reading
+state. The transaction rolls back and releases its shared pool connection.
+Ownership and no-op/conflict decisions remain inside serialization, so even a
+deleted-book heartbeat may get a retryable busy response before a later 404.
+The existing client retains 5xx writes durably and replays on mount/reconnect;
+the player also sends its current state on transport actions and heartbeats.
+It does not automatically schedule retries from `Retry-After`. A paused app
+may retain the write until its next mount/reconnect. No waiting queue, separate
+pool, state-read race, or server-side retry loop is introduced. This bounds
+**account-lock admission**, not arbitrary database queries, pool checkout under
+unlimited load, or the duration of the admitted import itself.
 
 Whole-snapshot collections/preferences and uncursored sequence receipts still
 use `monotonicTimestamp()` under their row lock. Its per-row floor alone cannot

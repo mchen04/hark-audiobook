@@ -28,6 +28,8 @@ type PlaybackStateRow = typeof playbackStates.$inferSelect;
  * under the account's sync receipt lock. Device sequence claims and the merged
  * state still land in one CTE, while position, rate and completion arbitrate
  * on independent clocks.
+ * Busy admission fails before any read/sequence claim; 503 keeps the client's
+ * outbox intent. Do not move no-op or ownership decisions outside this lock.
  */
 export async function saveProgress(userId: string, input: ProgressInput) {
   return db.transaction(

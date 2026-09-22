@@ -759,40 +759,36 @@ for (const operation of ["insert", "update", "delete"] as const) {
         )
         .toBeGreaterThan(0);
 
-      let fastCompleted = false;
       const fast = request(a, "PATCH", `/api/books/${second.bookId}`, {
         title: "Second After",
-      }).then((response) => {
-        fastCompleted = true;
-        return response;
       });
       pending.push(fast);
-      let fastBlocked = false;
-      await expect
-        .poll(
-          async () => {
-            const [row] = await sql()<{ blocked: boolean }[]>`select exists(
-          select 1 from pg_stat_activity where ${firstPid} = any(pg_blocking_pids(pid))
-        ) as blocked`;
-            fastBlocked = row!.blocked;
-            return fastCompleted || fastBlocked;
-          },
-          { message: "second writer neither completed nor waited behind the first writer" },
-        )
-        .toBe(true);
+      // Busy admission rolls back promptly, without allocating or publishing a
+      // later receipt. The same intent retries after the first commit below.
+      const busy = await fast;
+      expect(busy.status()).toBe(503);
       const during = await incremental(b, cursor);
       receipts.push({
         phase: "while first writer is blocked",
         blockerPid,
         firstPid,
-        fastCompleted,
-        fastBlocked,
+        secondStatus: busy.status(),
         batch: during,
       });
+      expect(during.books).toEqual([]);
+      expect(during.playbackStates).toEqual([]);
+      expect(during.tombstones).toEqual([]);
+      expect(during.cursor).toBe(cursor);
       release();
       await barrier;
       expect((await slow).status()).toBe(operation === "insert" ? 201 : 200);
-      expect((await fast).status()).toBe(200);
+      expect(
+        (
+          await request(a, "PATCH", `/api/books/${second.bookId}`, {
+            title: "Second After",
+          })
+        ).status(),
+      ).toBe(200);
       const after = await incremental(b, during.cursor);
       receipts.push({ phase: "after both commits", batch: after });
       // A full liveBookIds snapshot could conceal a stranded tombstone: assert

@@ -25,9 +25,14 @@ was spelled out a third time beside the `play` locator it duplicates, and now re
 ## Tests deleted
 
 None. Every case in scope can fail, per the ledger's red runs: A5's future-receipt and A6's
-commit-order cases were red on `1f10c80`, A0 fails when the exact selector is reverted, A8 dies when
+commit-order cases were red on `9d64cca`, A0 fails when the exact selector is reverted, A8 dies when
 the book/history returns to the gate key. The `0/1/500 ms` budget offsets are redundant (`waited`
 refuses the second wait whatever the offset), but they still fail against the old helper.
+
+Attribution correction after external review: `1f10c80` already contains the
+`8aa80bc` receipt-ordering fix. The original cleanup report is preserved under
+`.data/objective/contention-fixes/CLEANUP.md.8b5adc2.txt`; no historical test
+outcome or raw measurement was changed.
 
 ## Docs updated
 

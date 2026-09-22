@@ -12,6 +12,28 @@ does not prove.
 - Docker, for the local test database
 - FFmpeg, for generated MP3 contract and browser fixtures
 
+### Unit-test runtime
+
+CI uses Node 22. This checkout is also verified with Node **26.3.1** using
+`NODE_OPTIONS=--no-experimental-webstorage`. Node 26's experimental global
+`localStorage` masks jsdom storage: the reviewer's default-runtime run at
+`8b5adc2` had 14 setup failures; with that option all 807 tests passed.
+These are test-host failures, not production-browser storage results.
+
+Use the option for every Vitest entry point, including the combined quick gate:
+
+```sh
+NODE_OPTIONS=--no-experimental-webstorage pnpm test
+NODE_OPTIONS=--no-experimental-webstorage pnpm test:watch
+NODE_OPTIONS=--no-experimental-webstorage node --env-file=.env.test scripts/record-check.mjs .data/recheck-quick pnpm verify:quick
+```
+
+The quick gate also needs build environment variables; the last command loads
+the existing disposable `.env.test` without regenerating it. Use a fresh output
+prefix for each recorded run. The package's Node minimum is not a claim that
+every newer Node default is compatible with jsdom. The option does not alter
+browser storage, authentication, or the database.
+
 ## Setup
 
 ```sh
@@ -180,11 +202,6 @@ export/deletion, document format narration, cancellation and legacy-rendition
 checks, plus `tests/e2e/privacy-transport.spec.ts`, which calibrates what the
 browser can observe about cross-origin requests between two loopback origins it
 owns. Large traces and generated fixtures belong in ignored output folders.
-
-On Node 26, use `NODE_OPTIONS=--no-experimental-webstorage pnpm test`: its
-experimental global localStorage otherwise masks jsdom's storage in several
-existing tests. CI uses Node 22. This flag changes the test host, not browser
-storage behavior.
 
 For the objective checkout's isolated database and browser paths, exact commands
 and raw outcomes are in [the evidence ledger](evidence/architecture-ledger.md).
