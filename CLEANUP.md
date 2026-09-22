@@ -1,58 +1,58 @@
-# Cleanup report — follow-on gate over the cleanup diff
+# Cleanup gate
 
-Run ID: 6d95aa60f8c149cba6fb1dad8d38f23a
+Run ID: 90aa4f6d86404b17a1541b33f1bf5588
 Status: complete
 
 ## Passes
 
-One bounded pass over `1e13420..HEAD` (2 commits, 4 files), read in full: the prior gate's docs
-rewording, one test refactor and its report. No scope expansion beyond it.
+One pass over the diff against `33f4ccd8`, covering `src/lib/offline/account-purge.*`,
+`tests/sync/account-contention.spec.ts`, and the two touched docs. `docs/evidence/`
+was read only; no evidence, metric, or attribution text was edited.
 
 ## Rebase
 
-Not needed. The coordinator checked ancestry; I ran no rebase, fetch, reset, clean or push.
+Not needed; ancestry was confirmed.
 
 ## Removed
 
-One compound sentence in `docs/development.md` joined two unrelated facts with "and": the option's
-scope and the package's Node minimum. It is now two sentences. Nothing else was cut. The
-`docs/local-first.md` split into ordering cost, bounded admission and client recovery holds, and
-`secondEdit()` in `tests/sync/two-device-convergence.spec.ts` drops a duplicated PATCH body and a
-four-level `expect`, asserting the same things.
+- `drainBeforeSignOut`: the three lane closures named their parameter `send`, which
+  shadowed the outer `send` (the real transport). Renamed to `drainFetch`.
+- `account-contention.spec.ts`: four copies of one `pageerror` listener collapsed
+  into a `recordPageErrors(page, errors)` helper.
+- `docs/local-first.md`: repaired ragged wrapping the diff left behind.
+- Kept: each drain comment states a non-obvious invariant, and the
+  `isAccountWriteFenced` check beside `scope.signal.aborted` is load-bearing because
+  `reopenAccountAfterSignIn` clears the fence while the scope stays aborted.
 
 ## Tests deleted
 
-None. This diff deletes and adds no case. The two `secondEdit()` calls keep distinct assertions (503
-while the first writer is blocked, 200 after it commits), so neither is a test that cannot fail.
+None. `retries hinted account contention...` and `does not retry a late busy
+response...` still pin request identity, the one-second floor, and budget expiry, so
+the new ambient-join cases do not supersede them. The new lane loop seeds a different
+outbox per lane, so neither copy is a tautology.
 
 ## Docs updated
 
-`docs/development.md` only, reworded. Every claim survives and was checked against the code: the
-100ms `lock_timeout` saved/restored around `pg_advisory_xact_lock` (`src/server/db/sync-receipt.ts`),
-`503 / Retry-After: 1` (`src/server/api/route-handler.ts:99`), Node 22/26.3.1 and 807 tests at
-`8b5adc2`. I left `Last reviewed: 2026-08-13` in `docs/local-first.md`: I read section 3, not all.
+`docs/local-first.md`, wrapping only. `docs/development.md` is not stale.
 
 ## Verified
 
-`prettier --check` on the three touched files, an `esbuild` transform of the convergence spec and
-`git diff --check`: each exit 0. That spec needs a served app and database, so I did not run it, and
-I started no background job.
+`npx vitest run src/lib/offline/account-purge.test.ts` exit 0, 38 passed; prettier
+`--check` on the three edited files exit 0. I ran no browser checks.
 
 ## Checks
 
-Bounded plan: `git diff --check`, `pnpm install --frozen-lockfile` and raw `pnpm verify:quick`
-(format, lint, typecheck, vitest, build) on the baseline tree and on this checkout under
-`NODE_OPTIONS=--no-experimental-webstorage`. Coordinator prechecks ran synchronously before this
-pass — raw exit codes, not a diagnostic delta: all three exit 0 on both trees, quick 38.402s
-baseline / 33.329s current, all predating my commits. Postchecks have NOT run: the coordinator
-reruns that install/quick/diff plan after I exit, and an independent reviewer runs the browser tests
-— this coordinator runs none. Nothing above claims the repository is green.
+Bounded plan: the coordinator runs install / `verify:quick` / `git diff --check`, and
+an independent review runs browser checks later. Coordinator prechecks are done,
+receipts in `signout-cleanup/`: install exit 0, `verify:quick` exit 0 (base 814
+tests, current 821), `git diff --check` exit 0 — raw exit codes on base and current,
+not diagnostic deltas. Postchecks have NOT run: nothing re-ran after these commits,
+so `verify:quick` and the Playwright checks are outstanding. I ran no repository
+typecheck or lint, and make no claim that the repository is green.
 
 ## Commits
 
-`25e0ded` docs edit; this report on top. `3a88100`, `706358e` and the product commits through
-`1e13420` are unchanged. The prior gate failed retirement only on an untracked helper-created
-`.venv` symlink, ignored this run by process-local git config with its original evidence preserved.
+`69107916` drain naming, page-error capture, doc wrapping; plus this report commit.
 
 ## Reverted
 
