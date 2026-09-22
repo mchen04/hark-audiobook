@@ -1,63 +1,58 @@
-# Cleanup report
+# Cleanup report — bounded gate over the account-contention diff
 
-Supersedes the receipt at `1f10c80`, whose A4 point holds.
-Run ID: c3cb256762de45cca0c3c226ef1f7bb8
+Run ID: ef2b0c00fcf743bab690f53e6ba1c5b1
 Status: complete
 
 ## Passes
 
-One bounded pass over `1f10c80..HEAD` (2 commits, 3 files), read in full: two code hunks,
-whitespace in one SQL template and one locator reuse. Evidence JSONs and the ledger are
-receipts of past runs, read for staleness only.
+One bounded pass over `8b5adc2..HEAD` (5 commits, 17 files), read in full. The ledger and both
+`contention-fixes-*.json` evidence files are past-run receipts: read for staleness, left as-is.
 
 ## Rebase
 
-Not needed. The coordinator checked ancestry; I ran no rebase, fetch, reset or push.
+Not needed. The coordinator checked ancestry; I ran no rebase, fetch, reset, clean or push.
 
 ## Removed
 
-Nothing further; the pass confirmed the two standing edits and found no new slop. In
-`src/server/playback/progress.ts` the raw upsert template kept its old indentation after the
-transaction callback gained a nesting level, so the SQL read two columns left of its own statement;
-the realignment is whitespace only. In `tests/parity/player-back.spec.ts` the exact `Play` locator
-was spelled out a third time beside the `play` locator it duplicates, and now reuses it.
+`docs/local-first.md` section 3 was one 20-line paragraph with a stray line break: now three
+(ordering cost, bounded admission, client recovery), with the duplicated "no separate pool,
+state-read race, or server-side retry loop" folded into the sentence that already bounds it.
+`docs/development.md` drops the hedge about the package's Node minimum. In
+`tests/sync/two-device-convergence.spec.ts` the second writer's PATCH body appeared twice and its
+retry sat in a four-level `expect`; one `secondEdit()` closure replaces both. No server-code comment
+was cut: each pins a constraint or a test-integrity claim.
 
 ## Tests deleted
 
-None. Every case in scope can fail, per the ledger's red runs: A5's future-receipt and A6's
-commit-order cases were red on `9d64cca`, A0 fails when the exact selector is reverted, A8 dies when
-the book/history returns to the gate key. The `0/1/500 ms` budget offsets are redundant (`waited`
-refuses the second wait whatever the offset), but they still fail against the old helper.
-
-Attribution correction after external review: `1f10c80` already contains the
-`8aa80bc` receipt-ordering fix. The original cleanup report is preserved under
-`.data/objective/contention-fixes/CLEANUP.md.8b5adc2.txt`; no historical test
-outcome or raw measurement was changed.
+None. Every case has a recorded red run: load at `contention-baseline-with-peer-write`, player at
+`contention-candidate-1`, sign-out at `signout-busy-red-drain`; both unit files fail if
+`SyncBusyError` regresses. Carried forward: false-red baseline `9d64cca`, `1f10c80` already holds
+the `8aa80bc` fix, and prior reports stay in `.data/objective/contention-fixes/`.
 
 ## Docs updated
 
-None needed. `docs/local-first.md` section 3, `docs/development.md` and `docs/architecture.md` match
-the shipped helper, the one-wait budget and the media gate; the `player-back` paths in
-`docs/evidence/*.json` are artifact records, not stale prose.
+`docs/local-first.md` and `docs/development.md`, reworded only: the 100ms `lock_timeout`, 503 /
+Retry-After: 1, eight-second sign-out budget, Node 22/26.3.1 runtime and 807 tests at `8b5adc2`
+survive.
 
 ## Verified
 
-`prettier --check` on both touched files: exit 0. `vitest run` on the two playback policy tests: 13
-passed, exit 0; no test asserts the SQL text. `playwright test --list` on the parity spec: exit 0, 9
-tests enumerated, so it compiles; running it needs a served app, so I did not. I started no job.
+`prettier --check` on the three touched files: exit 0. `esbuild` transform of the edited convergence
+spec: exit 0, and `secondEdit()` returns the same `request()` value the inline calls did. That spec
+needs a served app and database, so I did not run it.
 
 ## Checks
 
 Bounded plan: `git diff --check`, `pnpm install --frozen-lockfile` and raw `pnpm verify:quick`
-(format, lint, `tsc --noEmit`, vitest, build) on the `1f10c80` baseline tree and on this checkout.
-Coordinator prechecks ran synchronously before this pass — raw exit codes, not a diagnostic delta:
-all three exit 0 on both trees. Postchecks have NOT run: the coordinator runs the quick gate, lint,
-typecheck and the sync/parity/e2e suites after I exit. The edited parity spec sits in that unrun
-scope; nothing here claims a green repository.
+(format, lint, typecheck, vitest, build) on the `8b5adc2` baseline tree and on this checkout under
+`NODE_OPTIONS=--no-experimental-webstorage`. Coordinator prechecks ran first — raw exit codes, not a
+diagnostic delta: all three exit 0 on both trees, quick 38.974s/34.467s. Postchecks have NOT run:
+the coordinator runs that gate plus sync/parity/e2e, including the edited spec, after I exit. No
+green-repository claim here.
 
 ## Commits
 
-`951d6af` SQL nesting alignment, `4e0bde2` prior receipt; this pass adds the report on top.
+`3a88100` cleanup; this report on top. The five product commits `51a6916..1e13420` are untouched.
 
 ## Reverted
 
