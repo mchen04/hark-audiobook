@@ -1,0 +1,1827 @@
+{
+  "servedSourceCommit": "5ce2afac96b0b61d7e1ea1608e5b276baa9ae99f",
+  "buildId": "lbshWvFmKMLHCK55RlWx6",
+  "method": "Immutable command receipts, source snapshots, screenshots and raw observations. Active server logs excluded; exact frozen copies included. Post-seal checks live outside this root. Three successful c079982 shared-path images were overwritten before archival; disclosed in ledger, never claimed as preserved.",
+  "artifacts": [
+    {
+      "file": ".data/objective/contention-fixes/CLEANUP.md.8b5adc2.txt",
+      "bytes": 2604,
+      "sha256": "f723564f6dbce751df0fe157d5ad381d8410627d5a95c802a415a1cee1846db0"
+    },
+    {
+      "file": ".data/objective/contention-fixes/account-contention.baseline-peer-write.spec.txt",
+      "bytes": 16689,
+      "sha256": "a8f216301849afa4c5aadc6527bfcfbd9d586d5e91fd9ae85b2cea9f449fe713"
+    },
+    {
+      "file": ".data/objective/contention-fixes/account-contention.baseline.spec.txt",
+      "bytes": 14883,
+      "sha256": "0bc12773ceeebfb29d2231f9d805dfc621a723410d73317373586a24ee1efb00"
+    },
+    {
+      "file": ".data/objective/contention-fixes/account-contention.diagnostic.spec.txt",
+      "bytes": 18473,
+      "sha256": "63fe5970d0696f72d96a39c0cd2ab7deec5ffe12b579443aca39002f3ce86e23"
+    },
+    {
+      "file": ".data/objective/contention-fixes/account-contention.first-candidate.spec.txt",
+      "bytes": 16689,
+      "sha256": "a8f216301849afa4c5aadc6527bfcfbd9d586d5e91fd9ae85b2cea9f449fe713"
+    },
+    {
+      "file": ".data/objective/contention-fixes/account-contention.online-close-control.spec.txt",
+      "bytes": 18399,
+      "sha256": "cda391db58eecf2e43ff2c3d02cb718ab69f25f0801884e47a05052018d3d9ef"
+    },
+    {
+      "file": ".data/objective/contention-fixes/account-contention.signout-no-mount-replay.spec.txt",
+      "bytes": 21498,
+      "sha256": "27ec19852c73c48d278e1722f70ecf187c83c91e05761888ac4ba7df0adfa1c1"
+    },
+    {
+      "file": ".data/objective/contention-fixes/account-contention.signout-race.spec.txt",
+      "bytes": 21208,
+      "sha256": "b869b7de94463525c389f00ac540cd79c657da8f4045d7fb13a716dec1f0e673"
+    },
+    {
+      "file": ".data/objective/contention-fixes/admission-revision-unit.json",
+      "bytes": 688,
+      "sha256": "bed574cc6a7f3437cbdf8d16629dacb466e2dd9840f70c3f58ac6c5c2694387f"
+    },
+    {
+      "file": ".data/objective/contention-fixes/admission-revision-unit.log",
+      "bytes": 249,
+      "sha256": "b29a2045a5f778d7b356e8425bbc7f30f03f8fbe68fb5a5a2fb42ee7f5712f1c"
+    },
+    {
+      "file": ".data/objective/contention-fixes/baseline-quick.json",
+      "bytes": 486,
+      "sha256": "36322f1abe9380afb843250a9ce13d7a42b54380d31ff53e19b810fc7f5a7202"
+    },
+    {
+      "file": ".data/objective/contention-fixes/baseline-quick.log",
+      "bytes": 2871,
+      "sha256": "6ada9ad310342e03dbb07713a6e89e7936efaefaa175821e43c7433c24fac77f"
+    },
+    {
+      "file": ".data/objective/contention-fixes/baseline-source-check.json",
+      "bytes": 437,
+      "sha256": "d2835b980230d3c5ad54b4c4306a0849e37e3470b9bc8f60f700944437fb8245"
+    },
+    {
+      "file": ".data/objective/contention-fixes/baseline-source-check.log",
+      "bytes": 934,
+      "sha256": "f921a97b4ae143587d6ffa492587af327d84c9af1090b7dc933e952e11ea4a0d"
+    },
+    {
+      "file": ".data/objective/contention-fixes/baseline-source.json",
+      "bytes": 342307,
+      "sha256": "510b715d557ef07b09837ae34da31e9f85c6431704cd989eae19249d7765ab1c"
+    },
+    {
+      "file": ".data/objective/contention-fixes/baseline-write-cost-data.json",
+      "bytes": 12586,
+      "sha256": "97d70ebb755fa9f9f64f420a3c16c301dac0509b5df25f266594505d0e4dc62e"
+    },
+    {
+      "file": ".data/objective/contention-fixes/baseline-write-cost.json",
+      "bytes": 450,
+      "sha256": "0f382ba57668a7c0c3951a2c33d8e1f46fe79728de864efdab70291d85a94e27"
+    },
+    {
+      "file": ".data/objective/contention-fixes/baseline-write-cost.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "file": ".data/objective/contention-fixes/check-artifacts.py",
+      "bytes": 690,
+      "sha256": "64e8a610c6d49e073cd7cb46bd4b8424b781ddabe20253160dfb10179734ae8a"
+    },
+    {
+      "file": ".data/objective/contention-fixes/check-historical-artifacts.py",
+      "bytes": 956,
+      "sha256": "2189762cdbb1424761e6aeda92605685edfe72bc11f1c4eb8d410d399db6e6eb"
+    },
+    {
+      "file": ".data/objective/contention-fixes/chromium.config.ts",
+      "bytes": 319,
+      "sha256": "bf81068dbfc4ea75d26a2121750578f4ce7196eaf908445e73649d3b72dc624c"
+    },
+    {
+      "file": ".data/objective/contention-fixes/command-outcomes.json",
+      "bytes": 38688,
+      "sha256": "5c7870435b1129dc2baed08e1de58395216015136454d0c8e72fb256f8fc827e"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-baseline-artifacts/.last-run.json",
+      "bytes": 96,
+      "sha256": "14427a0af9331208a699199db4f47c9c59c70791d533787732b37f17da554351"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-baseline-artifacts/account-contention-a-held--32e85-ut-starving-another-account-sync/contention.json",
+      "bytes": 98320,
+      "sha256": "ad309e498c1def2aa5c71c3584c0d25d27777712104a2416de721726a4040267"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-baseline-artifacts/account-contention-a-held--32e85-ut-starving-another-account-sync/error-context.md",
+      "bytes": 13061,
+      "sha256": "fb1d8137aa1b02e3f0befbc9276b37d5121c56da4a2c0d0f49ada2e2658a435d"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-baseline-with-peer-write-artifacts/.last-run.json",
+      "bytes": 96,
+      "sha256": "14427a0af9331208a699199db4f47c9c59c70791d533787732b37f17da554351"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-baseline-with-peer-write-artifacts/account-contention-a-held--32e85-ut-starving-another-account-sync/contention.json",
+      "bytes": 88902,
+      "sha256": "85647eb2a03cdc2edca67d18d4462835fbe8a703fb6b8d7b0f0eba8b5813bb52"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-baseline-with-peer-write-artifacts/account-contention-a-held--32e85-ut-starving-another-account-sync/error-context.md",
+      "bytes": 12829,
+      "sha256": "266452487b57227f8d8f7f419ad84522bcc79c50a350e3f3e380d616fe1a9312"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-baseline-with-peer-write.json",
+      "bytes": 744,
+      "sha256": "b5cea13a45405d073498a95da3779cc0f7aec904e11098ce4dd60dbdbc09fc3f"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-baseline-with-peer-write.log",
+      "bytes": 6918,
+      "sha256": "3b200e3c8d6279f40dd6520156a0a1f6843fa0ff6f3795af92d6f211baf339bc"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-baseline.json",
+      "bytes": 712,
+      "sha256": "05ca03b5380dd79dea8d0048779ba9822b6f35b332e2f079d03794ee98c55c5f"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-baseline.log",
+      "bytes": 6893,
+      "sha256": "2286791fc56853838c6783508a88c75b771c0baa80fa4608f973a9a3356528b4"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-1-artifacts/.last-run.json",
+      "bytes": 96,
+      "sha256": "c4be761cb4cde830ffbc32aca1bacc6513bb9cd57f07f313c003f5917408accf"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-1-artifacts/account-contention-a-held--32e85-ut-starving-another-account-sync/contention.json",
+      "bytes": 82360,
+      "sha256": "8b13a15a5b53efe6e61a7c9a5aac3645994186aa93000197643c164602e6a934"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-1-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/busy-player.png",
+      "bytes": 477797,
+      "sha256": "9f4bee976235f4d29661165f12256fcc34f6be2c4be0b12a79005c269fb7acee"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-1-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/contention-player.mp3",
+      "bytes": 240645,
+      "sha256": "278c9a0646fd852cbdd0c5b0d694589d9a78e2d27d97b4147a4f9ff62727894d"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-1-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/error-context.md",
+      "bytes": 6966,
+      "sha256": "bbd3c26e15233487158cc4d69b711bc80d42bce4639fe01f749e8ab8d91d54df"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-1-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/player-recovery.json",
+      "bytes": 5277,
+      "sha256": "59cd67e3bb7daae3896579dfb80175927ffda8fd5c8943e3f79f24cfd3b51286"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-1-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/test-failed-1.png",
+      "bytes": 339878,
+      "sha256": "bb86f92946e296a13f84b2ad4287fad4ebf4355b615eea351695db0df313c927"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-1.json",
+      "bytes": 687,
+      "sha256": "b06e294009bbe78e72d53b2239db7914eefc66cd08a1e9684887d0552394ca92"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-1.log",
+      "bytes": 2685,
+      "sha256": "e4da3790826b56081612c7424a4c69b83f1cc9c3a7fec8e32d739a2155ff66de"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-3-artifacts/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-3-artifacts/account-contention-a-held--32e85-ut-starving-another-account-sync/contention.json",
+      "bytes": 57120,
+      "sha256": "f3c1e5746ff4510831fdf9856fa19d03f3cb9ee6bc69b69c3b40c4309a544944"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-3-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/signout-busy.png",
+      "bytes": 202468,
+      "sha256": "1d49a6abb71a2cd305056f5e7d7be534fda513baae3373562e29fb7c5d9a12e6"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-3-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/signout-delivered.png",
+      "bytes": 403007,
+      "sha256": "ffdb4936725304c5677805cd36d06a38a6e74726cf8d028976a03afac08e1a0b"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-3-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/signout-recovery.json",
+      "bytes": 981,
+      "sha256": "1ba51900ef4db87197a4ef7aded942312005749da600c2fadb900b09d68add14"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-3-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/busy-player.png",
+      "bytes": 477444,
+      "sha256": "3d242ebc08740b1ed6934a2e6e8d0546c5d36bcc13270cdfa7f2e3120cc3e18f"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-3-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/contention-player.mp3",
+      "bytes": 240645,
+      "sha256": "24c6ddcb20f9d07cfcbfad1a9340ff5d00be349da109c2c04a3133aff3a152df"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-3-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/player-recovery.json",
+      "bytes": 5399,
+      "sha256": "c72538baae54eee0b5b80c1b6fee1fbfd37dd0572858358387f93ee5b195023c"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-3-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/recovered-player.png",
+      "bytes": 476353,
+      "sha256": "83821eb1c9ef6ad4ec6ed07504a1f91023358b8da603fb67d8e6c203c91cf174"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-3-artifacts/two-device-convergence-acc-21d52-er-a-future-playback-cursor-sync/sibling-cursors.json",
+      "bytes": 35616,
+      "sha256": "b28b19e2a99a0d3e37d03fb72f011f1a59fd7342fb1b87f1339a6193e5a469ba"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-3-artifacts/two-device-convergence-acc-5fede-te-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 2529,
+      "sha256": "1ced11b889fb831416ea66e82b91aa25d93f53f8a08738a298fd40d33eaae069"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-3-artifacts/two-device-convergence-acc-acfec-rt-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 3724,
+      "sha256": "b6c99246c637acd0d1ec047961af335b77a1dacd70ed9d225f3c9a388f20460b"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-3-artifacts/two-device-convergence-acc-ca14d-te-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 3866,
+      "sha256": "0f6d69ec909c707d29942071ed2939dfb6eb0becdf5def2e2b3177334a2daf4d"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-3-artifacts/two-device-convergence-acc-f5738--after-a-future-book-cursor-sync/sibling-cursors.json",
+      "bytes": 32010,
+      "sha256": "3ca1141208665e2009712e1435a786c59dafbac64ef35d5fcd373671ddc288b4"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-3-artifacts/two-device-convergence-acc-fc5c9-r-a-future-tombstone-cursor-sync/sibling-cursors.json",
+      "bytes": 22810,
+      "sha256": "84dba33aa99f4e212ef4731feba3177b356d13e7d9312c910d450d01305e58c6"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-3.json",
+      "bytes": 751,
+      "sha256": "cbb3e556749ca5574cc41f387e2cd19f1d4ebf5f23cfd92e60c5bca0abad50b9"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-candidate-3.log",
+      "bytes": 1945,
+      "sha256": "ba973ca0dbcc4abed0ab6ab9b3c0c66582d8964594cb66c53eed18f777cf46bb"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-fixes-source.c079982-summary.json",
+      "bytes": 1492,
+      "sha256": "8ace1c34accdeecc85eb2d20aa5cac813fa6b792f28ea5e3dcf0a4b309ba8a02"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/account-contention-a-held--32e85-ut-starving-another-account-sync/contention.json",
+      "bytes": 57014,
+      "sha256": "e9c7272a8b6f35181e8ae508e9e555d2c2a6756218828eb59d44939d1a443466"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/account-contention-a-held--32e85-ut-starving-another-account-sync-repeat1/contention.json",
+      "bytes": 57025,
+      "sha256": "65ad54d38f095aaea3664cc02d53cbc26a3f831115759ebdf2d5ec1074c0dd07"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/signout-busy.png",
+      "bytes": 202468,
+      "sha256": "1d49a6abb71a2cd305056f5e7d7be534fda513baae3373562e29fb7c5d9a12e6"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/signout-delivered.png",
+      "bytes": 403007,
+      "sha256": "ffdb4936725304c5677805cd36d06a38a6e74726cf8d028976a03afac08e1a0b"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/signout-recovery.json",
+      "bytes": 1083,
+      "sha256": "3ffc5c0243732dc3105e1809cdbec8805470c95ccd1fd9e84cae4e910152dbac"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync-repeat1/signout-busy.png",
+      "bytes": 202468,
+      "sha256": "1d49a6abb71a2cd305056f5e7d7be534fda513baae3373562e29fb7c5d9a12e6"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync-repeat1/signout-delivered.png",
+      "bytes": 403007,
+      "sha256": "ffdb4936725304c5677805cd36d06a38a6e74726cf8d028976a03afac08e1a0b"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync-repeat1/signout-recovery.json",
+      "bytes": 1090,
+      "sha256": "96c0a665d9a79b76e9fbae53c1cc3146cdc1d2c043531e8f35b906dea3450fd0"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/busy-player.png",
+      "bytes": 477825,
+      "sha256": "390d41bb10c84644ea4eae0f7d6c84fe65983dd8c2b3f638c81f6f13aa69ad02"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/contention-player.mp3",
+      "bytes": 240645,
+      "sha256": "cab8776d8335babb50e6517dcd120ee19a2bd7c0b22488175ae1ad89b249e254"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/player-recovery.json",
+      "bytes": 5308,
+      "sha256": "cd0d9516c1303a502b95b53f88e5b92d089c72f4b3240fb551993997f51a9883"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/recovered-player.png",
+      "bytes": 476734,
+      "sha256": "edc075d729f1582e7e3d8d4802a86067a5f6708cff5954e82f6960b1b4b38015"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync-repeat1/busy-player.png",
+      "bytes": 476225,
+      "sha256": "689ac864b4d814406cd4e2f358eeaaa1b01e0e5410804517d76e616586057863"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync-repeat1/contention-player.mp3",
+      "bytes": 240645,
+      "sha256": "09978ea62dfebbb2a2ffb28c9f8b5c8963761c32ffeeeffa43f944a31137bf9c"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync-repeat1/player-recovery.json",
+      "bytes": 5308,
+      "sha256": "ed1d3ad54a7c301cec9ce2b35cabfa3f43f31ad58f1393b82d1fadbb07494c4b"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync-repeat1/recovered-player.png",
+      "bytes": 475096,
+      "sha256": "810dc743d8ce377aa7efeda2f6933c571f28993db6b9b58717a7debd1e9c8161"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/two-device-convergence-acc-21d52-er-a-future-playback-cursor-sync/sibling-cursors.json",
+      "bytes": 35616,
+      "sha256": "7ce5ed8458931dbadf7eca72acadf6073e347a592d5c46419305663d0974292a"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/two-device-convergence-acc-21d52-er-a-future-playback-cursor-sync-repeat1/sibling-cursors.json",
+      "bytes": 35616,
+      "sha256": "7017d97bc31e6639933ad3a3fe4431903d62c4167e85d884977d97bfcc6c6227"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/two-device-convergence-acc-5fede-te-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 2529,
+      "sha256": "c1e56f710420273c6c0a535bc6aaf487275b19186d15cd4938c2b4810bf3699e"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/two-device-convergence-acc-5fede-te-across-a-concurrent-pull-sync-repeat1/commit-order.json",
+      "bytes": 2529,
+      "sha256": "9e99eef3e8f2c68e377a892f6b86a51ed5720431d51a6aaf1e5c0b6e19760533"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/two-device-convergence-acc-acfec-rt-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 3724,
+      "sha256": "41a45aced9587bbdefb5b5d0737eea824922205e8a51d48c614883f3f6635979"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/two-device-convergence-acc-acfec-rt-across-a-concurrent-pull-sync-repeat1/commit-order.json",
+      "bytes": 3724,
+      "sha256": "c27516697adf3f00c94758802e5340bb0e4ef86293e8bb2900c8ecd4868739e1"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/two-device-convergence-acc-ca14d-te-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 3866,
+      "sha256": "3a5d1707dcd9c96b5c776df3eeb15ab9e6df5f03c76c0e58d6758ab11f491c86"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/two-device-convergence-acc-ca14d-te-across-a-concurrent-pull-sync-repeat1/commit-order.json",
+      "bytes": 3866,
+      "sha256": "1b91e2681ec82c6d63a715e8643babd3c3079d4b89b76583dcc49a4f8066c210"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/two-device-convergence-acc-f5738--after-a-future-book-cursor-sync/sibling-cursors.json",
+      "bytes": 32010,
+      "sha256": "2455fa79af46ba8d3f483d45721d87b4800ac8fa89c183b7d2d4692ad6bf2cd2"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/two-device-convergence-acc-f5738--after-a-future-book-cursor-sync-repeat1/sibling-cursors.json",
+      "bytes": 32010,
+      "sha256": "92e22683539af0b2afbabd1790cb5abec8eced7d28df2c7b41ce457bb6ef7535"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/two-device-convergence-acc-fc5c9-r-a-future-tombstone-cursor-sync/sibling-cursors.json",
+      "bytes": 22810,
+      "sha256": "f0e564c70481e7b3c905a36946eeebf1e20b494e56dc637256ca46a485690075"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final-artifacts/two-device-convergence-acc-fc5c9-r-a-future-tombstone-cursor-sync-repeat1/sibling-cursors.json",
+      "bytes": 22810,
+      "sha256": "7519ef1e68d58179b357685a43ab3a5d3976aa1fea44c787f1f9e3697dbabf1c"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final.json",
+      "bytes": 807,
+      "sha256": "f5ab7ef1d3814381d1404383e01264ba70715fb22169c4d167e86941c1d663fd"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-repeat-final.log",
+      "bytes": 4369,
+      "sha256": "612faca792aecee77a3ffb698cde339c69550c64856ca08f1615389c522a41c1"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-summary.json",
+      "bytes": 404,
+      "sha256": "f90711abf6c7601bbecbcbe7debcebca64ab586ab3052e63bde3b8b9360829ff"
+    },
+    {
+      "file": ".data/objective/contention-fixes/contention-summary.log",
+      "bytes": 8047,
+      "sha256": "3c1e0f0784e98b9f57f0c4676689973f99685c4de6776d552e77637feb0b0eee"
+    },
+    {
+      "file": ".data/objective/contention-fixes/final-test-format.json",
+      "bytes": 425,
+      "sha256": "6efba165746c3672b32b574aefda89378edb87fc829dd1d10ab7604fbbf27096"
+    },
+    {
+      "file": ".data/objective/contention-fixes/final-test-format.log",
+      "bytes": 43,
+      "sha256": "6d536a69038497def5ea7bd9a03e24c84e1577b3b77ab781b9207a8880d6f5ee"
+    },
+    {
+      "file": ".data/objective/contention-fixes/format-admission-revision.json",
+      "bytes": 628,
+      "sha256": "fcc276d9dc4ab02eb881347086b37328af41c169e039454788d8640f8ea741c2"
+    },
+    {
+      "file": ".data/objective/contention-fixes/format-admission-revision.log",
+      "bytes": 263,
+      "sha256": "55c54f5b3cb09b5b08a0d2770edbf8fcc49cbfe8792b664f356bdcc64c339620"
+    },
+    {
+      "file": ".data/objective/contention-fixes/format-contention-v2.json",
+      "bytes": 428,
+      "sha256": "bbfbb1d1feac323d02e12ba97f55d0b9a67aa156ce5bbc08dd7f83db0edbd7eb"
+    },
+    {
+      "file": ".data/objective/contention-fixes/format-contention-v2.log",
+      "bytes": 43,
+      "sha256": "ddff063b2b4df571ac99e934f0137e4c87c766a3f166bcc080f77c82bf64db7d"
+    },
+    {
+      "file": ".data/objective/contention-fixes/format-fix.json",
+      "bytes": 729,
+      "sha256": "d91caf467861b9c97e1e29753e41db3d4842087b9055bd3035be973065b341cf"
+    },
+    {
+      "file": ".data/objective/contention-fixes/format-fix.log",
+      "bytes": 417,
+      "sha256": "3993529b634ff5cdf0cbefab8ea63e912f77d8944d539d65a76f0e52ef0569ad"
+    },
+    {
+      "file": ".data/objective/contention-fixes/format-fixture-budget.json",
+      "bytes": 510,
+      "sha256": "1fe51d3bd6b8ec60f371b7ddd1c52ae1f0a64ed5fc9728dd483d7a5e9ac96981"
+    },
+    {
+      "file": ".data/objective/contention-fixes/format-fixture-budget.log",
+      "bytes": 145,
+      "sha256": "aa46bcc90c1cd157bc735c2e925425f9f51aeba3d5acdac088e349c59e90243f"
+    },
+    {
+      "file": ".data/objective/contention-fixes/format-revision-docs.json",
+      "bytes": 504,
+      "sha256": "c64d9c63e5a6aa0d7232c445cacb7e1fbcffa5561827f9205eaa8b6aa77af358"
+    },
+    {
+      "file": ".data/objective/contention-fixes/format-revision-docs.log",
+      "bytes": 140,
+      "sha256": "24e9779a4b15375e74eeb7dd839f26c4954047ad541574670b91713da064f868"
+    },
+    {
+      "file": ".data/objective/contention-fixes/historical-preservation-final.json",
+      "bytes": 422,
+      "sha256": "eeb5176d8ed1782d6822e1930e590e08037518463d76e531f62f16a880281a0b"
+    },
+    {
+      "file": ".data/objective/contention-fixes/historical-preservation-final.log",
+      "bytes": 571,
+      "sha256": "1db72e9cc6279e5af1e130ad43e61f2340baf90d4613bf61c09e7f96d3762166"
+    },
+    {
+      "file": ".data/objective/contention-fixes/historical-preservation.json",
+      "bytes": 416,
+      "sha256": "e6f73a3af243c8a7920b057e4d3fbf5a69adf6a6ac4b1a54270c6a276a7a1d97"
+    },
+    {
+      "file": ".data/objective/contention-fixes/historical-preservation.log",
+      "bytes": 571,
+      "sha256": "1db72e9cc6279e5af1e130ad43e61f2340baf90d4613bf61c09e7f96d3762166"
+    },
+    {
+      "file": ".data/objective/contention-fixes/history-log-check.mjs",
+      "bytes": 1351,
+      "sha256": "4cb6303f648857ed82703c707ba4719e9d4e6407eea83f3676b6f5a9bf90a27e"
+    },
+    {
+      "file": ".data/objective/contention-fixes/history-log-diagnosis.json",
+      "bytes": 403,
+      "sha256": "91c4491daa8309e537948bd59f8541e702c7be0c815ad5f2b7894bada8edba1e"
+    },
+    {
+      "file": ".data/objective/contention-fixes/history-log-diagnosis.log",
+      "bytes": 829,
+      "sha256": "52eb9432225a711bad6e1235c77f42dea55c472f35cd794d31dd403c8265ecb1"
+    },
+    {
+      "file": ".data/objective/contention-fixes/inspection-followup.json",
+      "bytes": 2309,
+      "sha256": "796ad3119b0ade9a69fee073a2e1b1932a26487968d27e57e842ed5ddc66a3ba"
+    },
+    {
+      "file": ".data/objective/contention-fixes/inspection-notes.json",
+      "bytes": 1148,
+      "sha256": "4aff6b4ef8cfd64862e5aa9a4354b92bb3eadc1b1f1dd7a0da8de888d130b251"
+    },
+    {
+      "file": ".data/objective/contention-fixes/intake.json",
+      "bytes": 573,
+      "sha256": "ded46d5991016290fe54f3741e4414eda5c41de8c215ca6b458def07027c6391"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/privacy-transport-cross-or-65987-ctual-loopback-wire-traffic-iphone-webkit/cross-origin-privacy-controls.json",
+      "bytes": 1263,
+      "sha256": "05ad7fd3f837b66aa3fb716403bdd292ab7fb10707619f5c1466f7b51c69f840"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-cancell-ab90b-ent-and-suppresses-autoplay-iphone-webkit/committed-attachment-after-cancel.png",
+      "bytes": 456482,
+      "sha256": "3aa1e2076473a81f14096d22ab0f72718d50a5648ad58c6d5268ca6bc37a9acc"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-cancell-ab90b-ent-and-suppresses-autoplay-iphone-webkit/committed-attachment.json",
+      "bytes": 218,
+      "sha256": "2fc2804a51b0a055d3a4bca75e884da46960722925eae55e97e09816c25f5d1a"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-first-s-e61eb--empty-library-and-recovers-iphone-webkit/first-sync-loading.png",
+      "bytes": 97327,
+      "sha256": "c9397d4632054e61415aa4ba1b75d9c37c81e6a38b638ff16e9c70766b49da52"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-first-s-e61eb--empty-library-and-recovers-iphone-webkit/first-sync-recovered.png",
+      "bytes": 155671,
+      "sha256": "de02a90baf5fce6fee60821cb2c9f3e44008028d1948748566500f06208592d6"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-first-s-e61eb--empty-library-and-recovers-iphone-webkit/first-sync-unreachable.png",
+      "bytes": 132805,
+      "sha256": "f4bc8a7c8c8e15d57adb6123a0cb9deb94613db65bd67c3665fe48c796b8097d"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-first-s-e61eb--empty-library-and-recovers-iphone-webkit/import-while-sync-stalled.png",
+      "bytes": 486183,
+      "sha256": "cd34bf8f376bd2ae3b66d791af5023ec96ee2be82c8f342944c60af494c5e208"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-library-ea5f3-tted-edits-from-another-tab-iphone-webkit/filter-after-another-tab-edit.png",
+      "bytes": 490636,
+      "sha256": "3d77c397af1007a61d2a70424b309f9ba57320bc03344b96b8337c82b2a5ba1d"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-real-do-271b3--preserve-legacy-identities-iphone-webkit/legacy-rendition-refused.png",
+      "bytes": 150548,
+      "sha256": "c34c0daeb650a696646fe34092a935828767f78739e5920b63fa9791638d0bdd"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-real-do-271b3--preserve-legacy-identities-iphone-webkit/narration-cancel.png",
+      "bytes": 194872,
+      "sha256": "db06d022890a21a71acb2bc531898241219392758d4aed33f1aec4798c61d293"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-real-do-271b3--preserve-legacy-identities-iphone-webkit/narration-times.json",
+      "bytes": 354,
+      "sha256": "a65b4f9e88f415f4df710381a52746c074dc24285519fc96a0401058e193afc0"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-real-do-271b3--preserve-legacy-identities-iphone-webkit/privacy-capture.json",
+      "bytes": 396,
+      "sha256": "69534e4324328be5d9303b5e823d823fa2b5ee613be3f8b3b35b806d72ebf78b"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-real-do-271b3--preserve-legacy-identities-iphone-webkit/six-document-formats.png",
+      "bytes": 1082505,
+      "sha256": "8bfb8beeaf4a8c97b4c3aa235acdf5d42ae4a6c08d80f4a913c1bbccb4396c71"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/account-deleted.png",
+      "bytes": 1258150,
+      "sha256": "aff99928b60244089e057a698e71ac5d48dd6471645f02fc00f16ce1a06ce442"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/chapters.mp3",
+      "bytes": 720837,
+      "sha256": "de36aea034d36758b903c19a9544bcd21e6c1eb91898125f7abd4e99727d9ab0"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/chapters.txt",
+      "bytes": 243,
+      "sha256": "dbccbf304d009954b038c9584f3a19599b6f57248dfa0159c09aeee2fbf48a65"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/collection-autoplay.json",
+      "bytes": 164,
+      "sha256": "7c12544a9809634c765d4e58516bad070083728df9dbb479a700c92a187e5f7b"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/collection-autoplay.png",
+      "bytes": 458441,
+      "sha256": "85bbc06babb0f365a9851f16b294d2bb967924cc14551bf47d7d36c12d524acd"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/empty.png",
+      "bytes": 155671,
+      "sha256": "de02a90baf5fce6fee60821cb2c9f3e44008028d1948748566500f06208592d6"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/metadata-export.json",
+      "bytes": 6879,
+      "sha256": "48f310c2d812ba4bc12e0b7a1bebf5b13274dea14da33a43aa65334842aa39c6"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/organization.png",
+      "bytes": 208818,
+      "sha256": "7ec749da086c6ad3ee3da7f4526c2b9d5abbde0631290a0d669264a3639a22fb"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/player.png",
+      "bytes": 462087,
+      "sha256": "4f3819e3fff900dda926f8362e2b2f72a387a4d0ba6041da5e41f411e8e7e477"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/settings-diagnostics.png",
+      "bytes": 429459,
+      "sha256": "c0a987378d5308125f182d176c381571be4a05be34aeb306b50a0d79ac9817b1"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-retaine-3f60e-port-and-deletion-workflows-iphone-webkit/transcript.png",
+      "bytes": 161431,
+      "sha256": "0fd458360879291da79c1e1c817f40765bbbc33ff5b4377f518d81fd1800da38"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final-artifacts/retained-workflows-retaine-5e425-rect-credentials-still-work-iphone-webkit/credential-mismatch.json",
+      "bytes": 579,
+      "sha256": "85e98646546bb4a267b0df53430253f4831a9d32e1032727872f27cdb856421c"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final.json",
+      "bytes": 643,
+      "sha256": "513f27c0572313fed51285a4d80caa2e3213bfa549af5de2a62a542033f610b5"
+    },
+    {
+      "file": ".data/objective/contention-fixes/iphone-final.log",
+      "bytes": 2727,
+      "sha256": "33e671d912587358046bbc492cddec7379a89d08b098247134b732593dd5b872"
+    },
+    {
+      "file": ".data/objective/contention-fixes/ledger.8b5adc2.md",
+      "bytes": 179462,
+      "sha256": "6fcc08e3dd9b80dc366d1d1e09a6243d46a76a38ddd490241d67909e403c13c0"
+    },
+    {
+      "file": ".data/objective/contention-fixes/ledger.c079982-intermediate.md",
+      "bytes": 189478,
+      "sha256": "c762521f5f61e669b648c7de4951fda32893390d8e0c25de9942e567e9d28e75"
+    },
+    {
+      "file": ".data/objective/contention-fixes/outbox-durability.diagnostic.spec.txt",
+      "bytes": 15090,
+      "sha256": "d754364fc8099a998e6aac7866a00c5718992e5b6a9e67032115b892a5984ba0"
+    },
+    {
+      "file": ".data/objective/contention-fixes/outbox-durability.original.spec.txt",
+      "bytes": 13950,
+      "sha256": "a7748d03ae665f389421cc508b4136ee1a24b18aab4c969b1fe61496ce221b17"
+    },
+    {
+      "file": ".data/objective/contention-fixes/owned-server.py",
+      "bytes": 2231,
+      "sha256": "bf9b044799542272c12ed625b55523a1276249f13a6ffdd995bc9df7a7009ac0"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-candidate-3-shared-screenshots/library-offline.png",
+      "bytes": 1313813,
+      "sha256": "aa653a3807bb81fc525c9a2326ae7bf4695ba5f23e54d64451a92a9d9171bb86"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-candidate-3-shared-screenshots/library-online.png",
+      "bytes": 1313813,
+      "sha256": "aa653a3807bb81fc525c9a2326ae7bf4695ba5f23e54d64451a92a9d9171bb86"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-candidate-3-shared-screenshots/not-on-this-device.png",
+      "bytes": 811475,
+      "sha256": "3385fe335a037af4a802f70771008fc0c29b4342f02504242c9abe44fe1c80b5"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/.last-run.json",
+      "bytes": 145,
+      "sha256": "12e46db220df2647b0111ceeaaa624c450ae503eedd74f45d15c42c342b10ff9"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/account-contention-a-held--32e85-ut-starving-another-account-sync/contention.json",
+      "bytes": 56167,
+      "sha256": "8eee3dd5d4623205255fce214ccbfe1be391d48eae560d1a54dad6b3225a9b37"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/busy-player.png",
+      "bytes": 476632,
+      "sha256": "dbbe38d2f22c9a5f6859475a26fe135abe5fe10afe8fb16242428da48d7c0c06"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/contention-player.mp3",
+      "bytes": 240645,
+      "sha256": "f1f83ce60ccb55bf654b867136d9628b9adc9b461a89138fa484e9fc5ea2042f"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/player-recovery.json",
+      "bytes": 5308,
+      "sha256": "fb6975a093f7b04879ff96d7277e2f27124bb15c925413d0310df2400f6d262c"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/recovered-player.png",
+      "bytes": 475503,
+      "sha256": "c1c226b9c93478b3ac38bfcc8c0ffabff06ea565af78775425d28ae5690bfdf5"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/account-purge-signing-out--5eaa7-evice-with-nobody-signed-in-parity/error-context.md",
+      "bytes": 10307,
+      "sha256": "1e80c6956c883c2d19bf160024a0ba221ef896073c2641bde341128464e1a9a9"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/account-purge-signing-out--5eaa7-evice-with-nobody-signed-in-parity/test-failed-1.png",
+      "bytes": 179739,
+      "sha256": "5072627766e178982b2bcff858315d0f2744556596edcaedc4613c1e1e0b0f8e"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/outbox-durability-every-qu-c0109-p-being-closed-and-reopened-sync/error-context.md",
+      "bytes": 10785,
+      "sha256": "5a1631a9d504cc4fc2acc95f7f89976be948160c3b11dd8b312aedb9302e0bce"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/outbox-durability-every-qu-c0109-p-being-closed-and-reopened-sync/test-failed-1.png",
+      "bytes": 155076,
+      "sha256": "a0fa0a53632d9d4f59e01ea0e35ac94db195adde562ee51b8bde3b1767a7e50b"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/outbox-durability-every-qu-c0109-p-being-closed-and-reopened-sync/test-failed-2.png",
+      "bytes": 147406,
+      "sha256": "cee549949333063e03bb5582b8917e39a1735842a215f2358bab1a2cecf01746"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/player-back-deleting-a-mis-ba56d-ifferent-book-still-playing-parity/deletion-playback.mp3",
+      "bytes": 720642,
+      "sha256": "a94879da8071917c5485154aed9e8cbc93be473eb88b41110cfbb4d7aa30b312"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/player-back-deleting-a-mis-ba56d-ifferent-book-still-playing-parity/missing-book-playback.json",
+      "bytes": 435,
+      "sha256": "53fdbcf5b04cd17b79c44a2feec649128c274c8d8a551e3c63975a770cb416bf"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/two-device-convergence-acc-21d52-er-a-future-playback-cursor-sync/sibling-cursors.json",
+      "bytes": 35616,
+      "sha256": "3d544d767e0ea20191a0002f0172faf40fc6e5cce537c4f46dcbe8f1ffeb31a3"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/two-device-convergence-acc-5fede-te-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 2529,
+      "sha256": "6679acb0bfa895b3368fe61a458dbd112f477d6190943667814769f4ecb59d48"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/two-device-convergence-acc-acfec-rt-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 3724,
+      "sha256": "470ff94b76355451d4a143160985d9460231723ed7b0511cff9fbfbf2f3c5b36"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/two-device-convergence-acc-ca14d-te-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 3866,
+      "sha256": "bb39ab26bd01b5116c6e87f8446dfad98e7b108dea13804232097587f81c908b"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/two-device-convergence-acc-f5738--after-a-future-book-cursor-sync/sibling-cursors.json",
+      "bytes": 32010,
+      "sha256": "6bd2720c63d60cc697fd4e223a47d43ae74e9780f1adb1e8f6c75fbd9891f4f0"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/two-device-convergence-acc-fc5c9-r-a-future-tombstone-cursor-sync/sibling-cursors.json",
+      "bytes": 22810,
+      "sha256": "978daff78db798e9103157633c1e84ccb95f1ca28e5cc04acbf4003a0cf7de5c"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/two-device-convergence-boo-11488-a-retained-future-timestamp-sync/monotonic-timestamps.json",
+      "bytes": 312,
+      "sha256": "1336d37ead6c5ef94466b4e65335923ca622aa707aed44810407690d9d75f66f"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/two-device-convergence-col-b48a3-a-retained-future-timestamp-sync/monotonic-timestamps.json",
+      "bytes": 318,
+      "sha256": "b118de7e4bb0ab2d5addc87f099431426d61dab568ae1af41a31a4c3b2e569d3"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2-artifacts/two-device-convergence-pla-a19b8-acing-playback-field-clocks-sync/state-receipt-clocks.json",
+      "bytes": 451,
+      "sha256": "9fa363f6f45099e8c689c58942cd7dd07f709b94579a1591846af8d88cb342fa"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2.json",
+      "bytes": 680,
+      "sha256": "51f6ccc4bfced5e8c0cfaaa24e4068a2c3d605ab31e1bded770c869fe8aa6738"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-2.log",
+      "bytes": 24445,
+      "sha256": "00969a14bfe75392a66110b10451c7e443c6f1d6c118a93ceb3db64c9cc094d2"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/.last-run.json",
+      "bytes": 96,
+      "sha256": "922759292cf726c77ac68f7eebe7add91cbb95d9dcbd5c3a88ca793acbbd3271"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/account-contention-a-held--32e85-ut-starving-another-account-sync/contention.json",
+      "bytes": 57389,
+      "sha256": "af11ad47a1e9ddfd3d32c662dc2564b6de2bc46077b95fd6fdf2b8a0f5988db0"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/error-context.md",
+      "bytes": 421,
+      "sha256": "5925e7f4a7d1b7bf34117b2180b98dffa86e34399c690cced36461e2a02b08ef"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/signout-busy.png",
+      "bytes": 202468,
+      "sha256": "1d49a6abb71a2cd305056f5e7d7be534fda513baae3373562e29fb7c5d9a12e6"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/signout-delivered.png",
+      "bytes": 403007,
+      "sha256": "ffdb4936725304c5677805cd36d06a38a6e74726cf8d028976a03afac08e1a0b"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/signout-recovery.json",
+      "bytes": 973,
+      "sha256": "418ba7bbb3b29125283a7cb0f72bd71ab3d5dbda5d2184a22adad3e49cdca49d"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/test-failed-1.png",
+      "bytes": 45397,
+      "sha256": "aabbd34aeb922c1aeb27c27b6713e8ce95d0b4a902fb289e44818ec4f9064751"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/test-failed-2.png",
+      "bytes": 403007,
+      "sha256": "ffdb4936725304c5677805cd36d06a38a6e74726cf8d028976a03afac08e1a0b"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/busy-player.png",
+      "bytes": 479403,
+      "sha256": "87516aa63a74b1dce68802836af4c7c64f3df3f98a5d8b32f4f5da8902da708e"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/contention-player.mp3",
+      "bytes": 240645,
+      "sha256": "657eb408aacb9e3e77929d1d5c637c075ea07e41da9ed9cd0031ec6f3f45fc04"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/player-recovery.json",
+      "bytes": 5308,
+      "sha256": "d6a0d88ac72bd6b25e8cd10cb78def6ff94cecc47f7a7c39875a56606697c2de"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/recovered-player.png",
+      "bytes": 478383,
+      "sha256": "a408207da6efc0def737ff820420fa69ca462e627bee9b4d20d539a62696e1af"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/player-back-deleting-a-mis-ba56d-ifferent-book-still-playing-parity/deletion-playback.mp3",
+      "bytes": 720642,
+      "sha256": "a94879da8071917c5485154aed9e8cbc93be473eb88b41110cfbb4d7aa30b312"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/player-back-deleting-a-mis-ba56d-ifferent-book-still-playing-parity/missing-book-playback.json",
+      "bytes": 437,
+      "sha256": "a64735363c50722b32462cb633f2841f040b41fa1b70ffb8697105e7820da014"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/two-device-convergence-acc-21d52-er-a-future-playback-cursor-sync/sibling-cursors.json",
+      "bytes": 35616,
+      "sha256": "9071b0c591d48e6440f76d46e5ffa7551ed64b3c543348f91bd07b6d5011c4b9"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/two-device-convergence-acc-5fede-te-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 2529,
+      "sha256": "5ba02165a9a00616cbc5c57a75771962109dbd9e807b61a5ef7a33c63bedadbb"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/two-device-convergence-acc-acfec-rt-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 3724,
+      "sha256": "d5fad5a89ed0f41adcf482955340b67004bc73d6798672a0c2edfd53edf63c35"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/two-device-convergence-acc-ca14d-te-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 3866,
+      "sha256": "e9acc9ea76989ab2d5e6b5221e344f851080839b107f4635794f2d95002f91dc"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/two-device-convergence-acc-f5738--after-a-future-book-cursor-sync/sibling-cursors.json",
+      "bytes": 32010,
+      "sha256": "9c58a3d50c5f4a3142414568a4c36f13ffd8a6b3989a2b4f665da0f6d4e337c4"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/two-device-convergence-acc-fc5c9-r-a-future-tombstone-cursor-sync/sibling-cursors.json",
+      "bytes": 22810,
+      "sha256": "4301bf7184a0c68b6617f6b730ce356bf3f352fbc4ebfe402ac16e518708c0a6"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/two-device-convergence-boo-11488-a-retained-future-timestamp-sync/monotonic-timestamps.json",
+      "bytes": 312,
+      "sha256": "e5d5435ee2f4bf59033870fab4aa4838db56a15fc800d9c321fc34439510b214"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/two-device-convergence-col-b48a3-a-retained-future-timestamp-sync/monotonic-timestamps.json",
+      "bytes": 318,
+      "sha256": "917a4080a90d9db2df54aaf730ceb880a48356e6a92f7b7f7858c622243a6167"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3-artifacts/two-device-convergence-pla-a19b8-acing-playback-field-clocks-sync/state-receipt-clocks.json",
+      "bytes": 451,
+      "sha256": "9a9583221ce74626327b5ff00ca3d8bac3e8e9af14b43a4d18fc03659fdb16ee"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3.json",
+      "bytes": 680,
+      "sha256": "d7807b5aba33d669c5dd8671954db05a3fbcd1f3315fb1384df6f5a8ac03d60d"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-candidate-3.log",
+      "bytes": 23571,
+      "sha256": "b1925278ae4ec64e42e6c300a205e23ecdee9727d0c87450d6410bb12d79b089"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/account-contention-a-held--32e85-ut-starving-another-account-sync/contention.json",
+      "bytes": 57258,
+      "sha256": "b28881abd7c6d514659569449a583710e77338bf683cb0423bd246a83b4f4146"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/signout-busy.png",
+      "bytes": 202468,
+      "sha256": "1d49a6abb71a2cd305056f5e7d7be534fda513baae3373562e29fb7c5d9a12e6"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/signout-delivered.png",
+      "bytes": 403007,
+      "sha256": "ffdb4936725304c5677805cd36d06a38a6e74726cf8d028976a03afac08e1a0b"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/signout-recovery.json",
+      "bytes": 1089,
+      "sha256": "99ac3047886bf03f21339a44cc9d81fcc6fa250efa5715de367ba5e5798fc78f"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/busy-player.png",
+      "bytes": 479605,
+      "sha256": "4379fbf4137e442e76d416a6b310027e49e2021f65154b6404c8d9a5475e411a"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/contention-player.mp3",
+      "bytes": 240645,
+      "sha256": "75e26c21041ea0274a2a750bd994b08e901e743cfd899d66e33039a3ef386ac8"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/player-recovery.json",
+      "bytes": 5308,
+      "sha256": "9fc9efc5af17e1b1454c53f7445c4ce7acc2e43f7950131df1debe92c60270d1"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/recovered-player.png",
+      "bytes": 478593,
+      "sha256": "f5fd30bd8cd72a5428193c83519f757e4f641aad7d129100f4d917ccced1b565"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/evidence-a-book-whose-audi-58302-is-device-says-so-on-screen-parity/not-on-this-device.png",
+      "bytes": 811475,
+      "sha256": "3385fe335a037af4a802f70771008fc0c29b4342f02504242c9abe44fe1c80b5"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/evidence-the-library-looks-94874-ith-the-network-on-and-gone-parity/library-offline.png",
+      "bytes": 1313813,
+      "sha256": "aa653a3807bb81fc525c9a2326ae7bf4695ba5f23e54d64451a92a9d9171bb86"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/evidence-the-library-looks-94874-ith-the-network-on-and-gone-parity/library-online.png",
+      "bytes": 1313813,
+      "sha256": "aa653a3807bb81fc525c9a2326ae7bf4695ba5f23e54d64451a92a9d9171bb86"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/player-back-deleting-a-mis-ba56d-ifferent-book-still-playing-parity/deletion-playback.mp3",
+      "bytes": 720642,
+      "sha256": "a94879da8071917c5485154aed9e8cbc93be473eb88b41110cfbb4d7aa30b312"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/player-back-deleting-a-mis-ba56d-ifferent-book-still-playing-parity/missing-book-playback.json",
+      "bytes": 434,
+      "sha256": "a82185bf4c1da3350941dffcae2d2832e80684fc0150c62342d84508abbee7ca"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/two-device-convergence-acc-21d52-er-a-future-playback-cursor-sync/sibling-cursors.json",
+      "bytes": 35616,
+      "sha256": "05a3bb6aff09a9490d37883c7931108946c6d4be72de96290c696ac1332eddf3"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/two-device-convergence-acc-5fede-te-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 2529,
+      "sha256": "8b5e4bc856b3e39e7476a5dd564dbccc7a63954429362ce5cb313f58e62e0387"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/two-device-convergence-acc-acfec-rt-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 3724,
+      "sha256": "9d5fe5f400522d8b831a4b9823a372c58578d105add6e1e849dba69835abe482"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/two-device-convergence-acc-ca14d-te-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 3866,
+      "sha256": "18346c65bae47eddd41c9cf658b90767623a63f5a31135116c75053e76696736"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/two-device-convergence-acc-f5738--after-a-future-book-cursor-sync/sibling-cursors.json",
+      "bytes": 32010,
+      "sha256": "3ea5db4d6f2db0ee3bc86a398738c66c7c12c5c65a3a84aead04e8086c9e1fe7"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/two-device-convergence-acc-fc5c9-r-a-future-tombstone-cursor-sync/sibling-cursors.json",
+      "bytes": 22810,
+      "sha256": "28f27b00c104c65e2048f9f91c67336c9786090d90f6b91ba5dfae09b0f15743"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/two-device-convergence-boo-11488-a-retained-future-timestamp-sync/monotonic-timestamps.json",
+      "bytes": 312,
+      "sha256": "19ac84272aa89a271fa864418b78b9101b757ffb528d3081677080d773fa3c08"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/two-device-convergence-col-b48a3-a-retained-future-timestamp-sync/monotonic-timestamps.json",
+      "bytes": 318,
+      "sha256": "67ef57dafe4a2aab67be19878d14858acbe8258f33e4a643ac3e2a9f2392fe85"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final-artifacts/two-device-convergence-pla-a19b8-acing-playback-field-clocks-sync/state-receipt-clocks.json",
+      "bytes": 451,
+      "sha256": "acf6f6510b72f266369f3f2cacf477042acc5d7dbde3fb66921a66f6f5f6289c"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final.json",
+      "bytes": 668,
+      "sha256": "a1c0896297d99457853d7586e01e427c99a9c7cf7aad4f0d79a8eb1d88c08cad"
+    },
+    {
+      "file": ".data/objective/contention-fixes/parity-sync-final.log",
+      "bytes": 21755,
+      "sha256": "17e6210a082d31d6fd4d104b07db9dd4bda80379ed8366a87b6d46322d6d5e3d"
+    },
+    {
+      "file": ".data/objective/contention-fixes/persistent-outbox-diagnostic-artifacts/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903"
+    },
+    {
+      "file": ".data/objective/contention-fixes/persistent-outbox-diagnostic-artifacts/outbox-durability-every-qu-c0109-p-being-closed-and-reopened-sync/relaunch-diagnostic.json",
+      "bytes": 2547,
+      "sha256": "6aa9f021d34aea0a8aa6a78587a5f8aa500d44147e63b931eae2f863c3a7b817"
+    },
+    {
+      "file": ".data/objective/contention-fixes/persistent-outbox-diagnostic.json",
+      "bytes": 742,
+      "sha256": "b2a2ba70dd59c8911e5cd99e883eb15153527bc72def02b3151ee8c459df9544"
+    },
+    {
+      "file": ".data/objective/contention-fixes/persistent-outbox-diagnostic.log",
+      "bytes": 643,
+      "sha256": "75c0a73ac9c622e8edd2d463991939b8fda08cd7682b81db47836b15576eb578"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-chromium-control-artifacts/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-chromium-control-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-contention-chromium/busy-player.png",
+      "bytes": 166629,
+      "sha256": "4f5332ef979c3a83c3c9fca920b410bd6d5f6a6daf5d2f29963bbf20684fdd3b"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-chromium-control-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-contention-chromium/contention-player.mp3",
+      "bytes": 240645,
+      "sha256": "95491e434c6d85423a5698c489fc6c95d16d0fa3870bccbeb1256475f50ad0ab"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-chromium-control-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-contention-chromium/player-recovery.json",
+      "bytes": 6013,
+      "sha256": "da80be44405554110358c9fbad84825822790febe0ecd9aa92575a14cda811f8"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-chromium-control-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-contention-chromium/recovered-player.png",
+      "bytes": 165967,
+      "sha256": "93bebaa0ab82b92bc07f627a70c7f1d781d79239e7a61fb3abd1a005ba056adf"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-chromium-control.json",
+      "bytes": 760,
+      "sha256": "2fa94f9eea41f7321e4d8edab681763059a5f1944cacf911a01f975d80acc678"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-chromium-control.log",
+      "bytes": 660,
+      "sha256": "bb6514c8cc067c45affd753c353ef7c6b3f1c67185d19de8a51cd965699b78a2"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-diagnostic-artifacts/.last-run.json",
+      "bytes": 96,
+      "sha256": "c4be761cb4cde830ffbc32aca1bacc6513bb9cd57f07f313c003f5917408accf"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-diagnostic-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/busy-player.png",
+      "bytes": 480657,
+      "sha256": "7b50fa6c6f11ab58a51182248ce8804af853fe8107a1e7f2be4e465f9d3532f6"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-diagnostic-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/contention-player.mp3",
+      "bytes": 240645,
+      "sha256": "9383bb825a9184577f002f4e1419eed20f524d4885a8b5fbaa8ca3bd2980c254"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-diagnostic-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/error-context.md",
+      "bytes": 7109,
+      "sha256": "4010bd85a1376ee428b0c9ed36b43a92debb86cf999b0b9b7ce956e7850c34db"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-diagnostic-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/player-recovery.json",
+      "bytes": 6266,
+      "sha256": "2ec74684f90b3e7473cb7e0d41d502a044af141bd365d816905fd7fb8f1d1b06"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-diagnostic-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/test-failed-1.png",
+      "bytes": 342163,
+      "sha256": "eb12dd2c8871b0aca95dc0207368c25af9946944838f209fb5719d06388ae005"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-diagnostic-format.json",
+      "bytes": 432,
+      "sha256": "f1778b7280aacc424781aa573830331ab8509efb4d8fa716d4136bc5042fc838"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-diagnostic-format.log",
+      "bytes": 43,
+      "sha256": "b68123e686508efe4b45b77c2f22b455b4bae53ec68264096b2b193544c90afd"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-diagnostic.json",
+      "bytes": 703,
+      "sha256": "3c26d2ccef35e6e779e891c7277dcd18151c68ebe734172bf8f525d5bc441d53"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-diagnostic.log",
+      "bytes": 2496,
+      "sha256": "24fa06af0a06d84009f74bb867cd25ca8c835302f3cf540f0aaf6b0b669c89a9"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-webkit-online-close-control-artifacts/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-webkit-online-close-control-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/busy-player.png",
+      "bytes": 476794,
+      "sha256": "c4aa50728b000d81ab6eb8c0aa9fbb11b2b2682ac531c873be0a44976b772dd8"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-webkit-online-close-control-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/contention-player.mp3",
+      "bytes": 240645,
+      "sha256": "29cf6d8aa6ce89c4be6574f5e841f94c6497259d4fb089bf2e21636b575f976d"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-webkit-online-close-control-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/player-recovery.json",
+      "bytes": 6024,
+      "sha256": "b39767c95615ee719645e5b99d7e7f267ec1f86542fddbac9c20d17d5022c262"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-webkit-online-close-control-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/recovered-player.png",
+      "bytes": 475680,
+      "sha256": "08c311766ccc0c445de78d89813e3218b639d4fc20b815e04ab580cbdfa52b02"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-webkit-online-close-control.json",
+      "bytes": 736,
+      "sha256": "3ce01a58af80ea0a79c63462dd9783f635bf6ad4d5bfa9b54a4741d38dbe02e9"
+    },
+    {
+      "file": ".data/objective/contention-fixes/player-webkit-online-close-control.log",
+      "bytes": 630,
+      "sha256": "968757a4e420275477927ff6bbe06741e2d5a0008f6e1219493bd4b76476b33a"
+    },
+    {
+      "file": ".data/objective/contention-fixes/provenance-baseline.json",
+      "bytes": 439,
+      "sha256": "5a54f3c6d6f59190209da1d16bc695a897a65883bb302b465f485d31ee34869f"
+    },
+    {
+      "file": ".data/objective/contention-fixes/provenance-baseline.log",
+      "bytes": 199,
+      "sha256": "d2f416fb955d36dfbfed08e840d52b49b535de365b5e8db34f505a943030368d"
+    },
+    {
+      "file": ".data/objective/contention-fixes/provenance-candidate-1.json",
+      "bytes": 448,
+      "sha256": "a831f4ff0315fdbc8e3dbb3e1b5352c6df110df68e71abf226d323d2ab6f0c64"
+    },
+    {
+      "file": ".data/objective/contention-fixes/provenance-candidate-1.log",
+      "bytes": 198,
+      "sha256": "3f7cdbeea19330cfb071033046abb0cbd65a392fa9b358737174780326a138fa"
+    },
+    {
+      "file": ".data/objective/contention-fixes/provenance-candidate-2.json",
+      "bytes": 448,
+      "sha256": "b2ade81812cf298694668c4c0dfec6afa87c62124782f8ff38eddff45172a82e"
+    },
+    {
+      "file": ".data/objective/contention-fixes/provenance-candidate-2.log",
+      "bytes": 198,
+      "sha256": "2aa7d06671e55fa9c10b0b52e635ac4ef8b9d6af15e996c2096d63223b445b51"
+    },
+    {
+      "file": ".data/objective/contention-fixes/provenance-candidate-3.json",
+      "bytes": 448,
+      "sha256": "1e718bcae1cf3baddb644c262a60759508acd0e515876ce0c50f186e472c3c63"
+    },
+    {
+      "file": ".data/objective/contention-fixes/provenance-candidate-3.log",
+      "bytes": 199,
+      "sha256": "51198f50771f02cc92fbb03b7001127438717f8fa65c6bcedf6c3d3b109875dd"
+    },
+    {
+      "file": ".data/objective/contention-fixes/provenance-final.json",
+      "bytes": 430,
+      "sha256": "174ca0483bac5f427443600c26b374424eb27889086af8d6e90eaba3f5595cad"
+    },
+    {
+      "file": ".data/objective/contention-fixes/provenance-final.log",
+      "bytes": 199,
+      "sha256": "71693bdfd201782a5eb8fd6d75e526b5ba029e06014d4a927903c443ebf6bf54"
+    },
+    {
+      "file": ".data/objective/contention-fixes/quick-candidate-1.json",
+      "bytes": 489,
+      "sha256": "cc78d7f9d1bffeb3b90beee7bcdd9280878459f6b235e11e7f084d7a33f7e5c3"
+    },
+    {
+      "file": ".data/objective/contention-fixes/quick-candidate-1.log",
+      "bytes": 2871,
+      "sha256": "3b73cf73ed9250f92c312738dc6c0d7aa9b0a56d14f9697298c678d96c5721b8"
+    },
+    {
+      "file": ".data/objective/contention-fixes/quick-candidate-2.json",
+      "bytes": 489,
+      "sha256": "dcc20f4c48ec948b8909831604c4fd5409530405eea1b061f6f311a748db5334"
+    },
+    {
+      "file": ".data/objective/contention-fixes/quick-candidate-2.log",
+      "bytes": 2871,
+      "sha256": "5d5bd4ecf975d39cac9a5428b2ecbfe46686a43f5b5fd458636542f3e4674e2a"
+    },
+    {
+      "file": ".data/objective/contention-fixes/quick-candidate-3.json",
+      "bytes": 489,
+      "sha256": "c037c85720b6127a0ed0e73714f5abf157a17516d6735249607d88d0ae2ba022"
+    },
+    {
+      "file": ".data/objective/contention-fixes/quick-candidate-3.log",
+      "bytes": 2871,
+      "sha256": "28b9c9d0aafde26016dc9a7919d1cb65f14d32d8e9af169c232479d1b47750de"
+    },
+    {
+      "file": ".data/objective/contention-fixes/quick-final.json",
+      "bytes": 483,
+      "sha256": "9d07c3576dbdb53c50da032fc3bc447373f76c28defea444763acd1b4a9746c7"
+    },
+    {
+      "file": ".data/objective/contention-fixes/quick-final.log",
+      "bytes": 2871,
+      "sha256": "baeaf0d30d393c4aa8d1e215c923a1031d9c6f90e7a2e79530dcf790578787df"
+    },
+    {
+      "file": ".data/objective/contention-fixes/receipt-and-recovery-candidate-1-artifacts/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903"
+    },
+    {
+      "file": ".data/objective/contention-fixes/receipt-and-recovery-candidate-1-artifacts/account-contention-a-held--32e85-ut-starving-another-account-sync/contention.json",
+      "bytes": 82335,
+      "sha256": "215ec617d40449e4e9125609d61bf4355aa724a7549b81e320268f62b2cc49d1"
+    },
+    {
+      "file": ".data/objective/contention-fixes/receipt-and-recovery-candidate-1-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/busy-player.png",
+      "bytes": 476308,
+      "sha256": "9a25a53ff3d41910e26a3271149be88c9b5d8f3fa4c87c08f04f0fea1690d89c"
+    },
+    {
+      "file": ".data/objective/contention-fixes/receipt-and-recovery-candidate-1-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/contention-player.mp3",
+      "bytes": 240645,
+      "sha256": "fab9a1209b2bb15112b61a1666fa8d6c886b38d88f94dc7c1f19713ccf15f689"
+    },
+    {
+      "file": ".data/objective/contention-fixes/receipt-and-recovery-candidate-1-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/player-recovery.json",
+      "bytes": 5308,
+      "sha256": "6226bbe66d4359cf28077978c090f7958becd7138ef52b352d6a2b304937ff9c"
+    },
+    {
+      "file": ".data/objective/contention-fixes/receipt-and-recovery-candidate-1-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/recovered-player.png",
+      "bytes": 474857,
+      "sha256": "3c4ec07bff8ad59cf837f2a902098ccf69a98bf333338f299e85d1aab2eac2b8"
+    },
+    {
+      "file": ".data/objective/contention-fixes/receipt-and-recovery-candidate-1-artifacts/two-device-convergence-acc-5fede-te-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 2529,
+      "sha256": "09f8017a365b4c3c751a7d468214af2658ceeb4a1c2bac5f9591152fa4971a70"
+    },
+    {
+      "file": ".data/objective/contention-fixes/receipt-and-recovery-candidate-1-artifacts/two-device-convergence-acc-acfec-rt-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 3724,
+      "sha256": "13a93d3b5fc2f0cce1c22621cc93fff1c296b620fc0c8a0039be455ad69680bb"
+    },
+    {
+      "file": ".data/objective/contention-fixes/receipt-and-recovery-candidate-1-artifacts/two-device-convergence-acc-ca14d-te-across-a-concurrent-pull-sync/commit-order.json",
+      "bytes": 3866,
+      "sha256": "cedc2bdee33923d250dd8bb329d254d6f7ef8e1fef29a48332b1295bca01bc62"
+    },
+    {
+      "file": ".data/objective/contention-fixes/receipt-and-recovery-candidate-1.json",
+      "bytes": 781,
+      "sha256": "4079e98aec9b86b507df7a806dc48c7a280de2179120ca2ab086676ac7e74345"
+    },
+    {
+      "file": ".data/objective/contention-fixes/receipt-and-recovery-candidate-1.log",
+      "bytes": 1197,
+      "sha256": "83da1ce14f85e0de8774a06d7329299bf63cad6e5a055ad556f589103d76f986"
+    },
+    {
+      "file": ".data/objective/contention-fixes/receipt-write-cost-final-data.json",
+      "bytes": 12592,
+      "sha256": "85948f5d959afeab56319571d3efde54b984baa69704cbb4034ffc2255b93269"
+    },
+    {
+      "file": ".data/objective/contention-fixes/receipt-write-cost-final.json",
+      "bytes": 460,
+      "sha256": "f8e7ba089ba9184fe0d9d2d818f5ecd14dffc16be2a941895fa204b30a8d505c"
+    },
+    {
+      "file": ".data/objective/contention-fixes/receipt-write-cost-final.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "file": ".data/objective/contention-fixes/resume-final-artifacts/.last-run.json",
+      "bytes": 45,
+      "sha256": "91d1c43004802cd49950d78eb11c8fa7d05da8ffffe219a8b13b2f561bc00903"
+    },
+    {
+      "file": ".data/objective/contention-fixes/resume-final-rows.jsonl",
+      "bytes": 8866,
+      "sha256": "484582e8a804abcd1c26e386ad091cb0fe507bb6d26407bc9200c7151bce9b78"
+    },
+    {
+      "file": ".data/objective/contention-fixes/resume-final.json",
+      "bytes": 847,
+      "sha256": "1dfdbf5df2e697bd7b7b091f7c8541833c9d98e5f878085045c118b8cea291d8"
+    },
+    {
+      "file": ".data/objective/contention-fixes/resume-final.log",
+      "bytes": 11507,
+      "sha256": "c20c48bebaa1ea3751b724f28bf4d3abc6c049571333b4693984b11fb058c4f3"
+    },
+    {
+      "file": ".data/objective/contention-fixes/review-input.md",
+      "bytes": 21136,
+      "sha256": "a194c513a5023bafcdf55de42cd761c969056e8906adb4828a2719b867d7d055"
+    },
+    {
+      "file": ".data/objective/contention-fixes/seal-evidence.py",
+      "bytes": 2388,
+      "sha256": "88e12e37660f88bfb150daafb56e783d892ad6b86b6d28ec96753e4e06265f31"
+    },
+    {
+      "file": ".data/objective/contention-fixes/served-baseline.json",
+      "bytes": 10410,
+      "sha256": "01aa39497104b67d5106baef2d8396818488d44bed61baa8ed3185a2a5fd11f6"
+    },
+    {
+      "file": ".data/objective/contention-fixes/served-candidate-1.json",
+      "bytes": 10409,
+      "sha256": "2caa731e7bb5b4005fd0d325f22e0d50c27da39d8713cb0bf1293d2a9e576f80"
+    },
+    {
+      "file": ".data/objective/contention-fixes/served-candidate-2.json",
+      "bytes": 10409,
+      "sha256": "c51a69a3948cd8d6075f58919c799748ff647b4169a97b1d9ead504e3ce12717"
+    },
+    {
+      "file": ".data/objective/contention-fixes/served-candidate-3.json",
+      "bytes": 10410,
+      "sha256": "32d974e43b7b3932cf99a2c8ee4d0af2f8bce470f031eb872eb33cc8c3960c23"
+    },
+    {
+      "file": ".data/objective/contention-fixes/served-final.json",
+      "bytes": 10410,
+      "sha256": "9cc16837b0c85aa23efdba7314817b8889e16ff2cb3231d9dc1133fd6e37e440"
+    },
+    {
+      "file": ".data/objective/contention-fixes/server-baseline-frozen.log",
+      "bytes": 190,
+      "sha256": "c1450d6c91004f5520a315a4188f26830b3025d6d39d41084190c804844778e8"
+    },
+    {
+      "file": ".data/objective/contention-fixes/server-baseline.json",
+      "bytes": 420,
+      "sha256": "f59d5077d3d9ae757ad58a626fafb08686af6b5ef98a006aa9d9014cd227cf62"
+    },
+    {
+      "file": ".data/objective/contention-fixes/server-candidate-1-frozen.log",
+      "bytes": 190,
+      "sha256": "c1450d6c91004f5520a315a4188f26830b3025d6d39d41084190c804844778e8"
+    },
+    {
+      "file": ".data/objective/contention-fixes/server-candidate-1.json",
+      "bytes": 419,
+      "sha256": "6e6d5b8a727abf7ca6c7687cb7241e082a53f9d64a7a6e3ba31d97dafacb51ee"
+    },
+    {
+      "file": ".data/objective/contention-fixes/server-candidate-2-frozen.log",
+      "bytes": 3763,
+      "sha256": "74a64f8939e4f1a7ed04dd6f02eda69a3f0e376ce040af24231a5c7751fa73ed"
+    },
+    {
+      "file": ".data/objective/contention-fixes/server-candidate-2.json",
+      "bytes": 419,
+      "sha256": "7d8b1b5054cd42efa1d6e9b0f5700e1d7d8087bf3ce7264ec97b1bedbe21071d"
+    },
+    {
+      "file": ".data/objective/contention-fixes/server-candidate-3-frozen.log",
+      "bytes": 20184,
+      "sha256": "1cb5d0ebc079b552d28ee872914f4a024aba11c91a028693d342db498111aa3d"
+    },
+    {
+      "file": ".data/objective/contention-fixes/server-candidate-3.json",
+      "bytes": 420,
+      "sha256": "7e92d05a8b4560de64dd7604023c28aa433bb076a92e6a2a86b85b9b01a6c0bc"
+    },
+    {
+      "file": ".data/objective/contention-fixes/server-final-frozen.log",
+      "bytes": 13928,
+      "sha256": "be9160e008b69f8c6286a0d1d14e8c1e653923c1051cbfcd5971acd24a3f4b22"
+    },
+    {
+      "file": ".data/objective/contention-fixes/server-final.json",
+      "bytes": 420,
+      "sha256": "85042e18f796e043c2613c5f47b59132faf0c6f5b7df0873c311e787aa9bc473"
+    },
+    {
+      "file": ".data/objective/contention-fixes/server-log-freeze.json",
+      "bytes": 1045,
+      "sha256": "f253a50652a6e3a1dc588aa0251d4634dbc38174ee771df69ef383766a20d2dd"
+    },
+    {
+      "file": ".data/objective/contention-fixes/signout-busy-red-artifacts/.last-run.json",
+      "bytes": 96,
+      "sha256": "922759292cf726c77ac68f7eebe7add91cbb95d9dcbd5c3a88ca793acbbd3271"
+    },
+    {
+      "file": ".data/objective/contention-fixes/signout-busy-red-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/error-context.md",
+      "bytes": 8381,
+      "sha256": "60523067c2962dbf0d2f54a75c6d3126e00dc382de37881b837bcd9d4246e08b"
+    },
+    {
+      "file": ".data/objective/contention-fixes/signout-busy-red-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/signout-recovery.json",
+      "bytes": 126,
+      "sha256": "20da8a9c404ea6184ef749e877d336ee21d6a0087d061e47d76060437a221017"
+    },
+    {
+      "file": ".data/objective/contention-fixes/signout-busy-red-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/test-failed-1.png",
+      "bytes": 403007,
+      "sha256": "ffdb4936725304c5677805cd36d06a38a6e74726cf8d028976a03afac08e1a0b"
+    },
+    {
+      "file": ".data/objective/contention-fixes/signout-busy-red-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/test-failed-2.png",
+      "bytes": 592444,
+      "sha256": "669d4a6f8f9eec3d8d87b295264bbc3ef1f0787ec2315d03ac9decb70b97ad08"
+    },
+    {
+      "file": ".data/objective/contention-fixes/signout-busy-red-barrier-first-artifacts/.last-run.json",
+      "bytes": 96,
+      "sha256": "922759292cf726c77ac68f7eebe7add91cbb95d9dcbd5c3a88ca793acbbd3271"
+    },
+    {
+      "file": ".data/objective/contention-fixes/signout-busy-red-barrier-first-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/error-context.md",
+      "bytes": 8791,
+      "sha256": "5a827e60fea76da0a8a2472ed162229f407f90e4144f3e9388ce16177b5944ed"
+    },
+    {
+      "file": ".data/objective/contention-fixes/signout-busy-red-barrier-first-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/signout-recovery.json",
+      "bytes": 69,
+      "sha256": "99c7cbe1c9494f043fd5e35704f112f1ea1b9d399db00a28cff45fa0aa904ff7"
+    },
+    {
+      "file": ".data/objective/contention-fixes/signout-busy-red-barrier-first-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/test-failed-1.png",
+      "bytes": 200184,
+      "sha256": "a5a67540d2247fdb66f162eb98b2dc9bf4a9f4c575dc60c2f127d9ceaca84a95"
+    },
+    {
+      "file": ".data/objective/contention-fixes/signout-busy-red-barrier-first.json",
+      "bytes": 712,
+      "sha256": "85aee47bf02907a6e83d341acf36d75f7fa006d2d5c05850d71ad8b7873a19e3"
+    },
+    {
+      "file": ".data/objective/contention-fixes/signout-busy-red-barrier-first.log",
+      "bytes": 2796,
+      "sha256": "3fb0f95a1b084c73ef668cb0d079e389117734f13d7d42dee95de7c301747bbd"
+    },
+    {
+      "file": ".data/objective/contention-fixes/signout-busy-red-drain-artifacts/.last-run.json",
+      "bytes": 96,
+      "sha256": "922759292cf726c77ac68f7eebe7add91cbb95d9dcbd5c3a88ca793acbbd3271"
+    },
+    {
+      "file": ".data/objective/contention-fixes/signout-busy-red-drain-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/error-context.md",
+      "bytes": 8429,
+      "sha256": "ff56ad4d6768938f720a9333277a33ce052462168540b9a9db98aa1fbb3506b7"
+    },
+    {
+      "file": ".data/objective/contention-fixes/signout-busy-red-drain-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/signout-recovery.json",
+      "bytes": 159,
+      "sha256": "cf93fc7a3e531d6cc42fc55b7638c5aca8825c3a34b511a682d973177c93e2c1"
+    },
+    {
+      "file": ".data/objective/contention-fixes/signout-busy-red-drain-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/test-failed-1.png",
+      "bytes": 176053,
+      "sha256": "45c342b87813b46564dcd0e94d71eba395ab977b4dfff8a8bc679b9df89ca502"
+    },
+    {
+      "file": ".data/objective/contention-fixes/signout-busy-red-drain-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/test-failed-2.png",
+      "bytes": 585106,
+      "sha256": "19f03d0459d2482e0c60a5f6550cb316fabbe565477ebd9e11c731eaebc7be80"
+    },
+    {
+      "file": ".data/objective/contention-fixes/signout-busy-red-drain.json",
+      "bytes": 696,
+      "sha256": "09e7e09588f0dbd1f78af664402500aac8cdb2de850eb2e669db9ca4b10107e8"
+    },
+    {
+      "file": ".data/objective/contention-fixes/signout-busy-red-drain.log",
+      "bytes": 3649,
+      "sha256": "83583b1b9a0d0a3418ad76cd93b65e4d6f0fe5de1737d608f90cd46390967b22"
+    },
+    {
+      "file": ".data/objective/contention-fixes/signout-busy-red.json",
+      "bytes": 684,
+      "sha256": "7ae7a700f056ce95c6dcc820889467bc7b74e07ce5dc76d2843540e1ecfa4e1e"
+    },
+    {
+      "file": ".data/objective/contention-fixes/signout-busy-red.log",
+      "bytes": 3562,
+      "sha256": "377beafdf313261472c365275e8090f024d1e18f072e9252aecc1de61e6b4cd9"
+    },
+    {
+      "file": ".data/objective/contention-fixes/source-candidate-2-check.json",
+      "bytes": 443,
+      "sha256": "11786cd8744db28ae9b8efa299a618a8b08e812956c906ecfa62ecfa50500149"
+    },
+    {
+      "file": ".data/objective/contention-fixes/source-candidate-2-check.log",
+      "bytes": 934,
+      "sha256": "62aa058a68473d846be5140119068e97ca7ee4d93e449aaacadbd74ce47a88d9"
+    },
+    {
+      "file": ".data/objective/contention-fixes/source-candidate-2.json",
+      "bytes": 342484,
+      "sha256": "b47d556f66388eba53a753e41a0c44215f820fcf63a98fc719594c91666e8188"
+    },
+    {
+      "file": ".data/objective/contention-fixes/source-final-check.json",
+      "bytes": 431,
+      "sha256": "25fadc15de1f64da32909c9cf9a7786dc2d3139204243e8605f3dfceb6660d10"
+    },
+    {
+      "file": ".data/objective/contention-fixes/source-final-check.log",
+      "bytes": 934,
+      "sha256": "1e98925251fe745d78d92eb65f4c27aeab9d25ee765e726da53901d3e1ec1c94"
+    },
+    {
+      "file": ".data/objective/contention-fixes/source-final.json",
+      "bytes": 342860,
+      "sha256": "943219f41687f1cc3305be6f8512c7e7efff81adf16a4347e4703aa79ecefd48"
+    },
+    {
+      "file": ".data/objective/contention-fixes/start-baseline.json",
+      "bytes": 421,
+      "sha256": "048d5d604d519b29db30b9888f7c10b0a80781db5c1da70a873630ad7a3faed6"
+    },
+    {
+      "file": ".data/objective/contention-fixes/start-baseline.log",
+      "bytes": 420,
+      "sha256": "f59d5077d3d9ae757ad58a626fafb08686af6b5ef98a006aa9d9014cd227cf62"
+    },
+    {
+      "file": ".data/objective/contention-fixes/start-candidate-1.json",
+      "bytes": 427,
+      "sha256": "766a476bd175005eac868f285c20c3b7f22fcc578310f10458655c1448e0a5a2"
+    },
+    {
+      "file": ".data/objective/contention-fixes/start-candidate-1.log",
+      "bytes": 419,
+      "sha256": "6e6d5b8a727abf7ca6c7687cb7241e082a53f9d64a7a6e3ba31d97dafacb51ee"
+    },
+    {
+      "file": ".data/objective/contention-fixes/start-candidate-2.json",
+      "bytes": 427,
+      "sha256": "b96f98c6793b58c5d072ed86d2a2621d067662d1cd6b81133f54503530e2a482"
+    },
+    {
+      "file": ".data/objective/contention-fixes/start-candidate-2.log",
+      "bytes": 419,
+      "sha256": "7d8b1b5054cd42efa1d6e9b0f5700e1d7d8087bf3ce7264ec97b1bedbe21071d"
+    },
+    {
+      "file": ".data/objective/contention-fixes/start-candidate-3.json",
+      "bytes": 427,
+      "sha256": "c5e835f7696daa917df99f23768bdeddd4e43dd5f221625c991930e67158fc3c"
+    },
+    {
+      "file": ".data/objective/contention-fixes/start-candidate-3.log",
+      "bytes": 420,
+      "sha256": "7e92d05a8b4560de64dd7604023c28aa433bb076a92e6a2a86b85b9b01a6c0bc"
+    },
+    {
+      "file": ".data/objective/contention-fixes/start-final.json",
+      "bytes": 415,
+      "sha256": "bb6e337edc0c1e4be0786aa1295590a65e3c549b929ba991330f3b8962cd8a9a"
+    },
+    {
+      "file": ".data/objective/contention-fixes/start-final.log",
+      "bytes": 420,
+      "sha256": "85042e18f796e043c2613c5f47b59132faf0c6f5b7df0873c311e787aa9bc473"
+    },
+    {
+      "file": ".data/objective/contention-fixes/stop-baseline.json",
+      "bytes": 433,
+      "sha256": "feef37d7584f0bdd6e653d38b27430a683d256eb5af02e94a4facddbcf131194"
+    },
+    {
+      "file": ".data/objective/contention-fixes/stop-baseline.log",
+      "bytes": 123,
+      "sha256": "f6bda68a470179d7c7a4249ea32363cc33a77d9fb9e550921cc0a88e7b2de879"
+    },
+    {
+      "file": ".data/objective/contention-fixes/stop-candidate-1.json",
+      "bytes": 438,
+      "sha256": "3449f48c0804b56b066abc5eba6f68982f2a79b03f2de9d56b28d7e1e432827e"
+    },
+    {
+      "file": ".data/objective/contention-fixes/stop-candidate-1.log",
+      "bytes": 122,
+      "sha256": "da462f901ec1598347a633f10ac188c1f16f0ceb40f9d6e0d248a3ffe657638d"
+    },
+    {
+      "file": ".data/objective/contention-fixes/stop-candidate-2.json",
+      "bytes": 438,
+      "sha256": "ab713bd8806d0d32b0819f36026a1ae2a1a3afa8d2e4c18d0cf0c8674811917b"
+    },
+    {
+      "file": ".data/objective/contention-fixes/stop-candidate-2.log",
+      "bytes": 122,
+      "sha256": "cb7788c1ff70c0d8a1bb3771a93cab81f0ad7b2b1b1a2e46993c9ca6b7988d3b"
+    },
+    {
+      "file": ".data/objective/contention-fixes/stop-candidate-3.json",
+      "bytes": 439,
+      "sha256": "f24d4dce19182c5662d0b351c40794f49aa391f530443d95b7b3c626f5e42462"
+    },
+    {
+      "file": ".data/objective/contention-fixes/stop-candidate-3.log",
+      "bytes": 123,
+      "sha256": "eceaa585b88cdbdd74d2859ae805ab9366a0d7812421f3acd19c2aa4b0360256"
+    },
+    {
+      "file": ".data/objective/contention-fixes/stop-prior-server.json",
+      "bytes": 434,
+      "sha256": "35a3f4c5c34efbcc4bfbd72220e44e227185b17be7dc20a00178b7682b2542a7"
+    },
+    {
+      "file": ".data/objective/contention-fixes/stop-prior-server.log",
+      "bytes": 123,
+      "sha256": "2099a071075c25995ed1ebf9b653a3cd2398ff549422371f0b152e4472a75c60"
+    },
+    {
+      "file": ".data/objective/contention-fixes/summarize-contention.py",
+      "bytes": 1911,
+      "sha256": "14224b8c2143386a3252e817e9597ac66e78646119bb27e1bec0bfa9e1f007ea"
+    },
+    {
+      "file": ".data/objective/contention-fixes/targeted-unit.json",
+      "bytes": 662,
+      "sha256": "70a225db1d7a1d96ca0ec8fa91dda6c9f3f4edd9a995702ff9bfabc43afe50dd"
+    },
+    {
+      "file": ".data/objective/contention-fixes/targeted-unit.log",
+      "bytes": 251,
+      "sha256": "b97a6af429fa3009b00dcdc8600bab45bd136582fce91f74325290126df2df26"
+    },
+    {
+      "file": ".data/objective/contention-fixes/test-format.json",
+      "bytes": 419,
+      "sha256": "a7c64509db2d30840d0ba9ab0973efb8d887c47880e1f6160237e60fd25e7572"
+    },
+    {
+      "file": ".data/objective/contention-fixes/test-format.log",
+      "bytes": 43,
+      "sha256": "9f2beb8e9a522687b39b61ded69565f879984b2761e5f0172878a38fda01c305"
+    },
+    {
+      "file": ".data/objective/contention-fixes/types-first.json",
+      "bytes": 349,
+      "sha256": "8932a1b78aa8c33f91116542e93ab562972dca64dfd470deaea98daf83db1e72"
+    },
+    {
+      "file": ".data/objective/contention-fixes/types-first.log",
+      "bytes": 111,
+      "sha256": "ea30ad7ff274f7da8986350b03b433de64985ed753453eabc5fbd7d51a0b7725"
+    },
+    {
+      "file": ".data/objective/contention-fixes/unit-node26-default.json",
+      "bytes": 393,
+      "sha256": "e858fbadd05c8ae086858ca3e9bb283c0bffbbcef04626819f87052e2be6dc0b"
+    },
+    {
+      "file": ".data/objective/contention-fixes/unit-node26-default.log",
+      "bytes": 8823,
+      "sha256": "d818bf0765cb77170c637cb38d24b2c6527736a47dd657508a6b21af820123c1"
+    },
+    {
+      "file": ".data/objective/contention-fixes/verify-final-handoff.mjs",
+      "bytes": 2112,
+      "sha256": "29e57cbbb5ecbbf7cba56e127c7a6ebf82a53333b9d72f3d6288e8a72badc535"
+    },
+    {
+      "file": ".data/objective/contention-fixes/verify-served-build-v2.mjs",
+      "bytes": 2090,
+      "sha256": "bc8c89e3ebb164490b904a70c6c55625ae8bf74fdbfe9336788c7bec9b6bd08f"
+    },
+    {
+      "file": ".data/objective/contention-fixes/with-test-env.mjs",
+      "bytes": 487,
+      "sha256": "97a78a9c129a91a030a253293ac66e9a2c17e523a977e51c7ded53556bc81ac7"
+    }
+  ]
+}

@@ -5,7 +5,7 @@ Hostname verified first: `mbp-old`. Baseline: `0e1f17eb18ce6a07c6d55c1790c860099
 Branch: `task/t_99d8ece2-hark`. One implementer, ordinary turns, no goal mode or delegation.
 No push, PR, merge, deployment, board edits, cleanup gate, or independent review executed by this implementer.
 
-Current handoff: **Acceptance follow-up A0–A8** below, tested source `4eb7531`. Earlier candidate sections retain their original attribution.
+Current handoff: **Bounded account-contention follow-up** below, tested source `5ce2afa`. Earlier candidate sections retain their original attribution.
 
 ## Evidence policy
 
@@ -1354,8 +1354,8 @@ review; acceptance belongs to those external gates.
 
 ## Acceptance follow-up A0–A8 — baseline `9d64cca`
 
-This section is the current handoff; earlier sections are historical receipts of
-those named candidates. The complete independent input is preserved as
+This section records the historical handoff at `1f10c80`, tested source `4eb7531`;
+it is not an exact-head check of later cleanup or contention changes. The complete independent input is preserved as
 `.data/objective/acceptance-followup/review-input.md`. Hostname was verified
 first as **mbp-old**. One implementer used ordinary turns, no goal mode,
 delegation, reviewer launch, board operation or publication. No real user data,
@@ -1374,6 +1374,16 @@ ports 3100/3199 were untouched. The final documentation commit is recorded by
 `.data/objective/acceptance-followup-handoff.{json,log}`; its verifier permits
 only docs/CLEANUP changes relative to this tested source, requires a clean
 checkout, and rechecks the exact owned process/build and all asset hashes.
+
+Subsequent external cleanup: `951d6af` realigned the SQL template and reused a
+parity locator; `4e0bde2` and `8b5adc2` recorded cleanup reports. Those source/test
+changes mean the old verifier correctly rejects `8b5adc2` as a documentation-only
+descendant. The independent convergence review executed quick (807 units), sync
+(41), parity (33), two WebKit runs (8 each), and the stated adversarial cases on
+`8b5adc2` itself. Its report is copied to
+`.data/objective/contention-fixes/review-input.md`. These are external outcomes,
+not a retrospective attribution of the `4eb7531` measurements or an implementer
+rerun. The current round's new verifier and executed outcomes appear below.
 
 ### Finding dispositions
 
@@ -1623,3 +1633,379 @@ output paths. A quick build replaces `.next`; restart only the owned :3000 and
 record new build/served provenance if rebuilding. Leave reviewer :3100/:3199
 untouched. The implementer pauses for authorized cleanup if needed and external
 changed-area review; no independent reviewer or cleanup coordinator was run here.
+
+## Bounded account-contention follow-up — baseline `8b5adc2`
+
+Hostname was verified first: **mbp-old**. The clean input was
+`8b5adc2d5a27a246e9be810d7b00279523bdfdf1`, including external cleanup. The entire
+latest `../convergence-review-scratch/REVIEW.md` was read; the canonical attachment
+had identical bytes. Its copy, the original cleanup report and the incoming
+ledger are retained in `.data/objective/contention-fixes/`. One implementer,
+ordinary turns, no goals, delegation, publication, board edits, cleanup gate or
+independent reviewer execution. Model/effort are not exposed by this session's
+tools or model environment fields; **Astra max is the request, not a verified
+runtime identity**.
+
+Source/test commits:
+
+- `51a691618f2fb8bf0cdb7b52d5c523e9000df97c` — Bound account receipt admission and verify contention recovery.
+- `c07998284625cb186dfef9a3a495ac91696661ff` — Isolate server busy recovery from WebKit offline toggling.
+- `f603590236fcc75e007682f534261acdf4881471` — Bound receipt waits and retry busy writes during sign-out.
+- `5ce2afac96b0b61d7e1ea1608e5b276baa9ae99f` — Allow bounded fixture reauthentication and retain per-run screenshots.
+
+Final tested source is **5ce2afa**, production build **lbshWvFmKMLHCK55RlWx6**,
+owned **:3000 PID 13297**. App code is unchanged from f603590; the last
+source commit changes two test files only. The final documentation-only commit and clean HEAD are
+recorded in the post-seal handoff receipt. The new verifier compares against this
+source, not the historical `4eb7531` build. Root/standalone build IDs, process cwd,
+HTML marker and **65 live/disk SHA256s** establish served provenance. The baseline
+was rebuilt from `8b5adc2` before product changes. Only verified owned PIDs 99089,
+62296, 6030, 7265 and 11366 were stopped; reviewer ports 3100/3199 were untouched.
+
+### Board-requested corrections and non-gating disclosures
+
+| Item                                 | Disposition                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1 / account-lock contention         | `syncReceipt` sets transaction-local lock_timeout to 100ms only for advisory lock admission, then restores the caller’s setting. Database SQLSTATE 55P03 becomes a typed busy error, rolling back before receipt or progress state reads; the wrapper returns 503 / Retry-After: 1. Other errors propagate. The successful transaction still owns the account lock through commit, with a separate READ COMMITTED floor across all three streams. Sign-out retries hinted busy responses within its existing eight-second budget. Real load, outbox and sign-out tests below replace the withdrawn fail-fast approach. |
+| C7 / false red baseline              | CLEANUP.md now names **9d64cca**. **1f10c80 already contains the fix** through 8aa80bc. Its original report is preserved verbatim as CLEANUP.md.8b5adc2.txt; original failures and results were not relabelled.                                                                                                                                                                                                                                                                                                                                                                                                        |
+| C8 / stale exact-head claims         | The old A0–A8 handoff is explicitly historical, names subsequent cleanup changes and external execution at 8b5adc2, and no longer recommends its verifier as a current-head identity check. Fresh source/build metrics and receipts belong to this round.                                                                                                                                                                                                                                                                                                                                                              |
+| Supported unit runtime               | docs/development.md puts Node 22 CI and Node 26.3.1 with NODE_OPTIONS=--no-experimental-webstorage next to the prerequisites, with test/watch/quick commands and build-env loading. A fresh default Node 26 control reproduced 14 failures; the supported option passes all 814 final candidate tests. The original review's 807-test result remains attributed to 8b5adc2.                                                                                                                                                                                                                                            |
+| C2 — future tombstone retention      | Still disclosed, non-gating. A retained future logical receipt can prolong the tombstone's 365-day lifetime. No clamp, migration, clock change or data rewrite weakens the cursor floor.                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| C3 — history versus progress locks   | Still disclosed, non-gating. Progress uses the account sync key; history uses the per-book key. History's recordedAt ordering remains within its own lock. Existing multi-lock mutations use sync then tags; this round adds no second lock or lock-order inversion.                                                                                                                                                                                                                                                                                                                                                   |
+| C4 — A6 attribution/assertions       | The three A6 cases necessarily adapt to bounded admission: second writer must receive 503, the in-window pull must have empty book/playback/tombstone streams and an unchanged cursor, then an explicit retry after release must converge. A5's three future-stream cases pin the floor; A6 pins commit ordering. No claim that A6 alone kills a missing-floor mutation.                                                                                                                                                                                                                                               |
+| C5 — budget redundancy/future bucket | Still disclosed, non-gating. The 0/1/500ms parameterizations execute the same one-wait guard; the sum assertion follows from that guard. A 1ms-future saturated bucket fails the bound immediately. These are not additional independent coverage claims. No limiter/bucket/IP change was made.                                                                                                                                                                                                                                                                                                                        |
+| C6 — error property absence          | Still disclosed, non-gating. Property-absence assertions guard future additions to a plain Error; actual message assertions carry the diagnostic/redaction signal. They are not live driver fault probes.                                                                                                                                                                                                                                                                                                                                                                                                              |
+
+Admission is bounded by PostgreSQL's **100ms lock_timeout**, not a whole-request
+deadline. The setting applies only to acquiring the account advisory lock. A
+MATERIALIZED CTE captures the previous setting before changing it; success
+restores that setting before the floor read or writes, and timeout rolls the
+transaction back. The held-import fixture also proves the admitted transaction
+can wait on its separate row barrier for two seconds rather than accidentally
+inheriting 100ms for all its work. Lock timeout does not bound arbitrary query
+execution, pool checkout under unlimited load, or the already-admitted import.
+The production pool remains **10**. State/ownership/sequence/no-op decisions in
+progress remain serialized. Deleted/foreign-book and duplicate heartbeats may
+receive busy first; after release their ordinary 404/duplicate behavior returns.
+No in-process lock, lease, unsafe pre-lock state read, schema migration, global
+DB setting, larger pool or receipt-protocol change was introduced.
+
+The first fail-fast implementation is **withdrawn**: ordinary concurrent drains
+could receive 503 immediately. Its full browser run was red (70 passed, two
+failed, four unrun). The sign-out edit did not reach the server before purge;
+a separate persistent-outbox launch timed out. A deterministic held-import
+sign-out probe subsequently received one real hinted 503 then navigated to
+login without retrying. The final server tolerates brief contention and the
+sign-out drain retries that response at one-second intervals within its
+**existing eight-second** budget. It preserves request identity, stops scheduling
+when the budget/drain ends, and retains existing privacy purge and undelivered
+write reporting. Unit controls cover late replies after purge and unhinted 503;
+the real browser case pins two timed busy replies, retained outbox, eventual
+server title, and empty local outbox/active identity after sign-out.
+
+Ordinary background replay still retains 5xx writes and retries on mount or
+reconnect, rather than scheduling from Retry-After; player transport actions and
+heartbeats still send current state. A paused app can retain a write until its
+next mount/reconnect. Continuous same-account contention has no fairness or
+unlimited-load delivery guarantee. If sign-out's budget expires, undelivered
+writes are reported and account data is purged as before. These tests demonstrate
+finite-load recovery, not an unlimited-load SLA. Mixed server versions/direct DB
+writers and recovery of edits already missed by old servers remain outside the
+receipt-ordering guarantee.
+
+### Contention experiment and browser boundaries
+
+`tests/sync/account-contention.spec.ts` holds a real HTTP metadata import on a
+new, uncommitted disposable book primary key, **after** the server acquired its
+receipt lock. The fixture rolls back that one PK to release the import normally.
+It creates no trigger, global table lock, database reset or clock change. SQL
+`pg_blocking_pids` proves the import reached the barrier and samples competing
+waiter counts and (on the final candidate) oldest blocked-query age about every 50ms for a **fixed two-second** load window. It does not wait
+until results look green. Thirty-two simultaneous progress requests include
+eight each of normal saves, duplicates, missing books and another account's
+book; eight unrelated-account requests include seven reads and one saved
+progress write, through the **same production pool**. The first red version had
+eight peer reads; its preserved follow-up adds the peer write for the final
+comparison. Both red outcomes remain.
+
+All 32 intents get one explicit API retry after barrier release; statuses,
+latencies, duplicate handling, owner isolation, peer position and incremental
+book/progress delivery are asserted. The separate real WebKit player case
+imports an actual generated MP3, moves the real slider, receives the real 503,
+inspects the production IndexedDB outbox, closes/reopens the tab, and inspects
+that same pending intent on a no-app 404 before mounting Hark. The shipping
+mount hook delivers it with no driver replay, queue fabrication, synthetic
+online event, fake response or media restoration. The raw incremental stream,
+server position/sequence, import-before-progress receipt ordering, empty settled
+outbox, media range **206/1024 bytes** and measured decoder advancement are
+asserted. The driver is read-only in this case. Different device sequence numbers
+are permitted only if the real departing pagehide write coalesces the same
+payload; the retained payload must equal the original and the accepted sequence
+must match the retained row.
+
+The first candidate command was **red: one load pass, one player failure**.
+Outbox survival and server recovery passed, but the additional
+`setOffline(true) → close last tab → setOffline(false)` transition left WebKit
+Cache Storage entries present with unreadable bodies. The diagnostic captured
+`NotReadableError: The I/O read operation failed` from the service worker and
+`NotSupportedError` from the delegated play() promise. The unchanged diagnostic
+passed in Chromium. Removing only that unnecessary offline toggle passed in
+WebKit; the held server transaction already rejects any departing keepalive.
+The final test retains all media/position checks and closes/reopens the tab with
+the network up. This tests server-busy recovery. The offline-toggle/WebKit
+experiment remains a **failed capability observation**, not a product fix or
+physical-device pass; ordinary offline flows have their own retained coverage.
+
+Diagnostic wrappers around HTMLMediaElement.play delegated the original and
+recorded promise outcomes. They were removed from the final test; exact source
+copies and all raw controls remain. Its early diagnostic media probe had an
+empty src and therefore fetched the document (200/14,890 bytes); that is **not**
+a media proof. Only the after-play /offline-media range and final asserted
+206/1024 results are media evidence. No failed artifact was replaced.
+
+### Failed attempts and diagnosis retained in this round
+
+Raw prefixes below are under `.data/objective/contention-fixes/`; each has an
+exact-command JSON receipt and unedited combined `.log` output.
+
+| Prefix                                                          | Exact outcome and attribution                                                                                                                                                                                                                                                                                                                                                    |
+| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `baseline-quick`                                                | Clean 8b5adc2 baseline; exit 0, 807 units / 90 files and complete quick gate, 31.910s.                                                                                                                                                                                                                                                                                           |
+| `contention-baseline`                                           | Exit 1, one red load case; original eight-peer-read composition, 2,037.458ms held, nine lock waiters, zero requests completed before release.                                                                                                                                                                                                                                    |
+| `contention-baseline-with-peer-write`                           | Exit 1, one red load case with the final 32 progress + seven peer reads + one peer write composition. 2,031.418ms held, nine waiters, zero of 40 finished before release. This is the matched load baseline.                                                                                                                                                                     |
+| `unit-node26-default`                                           | Exit 1: 14 failed / 795 passed, four failed / 87 passed files (809 cases). Default Node 26.3.1 localStorage setup failure reproduced; not a product pass.                                                                                                                                                                                                                        |
+| `targeted-unit`                                                 | Exit 0, 124 focused units / five files for the first strategy.                                                                                                                                                                                                                                                                                                                   |
+| `quick-candidate-1`, `quick-candidate-2`                        | Exit 0, 809 units / 91 files plus complete quick gates (33.080s / 33.671s). Sources 51a6916 / c079982; these passes did not imply browser acceptance.                                                                                                                                                                                                                            |
+| `contention-candidate-1`                                        | Exit 1, one load pass / one player media failure; outbox and server recovery succeeded but the offline-toggle decoder failed.                                                                                                                                                                                                                                                    |
+| `player-diagnostic`                                             | Exit 1, WebKit media-body/control failure described above.                                                                                                                                                                                                                                                                                                                       |
+| `player-chromium-control`, `player-webkit-online-close-control` | Exit 0, one case each. Chromium handled the extra offline transition; WebKit handled the server-busy case with the network left up. Diagnostic wrappers are disclosed above.                                                                                                                                                                                                     |
+| `receipt-and-recovery-candidate-1`                              | Exit 0, five cases. The grep matched load/player and three A6 cases, **not** A5; the later explicit `account receipts` runs cover A5.                                                                                                                                                                                                                                            |
+| `parity-sync-candidate-2`                                       | Exit 1, 70 passed / two failed / four unrun, 239.338s at c079982. Sign-out queued rename absent on server after purge; persistent outbox relaunch timed out at data-launch-ready. Neither is retroactively marked green.                                                                                                                                                         |
+| `persistent-outbox-diagnostic`                                  | Exit 0, one case, 8.506s on unchanged c079982 application. Added read-only response/page-error/request-failure/DOM/IDB observation did not reproduce the timeout. Two genuine 503 responses were observed; readiness still completed. No proven timeout root cause was established. Observer source snapshot and raw evidence remain; the observer was removed from final tests. |
+| `signout-busy-red`                                              | Exit 1. Invalid busy baseline: edit could reach server before the barrier; one 200 / zero busy replies.                                                                                                                                                                                                                                                                          |
+| `signout-busy-red-barrier-first`                                | Exit 1. Invalid setup expectation: settings has no guaranteed background replay; attempts stayed zero before sign-out was clicked.                                                                                                                                                                                                                                               |
+| `signout-busy-red-drain`                                        | Exit 1, valid held-import reproduction at c079982: UI sign-out receives one 503 / Retry-After: 1 then reaches login, without retrying.                                                                                                                                                                                                                                           |
+| `admission-revision-unit`                                       | Exit 0, 113 units / five files. The extra progress-persister path argument matched no file; the full quick gates cover the complete suite.                                                                                                                                                                                                                                       |
+| `quick-candidate-3`, `contention-candidate-3`                   | Exit 0: 814 units / 92 files and full quick gate (33.853s); nine real WebKit cases (27.224s), including six floor/order cases, load, player recovery, sign-out retry. App source f603590.                                                                                                                                                                                        |
+| `parity-sync-candidate-3`                                       | Exit 1, 76 passed / one failed, 314.672s. Sign-out assertions passed (503, 503, 200; title stored and local state purged); fixture reauthentication's real limiter wait of about 50s exceeded the overall 45s test timeout. 5ce2afa raises only that fixture budget to 90s; the 8s application wait and all admission/load limits remain unchanged.                              |
+
+The persistent-outbox timeout is **not proven fixed by the admission change**:
+the diagnostic passed before that change, and final results below stand on their
+own. Neither broad retries nor longer readiness assertions were added to that
+test. The WebKit offline-toggle media-body failure remains a separate disclosed
+harness/browser observation, not an asserted physical-iPhone result.
+
+All five prior sealed manifests still retain their 1,322 artifacts. This round's
+unique command receipts, failure artifacts and screenshots remain intact. One
+new-round retention limitation is explicit: the three **successful** parity
+screenshots emitted by c079982 to inherited `test-results/evidence/` were
+overwritten by the next parity command before archival. Their pixels cannot be
+claimed as preserved evidence. The f603590 versions were copied to
+`parity-candidate-3-shared-screenshots/`. 5ce2afa changes that harness to use each
+test's output directory, so subsequent fresh `--output` roots retain separate
+assertion-gated captures. No historical failure receipt was replaced or deleted.
+
+### Final source cost (separate from browser timing)
+
+`docs/evidence/contention-fixes-source.json` summarizes the SHA256-linked raw
+`baseline-source.json` and `source-final.json`. Same unchanged measurement script
+and scope in both: authored src TS/TSX excluding tests plus public/sw.js;
+TypeScript token-occupied code lines; ESLint classic cyclomatic complexity per
+function (including short-circuit/optional paths). CSS, tests/harness and generated
+Drizzle snapshots are counted separately. No minified/generated code is counted
+as application LOC or application complexity.
+
+| Scope                                    | Round baseline 8b5adc2 |          Final 5ce2afa |
+| ---------------------------------------- | ---------------------: | ---------------------: |
+| App files                                |                    180 |                    180 |
+| App physical / token-occupied code lines |        27,365 / 23,290 |        27,422 / 23,338 |
+| App functions / complexity sum           |          1,748 / 5,456 |          1,751 / 5,475 |
+| Max complexity / functions above 10      |                70 / 79 |                70 / 79 |
+| Tests and harness files                  |                    135 |                    138 |
+| Tests physical / code lines              |        37,618 / 34,128 |        38,221 / 34,713 |
+| CSS physical / code lines                |          3,149 / 2,645 |          3,149 / 2,645 |
+| Generated Drizzle JSON physical lines    |                 58,251 |                 58,251 |
+| All static JS/CSS/WASM files             |                     60 |                     60 |
+| All static bytes / gzip bytes            | 28,540,585 / 7,555,842 | 28,540,827 / 7,555,948 |
+
+The 48 additional app code lines and 19 complexity points implement bounded
+admission/error mapping and the existing-budget sign-out retry. The static bundle
+adds 242 raw / 106 gzip bytes. These totals include lazy assets and are **not an
+initial download measurement**. Original 0e1f17e scope remains 23,950 app code
+lines / 5,623 complexity; original browser startup/import/narration/heap results
+remain attributed to be79d4e / snapshot4964071. No earlier timing was relabelled
+as a measurement of this source.
+
+### Reproduction and verification boundaries
+
+The production launcher uses `.env.test` and the repository's local-DB guard;
+only this checkout's verified :3000 process is managed. Browser commands use
+`PLAYWRIGHT_BROWSERS_PATH=.data/objective/browsers HARK_REUSE_SERVER=1
+NODE_OPTIONS=--no-experimental-webstorage` with the existing Playwright config.
+The fixed reusable account/IP fixtures retain real auth rate limits. No signup
+bucket reset, fake 503 route, live-library fixture, global MCP change, SQL trigger,
+DB/host clock adjustment or new pool is used by the contention tests.
+
+Full quick reproduction (after the disposable local DB/env prerequisites in
+docs/development.md):
+
+```sh
+NODE_OPTIONS=--no-experimental-webstorage node --env-file=.env.test scripts/record-check.mjs .data/recheck-quick pnpm verify:quick
+```
+
+Use a fresh output prefix for each invocation. A build replaces local .next
+artifacts; stop/restart only the verified owned test server and establish new
+served provenance before interpreting browser results. Do not reuse the current
+handoff verifier against a changed application or test harness. Original browser
+benchmark data is historical; current source costs and targeted receipt latency
+are separate measurements.
+
+The selected resume cases exercise pagehide, navigation/renderer kill, paused
+write rates, rewind/outbox recovery and stale-device arbitration. The existing
+WebKit oracle treats an ephemeral context as disk and kills only its renderer;
+it may restore snapshotted Cache Storage media bytes and restore cookies only
+when its independent sentinel and a still-active server session prove harness
+loss. Position/sequence/outbox witnesses are not fabricated. Therefore those
+rows establish position persistence, **not** independent media-byte persistence
+or physical iOS suspension behavior. The new contention player case does not
+restore media or cookies and independently asserts actual decoder/range recovery.
+
+### Measured contention and ordinary-write cost
+
+Matched red baseline: `contention-baseline-with-peer-write`, served 8b5adc2.
+Final rows: `parity-sync-final` plus the two fixed iterations in
+`contention-repeat-final`, all served 5ce2afa. The exact same forty-request
+composition is used, with fresh scoped book IDs and the same account fixtures.
+
+| Observation                                                 |               Red 8b5adc2 |           Final full gate |            Final repeat 1 |            Final repeat 2 |
+| ----------------------------------------------------------- | ------------------------: | ------------------------: | ------------------------: | ------------------------: |
+| Fixed import barrier held (ms)                              |                 2,031.418 |                 2,045.828 |                 2,006.180 |                 2,035.852 |
+| Requests completed before release                           |                    0 / 40 |                   40 / 40 |                   40 / 40 |                   40 / 40 |
+| Maximum progress response (ms)                              |                 2,210.918 |                   884.316 |                   906.278 |                   872.422 |
+| Maximum unrelated-account response (ms)                     |                 2,199.190 |                   824.507 |                   839.994 |                   785.810 |
+| Busy progress responses before release                      |                         0 |                  32 × 503 |                  32 × 503 |                  32 × 503 |
+| Unrelated-account successes                                 | Eight, only after release | Eight 200s before release | Eight 200s before release | Eight 200s before release |
+| Maximum sampled advisory waiters                            |                         9 |                         9 |                         9 |                         9 |
+| Oldest sampled blocked-query age (ms)                       |               Not sampled |                    86.599 |                    97.868 |                    98.216 |
+| Approximate waiter connection-ms                            |                14,140.809 |                 3,055.061 |                 3,528.003 |                 3,528.922 |
+| Approximate waiter share of ten-connection pool over window |                    69.61% |                    14.93% |                    17.59% |                    17.33% |
+
+The waiters **are not eliminated**: up to nine briefly coexist beside the held
+import. PostgreSQL times them out and returns the shared connections; final
+samples end with zero waiters while the import is still held. The observed
+100ms admission bound differs from total HTTP latency (auth, checkout, queries,
+network). The pool percentages are a ~50ms left-Riemann sample of advisory
+waiters only; they exclude the admitted import, active queries, pool checkout
+queue and inter-sample peaks. `summarize-contention.py` reproduces these values
+from the raw JSON, including every withdrawn/failed experiment. This is finite
+concurrent-load evidence, not a fairness or unlimited-load SLA.
+
+The real player cases retain the exact queued payload across tab closure and
+recover through the shipping mount hook. The sign-out cases get two hinted busy
+responses spaced over one second apart, then a 200 after barrier release and a
+server title matching the queued edit before local purge. Both remain covered
+in the two consecutive final iterations. A5's three future-stream cases and
+A6's three commit-order cases pass in both iterations; the final incremental
+cursor does not skip the delayed write. API recovery also confirms owner
+isolation, duplicate semantics and the peer's independent 24,000ms position.
+
+Same `scripts/measure-sync-receipts.mjs`, five warmups + thirty sequential saved
+progress requests, before/after on the existing disposable sync fixture:
+
+| API-only warm-write probe | 8b5adc2 | 5ce2afa |
+| ------------------------- | ------: | ------: |
+| Median (ms)               |   9.256 |  10.060 |
+| p95 (ms)                  |  12.099 |  11.404 |
+
+Raw data and EXPLAIN plans: `baseline-write-cost-data.json` and
+`receipt-write-cost-final-data.json`. Admission adds two SQL setting queries;
+the observed median cost is about 0.804ms. The lower p95 is not claimed as a
+speedup. Fixture rows evolve across the real browser suites, and host/cache
+noise is not controlled beyond the same local server/probe and no simultaneous
+browser/build during the probe. This is neither browser input latency nor a new
+startup, narration or memory benchmark.
+
+The final server log contains four history receipt FK failures (23503) while
+the deletion suites ran, plus expected invalid-auth warnings from auth controls.
+`history-log-diagnosis` is a read-only, local-guarded check: all four referenced
+book IDs are absent after the run, with no retained tombstone. This is consistent
+with fixture reset/deletion races, but the post-run check does **not** establish
+which concurrent request caused each one. The same class appeared in c079982's
+log. No retained-workflow assertion failed on final source; no claim of an
+error-free server log or of a C3 history-lock repair is made. C3 remains a
+non-gating disclosure rather than an invented additional mandatory workstream.
+
+### Final checks and retained coverage
+
+All rows below serve **5ce2afa / lbshWvFmKMLHCK55RlWx6** on owned :3000.
+Exact argv, host, start/end, elapsed and exits are in the named raw receipt JSON;
+all original red outcomes above remain red.
+
+| Check / raw prefix                                                          | Result                                                                                                                          |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `quick-final` — pnpm verify:quick with documented Node option and .env.test | Exit 0; **814 units / 92 files**, format, lint, types, production build; **33.241s**.                                           |
+| `provenance-final`                                                          | Exit 0; source commit, root/standalone build IDs, process cwd, HTML build marker, **65 served/disk asset hashes**.              |
+| `parity-sync-final` — full parity + sync projects                           | Exit 0; **33 parity + 44 sync = 77/77**, **318.803s**, real auth budget waits included.                                         |
+| `iphone-final` — full retained iphone-webkit project                        | Exit 0; **8/8**, **113.197s**, including the real 62s sign-in budget wait.                                                      |
+| `contention-repeat-final` — explicit ten-case selection, repeat-each=2      | Exit 0; **20/20**, **62.408s**; two consecutive iterations, no retry-until-green loop.                                          |
+| `resume-final` — eight selected resume-durability cases                     | Exit 0; **8/8**, **199.395s**. Raw rows: resume-final-rows.jsonl. Full resume matrix and physical T1 suspension were not rerun. |
+| `receipt-write-cost-final`, `source-final-check`                            | Exit 0; fresh thirty-sample API probe / current-source LOC, complexity and bundle measurements above.                           |
+| `historical-preservation-final`                                             | Exit 0; all **1,322** files in five prior manifests retain size and SHA256.                                                     |
+
+| Retained workflow / state                                                                                                                                                                                     | Final coverage                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Account import contention, valid/duplicate/missing/foreign progress, unrelated-account read/write availability                                                                                                | New held-import load case, once in full sync and twice consecutively; real DB barrier and HTTP; explicit API recovery, ownership and receipt assertions.                                                                      |
+| Progress outbox survives server busy, tab closure, relaunch and later playable media                                                                                                                          | New real WebKit player case in all three final iterations; real slider/request/503/IDB, mount replay, position/sequence, 206 range and decoder advancement.                                                                   |
+| Busy sign-out edit delivered before privacy purge                                                                                                                                                             | New UI case in all three final iterations; two actual 503s one second apart, eventual 200/title in server, empty outbox and active identity. Full parity also exercises account switch, late replies and peer-tab revocation. |
+| Future cursor floor and transaction commit order                                                                                                                                                              | Six A5/A6 cases in full sync plus two consecutive iterations; empty in-window pull, unchanged cursor, incremental visibility after release.                                                                                   |
+| Persistent outbox, offline edits, tags, archive, collection membership, two-device clocks/conflicts, reattachment and permanent deletion                                                                      | Full 44-case sync project including twelve deterministic fuzz seeds; persistent-outbox case also passes both targeted iterations.                                                                                             |
+| Online/offline library, missing audio, player navigation, different book playing while missing book browsed/deleted                                                                                           | Full 33-case parity project; per-run assertion-gated screenshots now retained.                                                                                                                                                |
+| MP3 and document import/narration, progress/cancellation, completed playback, chapters/speed/skips/timer/rewind/history/transcripts, organization, collections/autoplay, export/deletion, diagnostic settings | Full eight-case retained WebKit project; detailed existing scenario coverage remains in prior matrices.                                                                                                                       |
+| Loading/empty/unreachable/recovery, committed-attachment cancellation without autoplay, normal collection autoplay, account fixture diagnostics and cross-origin privacy positive control                     | Full retained WebKit project, including loopback wire observations with the documented Blob/SW capture limits.                                                                                                                |
+
+Screenshots are under each final command's artifact root. Representative visual
+checks opened `parity-sync-final-artifacts/account-contention-the-rea-8a6c3--and-replays-it-on-relaunch-sync/recovered-player.png`
+(actual player showing Pause at five seconds) and
+`parity-sync-final-artifacts/account-contention-sign-ou-c4c97-drain-budget-before-purging-sync/signout-delivered.png`
+(login after the asserted server save and local purge). The matching JSON holds
+the measured advancement/range or busy/accepted responses; a screenshot alone
+is not used as proof of those properties.
+
+No new warm-launch/startup/heap benchmark was run for this server-admission
+change; original timing attribution is preserved. This round ran eight selected
+resume rows, not the entire resume matrix. Physical iPhone suspension remains
+unverified. The historical isolated outbox readiness timeout, WebKit
+extra-offline-toggle media failure, server history FK messages, and three lost
+intermediate **successful** shared-path screenshots are disclosed above. Final
+passing receipts establish their own executed cases without erasing these limits.
+
+### Handoff and bounded supervisor checks
+
+`docs/evidence/contention-fixes-artifacts.json` seals this round's **364 files /
+37,747,148 bytes** of immutable raw receipts and captures; active server output is represented by frozen copies.
+The command index is `.data/objective/contention-fixes/command-outcomes.json`.
+Post-seal outcomes, including the final documentation commit and clean HEAD, live
+outside that sealed root under `.data/objective/contention-fixes-postseal/`.
+The final application and harness remain identical to served 5ce2afa. C7 is
+corrected in CLEANUP.md; this implementer did not run the supervisor cleanup
+gate or launch an independent reviewer.
+
+Recommended bounded, read-only checks for the supervisor (fresh prefixes for
+any redirected output):
+
+```sh
+git status --short
+git diff --check 8b5adc2..HEAD
+git diff --stat 8b5adc2..HEAD
+python3 .data/objective/contention-fixes/check-historical-artifacts.py
+python3 .data/objective/contention-fixes/check-artifacts.py
+node .data/objective/contention-fixes/verify-final-handoff.mjs final
+```
+
+The last verifier requires the current served build and a clean tree, compares
+app/harness identity against 5ce2afa, and allows only documentation differences.
+If cleanup changes source or rebuilds .next, establish new provenance and run
+checks appropriate to that exact source rather than reusing this receipt. This
+handoff pauses for authorized supervisor cleanup and independent changed-area
+review; no reviewer, publication, board action, native goal or extra writer was
+started here. Runtime model/effort remain unobservable (requested Astra max).
