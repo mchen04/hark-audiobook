@@ -48,5 +48,35 @@
     "diskBuildId": "xuHsYbWiBCbTVkih8R3_Q",
     "note": "Source measured clean before any edit. All-static bundle costs from cleanup build on disk; not a browser timing or stale-server claim."
   },
-  "originalBenchmark": "be79d4e / source snapshot 4964071; no startup/import/heap timing rerun or relabelling in this bounded sign-out round"
+  "originalBenchmark": "be79d4e / source snapshot 4964071; no startup/import/heap timing rerun or relabelling in this bounded sign-out round",
+  "postSealProvenanceCorrection": {
+    "note": "Four original per-asset payloads were overwritten by command-receipt filename collisions before sealing; old outcomes retained. Fresh final live/disk verification is separate.",
+    "files": [
+      {
+        "file": ".data/objective/signout-followup-postseal/verify-handoff.mjs",
+        "bytes": 2726,
+        "sha256": "9fe970e4c065688decaf2ad9593e0fa98b3caf353b220b2a1326595ca941ceb4"
+      },
+      {
+        "file": ".data/objective/signout-followup-postseal/provenance-collision-diagnosis.json",
+        "bytes": 1565,
+        "sha256": "8e10ce1a2dacb56581c3b4ddfc40d0218cb368ebe2f6abd91bb9fac4efb4f80c"
+      },
+      {
+        "file": ".data/objective/signout-followup-postseal/served-payload-recovered.json",
+        "bytes": 10447,
+        "sha256": "e835ce1216a4d2f6581e7153baeaecb96f29450009011caf90b726953477893c"
+      },
+      {
+        "file": ".data/objective/signout-followup-postseal/provenance-recovered.json",
+        "bytes": 435,
+        "sha256": "33a41c5900b9ca157da1cfd6422d90f5dc927ec9a6a52242f2c16975f48f7a31"
+      },
+      {
+        "file": ".data/objective/signout-followup-postseal/provenance-recovered.log",
+        "bytes": 589,
+        "sha256": "6c7fc964eabef4e6e0320e45bf0a7fad79fef986a5bf29552409faba4378eeac"
+      }
+    ]
+  }
 }

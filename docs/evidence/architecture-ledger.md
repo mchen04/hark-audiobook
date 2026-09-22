@@ -2201,7 +2201,7 @@ git diff --check 33f4ccd..HEAD
 git diff --stat 33f4ccd..HEAD
 python3 .data/objective/signout-followup/check-historical-artifacts.py
 python3 .data/objective/signout-followup/check-artifacts.py
-node .data/objective/signout-followup/verify-final-handoff.mjs verified
+node .data/objective/signout-followup-postseal/verify-handoff.mjs supervisor-fresh-label
 ```
 
 The new handoff verifier permits documentation-only differences from served
@@ -2214,3 +2214,25 @@ not independently observable; the requested setting remains Astra max.
 Implementation is paused for the authorized bounded supervisor cleanup and
 independent changed-area review. Neither was launched here. Michael's approval
 is preserved; no publication or board action occurred.
+
+### Post-seal provenance correction
+
+The first clean-handoff command at **7df793d8** failed: the provenance helper's
+`served-LABEL.json` output name collided with `record-check`'s command-outcome
+name. The recorder wrote last. Four successful intermediate **per-asset digest
+lists** (`baseline-ready`, `final`, `baseline-control`, `verified`) were therefore
+overwritten **before** sealing. Their successful check logs/counts, exact command
+outcomes and server source/build metadata remain; the original full digest lists
+are lost and are not claimed preserved. Every red receipt and all 1,686 older
+sealed artifacts are intact. This additional retention loss is disclosed rather
+than relabeling the sealed files.
+
+`signout-followup-postseal/provenance-collision-diagnosis.json` records the cause.
+The corrected post-seal helper reads the retained **server** metadata and writes
+an exclusive `served-payload-LABEL.json`; its command prefix is separately named
+`provenance-LABEL`. It freshly verifies the clean tree, application/harness
+identity to e510ffb1, owned :3000 listener/cwd, build/HTML marker and every live/disk
+asset hash. `provenance-recovered` passed with **65 hashes** at 7df793d8; a fresh
+`provenance-final` receipt records the final documentation head. The old sealed
+helper and files remain unchanged as historical evidence. Use the corrected
+command above with a new label for subsequent read-only supervisor checks.
