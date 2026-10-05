@@ -70,6 +70,9 @@ ordering tokens, not listening times.
   cache metadata, and the library mirror. Mirror keys include account identity;
   multirow stores have user indexes for scoped reads and purge. Version 7 adds
   stores without replacing existing downloads.
+  Sync writes each book's chapters as one row: the first chapter, carrying the
+  rest. Readers also accept older one-row-per-chapter data. The version stays
+  at 7, so a previous build can still open the database.
 - `chapterline-sync-v1`, version 5: durable mutations and per-book device sequence
   counters. Migration scopes sequence keys by account without lowering counters;
   the legacy bare-key fallback remains for rows without safe attribution.

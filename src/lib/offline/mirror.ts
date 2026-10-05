@@ -17,14 +17,13 @@ import {
 
 import {
   database,
-  mirrorChapterKey,
   mirrorKey,
   mirrorKeyTail,
   mirrorPrefixRange,
+  packMirrorChapters,
   unpackMirrorChapters,
   type MirrorBook,
   type MirrorBookTag,
-  type MirrorChapter,
   type MirrorCollection,
   type MirrorCollectionBook,
   type MirrorListeningSession,
@@ -201,15 +200,6 @@ async function writeBookAggregates(
           : null,
         searchText: searchTextFor(book),
       };
-      const chapterRows: MirrorChapter[] = book.chapters.map((chapter) => ({
-        key: mirrorChapterKey(userId, book.id, chapter.position),
-        userId,
-        bookId: book.id,
-        position: chapter.position,
-        title: chapter.title,
-        startMs: chapter.startMs,
-        endMs: chapter.endMs,
-      }));
       const edgeRows: MirrorBookTag[] = book.tagIds.map((tagId) => ({
         key: mirrorKey(userId, book.id, tagId),
         userId,
@@ -218,7 +208,7 @@ async function writeBookAggregates(
       }));
       return [
         store.put(record),
-        ...chapterRows.map((chapter) => chapters.put(chapter)),
+        ...packMirrorChapters(userId, book.id, book.chapters).map((row) => chapters.put(row)),
         ...edgeRows.map((edge) => bookTags.put(edge)),
       ];
     }),
