@@ -159,10 +159,8 @@ export function toDeviceState(snapshot: MirrorSnapshot): DeviceState {
   );
 
   const chapterCounts = new Map<string, number>();
-  // A packed row holds its book's later chapters too.
   for (const chapter of snapshot.chapters) {
-    const held = 1 + (chapter.laterChapters?.length ?? 0);
-    chapterCounts.set(chapter.bookId, (chapterCounts.get(chapter.bookId) || 0) + held);
+    chapterCounts.set(chapter.bookId, (chapterCounts.get(chapter.bookId) || 0) + 1);
   }
 
   const tagsByFingerprint = new Map<string, Set<string>>();
