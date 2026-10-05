@@ -129,6 +129,10 @@ plus whole-account tag/collection/preference snapshots and recent sessions.
 The mirror applies a batch and its cursor in one IndexedDB transaction. An
 interrupted apply re-fetches the batch instead of advancing ahead of data.
 Deletion is an explicit tombstone; absence is not proof of deletion.
+Final pages also carry the complete list of the account's book ids. A device
+that sends a digest of its own book ids (`liveBooks`) receives `null` there
+when the sets already match, because that list would delete nothing. Clients
+without the digest always receive the list.
 
 ## 7. Conflict resolution
 

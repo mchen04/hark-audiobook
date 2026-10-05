@@ -12,6 +12,7 @@ import {
   applyPullBatch,
   getSyncMeta,
   healMirrorPlaybackFromLocal,
+  localLiveBookDigest,
   readMirrorLibrary,
 } from "@/lib/offline/mirror";
 import { isPullBatch } from "@/lib/offline/sync-protocol";
@@ -404,9 +405,15 @@ async function pull(userId: string): Promise<PullOutcome> {
     // may omit them there. Bundles that predate the gate never send it and
     // keep receiving snapshots on every page.
     const since = meta?.cursor ? `&since=${encodeURIComponent(meta.cursor)}` : "";
+    // The digest of this device's book ids lets the server skip the complete id
+    // list when that list would delete nothing here.
+    const digest = await localLiveBookDigest(userId).catch(() => null);
+    const liveBooks = digest ? `&liveBooks=${digest}` : "";
     let response: Response;
     try {
-      response = await fetch(`/api/sync/pull?snapshots=final${since}`, { cache: "no-store" });
+      response = await fetch(`/api/sync/pull?snapshots=final${since}${liveBooks}`, {
+        cache: "no-store",
+      });
     } catch {
       return "unreachable";
     }

@@ -21,6 +21,8 @@
   writes during the retry wait.
 - Document narration renders each chunk's audio while the next chunk is
   synthesized. Narrated audio is unchanged; long documents finish sooner.
+- Background sync skips resending the full book-id list when the device already
+  holds the same books, which shrinks routine syncs for large libraries.
 - Setup, architecture, operations, and testing docs describe the current app.
   Generated implementation/review reports are no longer shipped as reader docs.
 

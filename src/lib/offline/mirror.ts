@@ -8,6 +8,7 @@ import {
 import { selectContinueBook, type LibraryBook } from "@/domain/library";
 import type { PlayerBook } from "@/domain/player";
 import { notifyLibraryChanged } from "./library-revision";
+import { liveBookDigest } from "./live-book-digest";
 import type { MediaFingerprintKind } from "@/lib/media-fingerprint";
 import { listLocalPlaybackStates } from "@/lib/playback-core";
 import {
@@ -638,6 +639,13 @@ function momentOf(isoTimestamp: string | null | undefined): number {
 
 function laterClock(left: string, right: string): string {
   return Date.parse(left) >= Date.parse(right) ? left : right;
+}
+
+/** The digest of the book ids this device holds for one account; see `live-book-digest.ts`. */
+export async function localLiveBookDigest(userId: string): Promise<string> {
+  const db = await database();
+  const keys = await db.getAllKeysFromIndex("books", "by-user", userId);
+  return liveBookDigest(keys.map(mirrorKeyTail));
 }
 
 /** One coherent account snapshot per library refresh. Filters need no IDB reads. */

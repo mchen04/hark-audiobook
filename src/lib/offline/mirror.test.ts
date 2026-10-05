@@ -23,8 +23,10 @@ import {
   getMirrorPlayerBook,
   getSyncMeta,
   healMirrorPlaybackFromLocal,
+  localLiveBookDigest,
   purgeUser,
 } from "./mirror";
+import { liveBookDigest } from "./live-book-digest";
 import type { PullBatch, PulledBook } from "./sync-protocol";
 
 // Helpers stay in the oracle: production uses one read for all three views.
@@ -989,5 +991,24 @@ describe("scale", () => {
     // Three full passes over a thousand books; a per-row IndexedDB lookup
     // would be orders of magnitude slower than this ceiling.
     expect(elapsed).toBeLessThan(1_000);
+  });
+});
+
+describe("localLiveBookDigest", () => {
+  it("matches the server's digest of the same ids and changes with a local-only book", async () => {
+    await applyPullBatch(USER_A, batch({ books: [book("book-1"), book("book-2")] }));
+    await applyPullBatch(USER_B, batch({ books: [book("book-b")] }));
+    const serverDigest = await liveBookDigest(["book-2", "book-1"]);
+
+    expect(await localLiveBookDigest(USER_A)).toBe(serverDigest);
+
+    const db = await database();
+    await db.put("books", {
+      ...(await db.get("books", `${USER_A}:book-1`))!,
+      key: `${USER_A}:orphan`,
+      bookId: "orphan",
+    });
+    db.close();
+    expect(await localLiveBookDigest(USER_A)).not.toBe(serverDigest);
   });
 });
