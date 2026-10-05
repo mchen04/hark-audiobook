@@ -170,24 +170,44 @@ async function importLocalDocumentWithinFence(
         const remaining = formatRemainingNarration(meter.remainingMs());
         return remaining ? `${stage} · ${remaining}` : stage;
       };
+      const stageFor = (chapterIndex: number) =>
+        `Narrating chapter ${chapterIndex + 1} of ${narrationUnits.length} on this device`;
+      // The whole document as one ordered list of requests. The next one is
+      // queued before this one is saved, so Kestrel never waits on the encoder.
+      const requests = narrationUnits.flatMap((unit, chapterIndex) =>
+        unit.chunks.map((text) => ({ text, chapterIndex })),
+      );
+      let queuedCharacters = 0;
+      const requestSynthesis = (index: number) => {
+        const { text, chapterIndex } = requests[index]!;
+        const baseCharacters = queuedCharacters;
+        queuedCharacters += text.length;
+        const synthesis = engine.synthesize(text, seedFor(fingerprint, index), (progress) => {
+          if (progress.stage !== "speech") return;
+          const narrated = baseCharacters + text.length * progress.fraction;
+          onProgress(
+            25 + Math.round((narrated / totalCharacters) * 66),
+            withRemaining(stageFor(chapterIndex)),
+          );
+        });
+        // Awaited in order below; cancellation rejects requests still queued.
+        synthesis.catch(() => undefined);
+        return synthesis;
+      };
+      let nextSynthesis = requests.length ? requestSynthesis(0) : null;
+      let chunkStartedAt = Date.now();
       for (let chapterIndex = 0; chapterIndex < narrationUnits.length; chapterIndex += 1) {
         throwIfAborted(signal);
         const unit = narrationUnits[chapterIndex]!;
         const chapterStart = totalSamples;
         for (const text of unit.chunks) {
           throwIfAborted(signal);
-          const baseCharacters = completedCharacters;
-          const chunkStartedAt = Date.now();
-          const stage = `Narrating chapter ${chapterIndex + 1} of ${narrationUnits.length} on this device`;
-          const synthesis = await engine.synthesize(
-            text,
-            seedFor(fingerprint, synthesisIndex++),
-            (progress) => {
-              if (progress.stage !== "speech") return;
-              const narrated = baseCharacters + text.length * progress.fraction;
-              onProgress(25 + Math.round((narrated / totalCharacters) * 66), withRemaining(stage));
-            },
-          );
+          const stage = stageFor(chapterIndex);
+          const current = nextSynthesis!;
+          synthesisIndex += 1;
+          nextSynthesis =
+            synthesisIndex < requests.length ? requestSynthesis(synthesisIndex) : null;
+          const synthesis = await current;
           throwIfAborted(signal);
           if (synthesis.sampleRate !== KESTREL_SAMPLE_RATE || !synthesis.audio.length) {
             throw new Error("The narration engine returned invalid audio.");
@@ -196,6 +216,7 @@ async function importLocalDocumentWithinFence(
           totalSamples += synthesis.audio.length;
           completedCharacters += text.length;
           meter.record(text.length, Date.now() - chunkStartedAt);
+          chunkStartedAt = Date.now();
           onProgress(
             25 + Math.round((completedCharacters / totalCharacters) * 66),
             withRemaining(stage),

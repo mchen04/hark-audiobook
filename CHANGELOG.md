@@ -19,6 +19,8 @@
   bounded lock admission. Retryable server-busy writes remain queued; sign-out
   can retry within its existing drain budget without blocking terminal progress
   writes during the retry wait.
+- Document narration renders each chunk's audio while the next chunk is
+  synthesized. Narrated audio is unchanged; long documents finish sooner.
 - Setup, architecture, operations, and testing docs describe the current app.
   Generated implementation/review reports are no longer shipped as reader docs.
 
