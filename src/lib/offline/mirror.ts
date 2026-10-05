@@ -21,6 +21,7 @@ import {
   mirrorKey,
   mirrorKeyTail,
   mirrorPrefixRange,
+  unpackMirrorChapters,
   type MirrorBook,
   type MirrorBookTag,
   type MirrorChapter,
@@ -735,7 +736,7 @@ export async function getMirrorPlayerBook(
       durationMs: book.media.durationMs,
       mediaUrl: "",
       coverUrl: null,
-      chapters: chapters.map((chapter) => ({
+      chapters: unpackMirrorChapters(chapters).map((chapter) => ({
         id: `${book.bookId}:${chapter.position}`,
         position: chapter.position,
         title: chapter.title,

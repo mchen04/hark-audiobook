@@ -104,15 +104,20 @@ export type MirrorBook = {
   searchText: string;
 };
 
-export type MirrorChapter = {
-  /** `userId:bookId:paddedPosition` */
-  key: string;
-  userId: string;
-  bookId: string;
+export type MirrorChapterEntry = {
   position: number;
   title: string;
   startMs: number;
   endMs: number;
+};
+
+export type MirrorChapter = MirrorChapterEntry & {
+  /** `userId:bookId:paddedPosition` */
+  key: string;
+  userId: string;
+  bookId: string;
+  /** The book's remaining chapters when a writer packs them into its first row. */
+  laterChapters?: MirrorChapterEntry[];
 };
 
 export type MirrorPlaybackState = {
@@ -376,6 +381,46 @@ export function mirrorKey(userId: string, ...parts: string[]) {
 /** Zero-padded so a lexicographic key range enumerates chapters in order. */
 export function mirrorChapterKey(userId: string, bookId: string, position: number) {
   return mirrorKey(userId, bookId, String(position).padStart(6, "0"));
+}
+
+/**
+ * Stores a book's chapters as one row: the first chapter, carrying the rest.
+ * One write per book instead of one per chapter is what keeps a large first
+ * sync cheap. The row is still a complete first chapter under the usual key
+ * and index, so older bundles sharing this database read, replace and purge
+ * it like any other chapter row.
+ */
+export function packMirrorChapters(
+  userId: string,
+  bookId: string,
+  chapters: readonly MirrorChapterEntry[],
+): MirrorChapter[] {
+  const [first, ...later] = [...chapters].sort(byPosition).map(toChapterEntry);
+  if (!first) return [];
+  return [
+    {
+      key: mirrorChapterKey(userId, bookId, first.position),
+      userId,
+      bookId,
+      ...first,
+      ...(later.length ? { laterChapters: later } : {}),
+    },
+  ];
+}
+
+/** Every chapter in one book's rows, whether packed or written one per chapter. */
+export function unpackMirrorChapters(rows: readonly MirrorChapter[]): MirrorChapterEntry[] {
+  return rows
+    .flatMap((row) => [toChapterEntry(row), ...(row.laterChapters ?? [])])
+    .sort(byPosition);
+}
+
+function toChapterEntry({ position, title, startMs, endMs }: MirrorChapterEntry) {
+  return { position, title, startMs, endMs };
+}
+
+function byPosition(left: MirrorChapterEntry, right: MirrorChapterEntry) {
+  return left.position - right.position;
 }
 
 /** The uuid tail of a mirror key, e.g. the bookId of `userId:bookId`. */

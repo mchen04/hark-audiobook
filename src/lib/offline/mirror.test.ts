@@ -991,3 +991,44 @@ describe("scale", () => {
     expect(elapsed).toBeLessThan(1_000);
   });
 });
+
+describe("chapter rows", () => {
+  const chapters = [
+    { position: 0, title: "One", startMs: 0, endMs: 1_000_000 },
+    { position: 1, title: "Two", startMs: 1_000_000, endMs: 2_000_000 },
+    { position: 2, title: "Three", startMs: 2_000_000, endMs: 3_600_000 },
+  ];
+
+  async function putChapterRows(rows: mirrorDatabase.MirrorChapter[]) {
+    const db = await database();
+    for (const row of rows) await db.put("chapters", row);
+    db.close();
+  }
+
+  async function playerChapters(bookId: string) {
+    return (await getMirrorPlayerBook(USER_A, bookId))?.playerBook.chapters.map(
+      ({ position, title, startMs, endMs }) => ({ position, title, startMs, endMs }),
+    );
+  }
+
+  it("reads every chapter from legacy rows written one per chapter", async () => {
+    await applyPullBatch(USER_A, batch({ books: [book("book-1", { chapters: [] })] }));
+    await putChapterRows(
+      [...chapters].reverse().map((chapter) => ({
+        key: mirrorDatabase.mirrorChapterKey(USER_A, "book-1", chapter.position),
+        userId: USER_A,
+        bookId: "book-1",
+        ...chapter,
+      })),
+    );
+
+    expect(await playerChapters("book-1")).toStrictEqual(chapters);
+  });
+
+  it("reads every chapter from one packed row", async () => {
+    await applyPullBatch(USER_A, batch({ books: [book("book-1", { chapters: [] })] }));
+    await putChapterRows(mirrorDatabase.packMirrorChapters(USER_A, "book-1", chapters));
+
+    expect(await playerChapters("book-1")).toStrictEqual(chapters);
+  });
+});

@@ -2,9 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import "fake-indexeddb/auto";
 import { IDBFactory as FakeIDBFactory } from "fake-indexeddb";
 
-import { database, MEDIA_CACHE, mirrorKey, offlineBookKey } from "./db";
+import {
+  database,
+  MEDIA_CACHE,
+  mirrorKey,
+  offlineBookKey,
+  packMirrorChapters,
+  unpackMirrorChapters,
+} from "./db";
 import { removeOfflineBook } from "./deletion-journal";
-import { projectLocalBookRegistration } from "./local-import-mirror";
+import { projectLocalBookRegistration, rekeyMirroredLocalBook } from "./local-import-mirror";
 import {
   getOfflineBook,
   listOfflineBooks,
@@ -199,6 +206,27 @@ describe("reattaching an offline import to the book the server already has", () 
     expect(targetChapters).toEqual([
       expect.objectContaining({ bookId: CANONICAL, position: 0, endMs: 600_000 }),
     ]);
+  });
+
+  it("carries every chapter of a packed chapter row to the canonical id", async () => {
+    await projectBook(MINTED);
+    const chapters = [
+      { position: 0, title: "One", startMs: 0, endMs: 200_000 },
+      { position: 1, title: "Two", startMs: 200_000, endMs: 400_000 },
+      { position: 2, title: "Three", startMs: 400_000, endMs: 600_000 },
+    ];
+    const db = await database();
+    await db.delete(
+      "chapters",
+      IDBKeyRange.bound(`${USER}:${MINTED}:`, `${USER}:${MINTED}:\uffff`),
+    );
+    for (const row of packMirrorChapters(USER, MINTED, chapters)) await db.put("chapters", row);
+
+    await rekeyMirroredLocalBook(USER, MINTED, CANONICAL, null);
+
+    const target = await db.getAllFromIndex("chapters", "by-user-book", [USER, CANONICAL]);
+    expect(unpackMirrorChapters(target)).toStrictEqual(chapters);
+    expect(await db.getAllFromIndex("chapters", "by-user-book", [USER, MINTED])).toStrictEqual([]);
   });
 
   it("takes the cache journal with it so the sweep and the purge still find the bytes", async () => {

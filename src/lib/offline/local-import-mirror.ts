@@ -8,6 +8,7 @@ import {
   mirrorChapterKey,
   mirrorKey,
   mirrorPrefixRange,
+  unpackMirrorChapters,
   type MirrorBook,
   type MirrorChapter,
   type MirrorPlaybackState,
@@ -115,7 +116,7 @@ export async function rekeyMirroredLocalBook(
     if (sourceBook) await books.delete(fromKey);
 
     if (sourceBook && !targetChapters.length) {
-      const chapterSource = canonical?.chapters || sourceChapters;
+      const chapterSource = canonical?.chapters || unpackMirrorChapters(sourceChapters);
       for (const chapter of toMirrorChapters(userId, toBookId, chapterSource)) {
         await chapters.put(chapter);
       }
