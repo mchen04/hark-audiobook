@@ -23,7 +23,8 @@ import {
   getMirrorPlayerBook,
   getSyncMeta,
   healMirrorPlaybackFromLocal,
-  localLiveBookDigest,
+  LiveBookSetChangedError,
+  localLiveBooks,
   purgeUser,
 } from "./mirror";
 import { liveBookDigest } from "./live-book-digest";
@@ -994,13 +995,13 @@ describe("scale", () => {
   });
 });
 
-describe("localLiveBookDigest", () => {
+describe("localLiveBooks", () => {
   it("matches the server's digest of the same ids and changes with a local-only book", async () => {
     await applyPullBatch(USER_A, batch({ books: [book("book-1"), book("book-2")] }));
     await applyPullBatch(USER_B, batch({ books: [book("book-b")] }));
     const serverDigest = await liveBookDigest(["book-2", "book-1"]);
 
-    expect(await localLiveBookDigest(USER_A)).toBe(serverDigest);
+    expect((await localLiveBooks(USER_A)).digest).toBe(serverDigest);
 
     const db = await database();
     await db.put("books", {
@@ -1009,6 +1010,68 @@ describe("localLiveBookDigest", () => {
       bookId: "orphan",
     });
     db.close();
-    expect(await localLiveBookDigest(USER_A)).not.toBe(serverDigest);
+    expect((await localLiveBooks(USER_A)).digest).not.toBe(serverDigest);
+  });
+});
+
+describe("a batch that omitted the id list against the device's digest", () => {
+  const idle = (cursor: string) =>
+    batch({ cursor, tags: [{ id: "tag-9", name: "Changed" }], liveBookIds: null });
+
+  async function addLocalOnlyBook(bookId: string) {
+    const db = await database();
+    const row = (await db.get("books", `${USER_A}:book-1`))!;
+    await db.put("books", { ...row, key: `${USER_A}:${bookId}`, bookId });
+    db.close();
+  }
+
+  it("applies while the device still holds exactly the digested ids", async () => {
+    await applyPullBatch(USER_A, batch({ books: [book("book-1"), book("book-2")] }));
+    const held = await localLiveBooks(USER_A);
+
+    await applyPullBatch(USER_A, idle("2026-07-02T00:00:00.000Z"), held.ids);
+
+    expect((await getSyncMeta(USER_A))?.cursor).toBe("2026-07-02T00:00:00.000Z");
+    expect((await localLiveBooks(USER_A)).ids.sort()).toStrictEqual(["book-1", "book-2"]);
+  });
+
+  it("applies nothing when a book appeared after the digest was taken", async () => {
+    await applyPullBatch(USER_A, batch({ books: [book("book-1")] }));
+    const held = await localLiveBooks(USER_A);
+    await addLocalOnlyBook("imported-meanwhile");
+
+    await expect(
+      applyPullBatch(USER_A, idle("2026-07-02T00:00:00.000Z"), held.ids),
+    ).rejects.toBeInstanceOf(LiveBookSetChangedError);
+
+    expect((await getSyncMeta(USER_A))?.cursor).toBe("2026-07-01T00:00:00.000Z");
+    expect(await listMirrorTagNames(USER_A)).toStrictEqual([]);
+    expect((await localLiveBooks(USER_A)).ids).toContain("imported-meanwhile");
+  });
+
+  it("applies nothing when one book was swapped for another of the same count", async () => {
+    await applyPullBatch(USER_A, batch({ books: [book("book-1"), book("book-2")] }));
+    const held = await localLiveBooks(USER_A);
+    await addLocalOnlyBook("swapped-in");
+    const db = await database();
+    await db.delete("books", `${USER_A}:book-2`);
+    db.close();
+
+    await expect(
+      applyPullBatch(USER_A, idle("2026-07-02T00:00:00.000Z"), held.ids),
+    ).rejects.toBeInstanceOf(LiveBookSetChangedError);
+  });
+
+  it("applies nothing when a book disappeared after the digest was taken", async () => {
+    await applyPullBatch(USER_A, batch({ books: [book("book-1"), book("book-2")] }));
+    const held = await localLiveBooks(USER_A);
+    const db = await database();
+    await db.delete("books", `${USER_A}:book-2`);
+    db.close();
+
+    await expect(
+      applyPullBatch(USER_A, idle("2026-07-02T00:00:00.000Z"), held.ids),
+    ).rejects.toBeInstanceOf(LiveBookSetChangedError);
+    expect((await getSyncMeta(USER_A))?.cursor).toBe("2026-07-01T00:00:00.000Z");
   });
 });

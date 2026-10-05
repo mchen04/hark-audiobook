@@ -12,7 +12,8 @@ import {
   applyPullBatch,
   getSyncMeta,
   healMirrorPlaybackFromLocal,
-  localLiveBookDigest,
+  LiveBookSetChangedError,
+  localLiveBooks,
   readMirrorLibrary,
 } from "@/lib/offline/mirror";
 import { isPullBatch } from "@/lib/offline/sync-protocol";
@@ -396,6 +397,9 @@ async function revalidate(userId: string): Promise<PullOutcome> {
 }
 
 async function pull(userId: string): Promise<PullOutcome> {
+  // Sent until a batch meets a book set that changed in flight; the retry then
+  // receives the complete id list, exactly as a pull without a digest would.
+  let sendDigest = true;
   // Bounded: a server that keeps reporting `complete: false` without advancing
   // its cursor must not spin here.
   for (let page = 0; page < PULL_PAGE_LIMIT; page += 1) {
@@ -407,8 +411,8 @@ async function pull(userId: string): Promise<PullOutcome> {
     const since = meta?.cursor ? `&since=${encodeURIComponent(meta.cursor)}` : "";
     // The digest of this device's book ids lets the server skip the complete id
     // list when that list would delete nothing here.
-    const digest = await localLiveBookDigest(userId).catch(() => null);
-    const liveBooks = digest ? `&liveBooks=${digest}` : "";
+    const held = sendDigest ? await localLiveBooks(userId).catch(() => null) : null;
+    const liveBooks = held ? `&liveBooks=${held.digest}` : "";
     let response: Response;
     try {
       response = await fetch(`/api/sync/pull?snapshots=final${since}${liveBooks}`, {
@@ -422,8 +426,12 @@ async function pull(userId: string): Promise<PullOutcome> {
     const batch: unknown = await response.json().catch(() => null);
     if (!isPullBatch(batch)) return "unreachable";
     try {
-      await applyPullBatch(userId, batch);
-    } catch {
+      await applyPullBatch(userId, batch, held?.ids);
+    } catch (error) {
+      if (error instanceof LiveBookSetChangedError) {
+        sendDigest = false;
+        continue;
+      }
       // The batch is all-or-nothing and the cursor moves with it, so a failed
       // apply leaves the mirror exactly as it was and the next pull retries.
       return "unreachable";
