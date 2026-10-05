@@ -19,9 +19,6 @@
   bounded lock admission. Retryable server-busy writes remain queued; sign-out
   can retry within its existing drain budget without blocking terminal progress
   writes during the retry wait.
-- A first sync stores each book's chapters as one local row, which makes
-  bringing a large library onto a new device faster. Existing local data stays
-  readable without a migration.
 - Setup, architecture, operations, and testing docs describe the current app.
   Generated implementation/review reports are no longer shipped as reader docs.
 

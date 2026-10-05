@@ -104,11 +104,6 @@ async function storeContents(store: string): Promise<unknown[]> {
   return rows;
 }
 
-async function chapterTitles(): Promise<string[]> {
-  const rows = (await storeContents("chapters")) as mirrorDatabase.MirrorChapter[];
-  return mirrorDatabase.unpackMirrorChapters(rows).map((chapter) => chapter.title);
-}
-
 beforeEach(() => {
   vi.stubGlobal("indexedDB", new FakeIDBFactory());
 });
@@ -320,7 +315,7 @@ describe("applyPullBatch", () => {
         ],
       }),
     );
-    expect(await chapterTitles()).toStrictEqual(["One", "Two", "Three"]);
+    expect(await storeContents("chapters")).toHaveLength(3);
     expect(await storeContents("bookTags")).toHaveLength(2);
 
     await applyPullBatch(
@@ -336,7 +331,7 @@ describe("applyPullBatch", () => {
       }),
     );
 
-    expect(await chapterTitles()).toStrictEqual(["One"]);
+    expect(await storeContents("chapters")).toHaveLength(1);
     expect(await storeContents("bookTags")).toHaveLength(1);
     expect(await storeContents("tags")).toHaveLength(1);
   });
@@ -1028,89 +1023,6 @@ describe("chapter rows", () => {
     );
 
     expect(await playerChapters("book-1")).toStrictEqual(chapters);
-  });
-
-  function legacyRows(bookId: string, entries: typeof chapters) {
-    return entries.map((chapter) => ({
-      key: mirrorDatabase.mirrorChapterKey(USER_A, bookId, chapter.position),
-      userId: USER_A,
-      bookId,
-      ...chapter,
-    }));
-  }
-
-  /** How a bundle from before packed rows reads a book's chapters. */
-  async function olderBundleChapters(bookId: string) {
-    const db = await database();
-    const rows = await db.getAllFromIndex("chapters", "by-user-book", [USER_A, bookId]);
-    db.close();
-    return rows.map(({ position, title, startMs, endMs }) => ({ position, title, startMs, endMs }));
-  }
-
-  it("stores a pulled book's chapters as one row an older bundle reads as its first chapter", async () => {
-    await applyPullBatch(USER_A, batch({ books: [book("book-1", { chapters })] }));
-
-    expect(await storeContents("chapters")).toHaveLength(1);
-    expect(await olderBundleChapters("book-1")).toStrictEqual([chapters[0]]);
-    expect(await playerChapters("book-1")).toStrictEqual(chapters);
-  });
-
-  it("replaces legacy per-chapter rows when the book is pulled again", async () => {
-    await applyPullBatch(USER_A, batch({ books: [book("book-1", { chapters: [] })] }));
-    await putChapterRows(
-      legacyRows(
-        "book-1",
-        chapters.map((chapter) => ({ ...chapter, title: `Old ${chapter.title}` })),
-      ),
-    );
-
-    await applyPullBatch(USER_A, batch({ books: [book("book-1", { chapters })] }));
-
-    expect(await playerChapters("book-1")).toStrictEqual(chapters);
-  });
-
-  it("keeps legacy rows when a page that would replace them fails", async () => {
-    await applyPullBatch(USER_A, batch({ books: [book("book-1", { chapters: [] })] }));
-    await putChapterRows(legacyRows("book-1", chapters));
-    const poisoned = batch({
-      cursor: "2026-07-09T00:00:00.000Z",
-      books: [book("book-1", { chapters: [chapters[0]!] })],
-      listeningSessions: [
-        {
-          id: "session-1",
-          bookId: "book-1",
-          listenedMs: () => 0,
-        } as unknown as PullBatch["listeningSessions"][number],
-      ],
-    });
-
-    await expect(applyPullBatch(USER_A, poisoned)).rejects.toThrow();
-
-    expect(await playerChapters("book-1")).toStrictEqual(chapters);
-  });
-
-  it("follows an older bundle that rewrote a packed book as one row per chapter", async () => {
-    await applyPullBatch(USER_A, batch({ books: [book("book-1", { chapters })] }));
-    const rewritten = chapters
-      .slice(0, 2)
-      .map((chapter) => ({ ...chapter, title: `New ${chapter.title}` }));
-    const db = await database();
-    await db.delete("chapters", IDBKeyRange.bound(`${USER_A}:book-1:`, `${USER_A}:book-1:\uffff`));
-    db.close();
-    await putChapterRows(legacyRows("book-1", rewritten));
-
-    expect(await playerChapters("book-1")).toStrictEqual(rewritten);
-  });
-
-  it("purges one account's packed rows and leaves another account's", async () => {
-    await applyPullBatch(USER_A, batch({ books: [book("book-1", { chapters })] }));
-    await applyPullBatch(USER_B, batch({ books: [book("book-1", { chapters })] }));
-
-    await purgeUser(USER_A);
-
-    const rows = (await storeContents("chapters")) as mirrorDatabase.MirrorChapter[];
-    expect(rows.map((row) => row.userId)).toStrictEqual([USER_B]);
-    expect(mirrorDatabase.unpackMirrorChapters(rows)).toStrictEqual(chapters);
   });
 
   it("reads every chapter from one packed row", async () => {
