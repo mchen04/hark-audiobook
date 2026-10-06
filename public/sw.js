@@ -200,10 +200,15 @@ async function loadShellCandidate() {
   if (!offlinePage.ok) throw new Error("The required offline page could not be fetched.");
   const html = await offlinePage.clone().text();
   const documentAssets = [...new Set(html.match(/\/_next\/static\/[^"'\s\\]+/g) || [])];
-  const [buildRuntimeAssets, hasKestrelBundle] = await Promise.all([
+  const [buildRuntime, hasKestrelBundle] = await Promise.all([
     loadBuildRuntimeAssets(),
     hasVerifiedKestrelBundle(),
   ]);
+  // Like ORT below, the Kestrel worker's own chunks are useless until the model
+  // exists; a first narration runtime-caches them and later shells carry them.
+  const buildRuntimeAssets = hasKestrelBundle
+    ? buildRuntime.assets
+    : buildRuntime.assets.filter((asset) => !buildRuntime.deferredUntilModel.includes(asset));
   const supportingAssets = PRECACHE.filter((asset) => asset !== OFFLINE_URL);
   return {
     offlinePage,
@@ -252,7 +257,7 @@ async function liveShellMatches(candidate) {
   return candidate.assets.every((asset) => cachedPaths.has(asset));
 }
 
-/** Load the post-build dependency closure for document extraction and workers. */
+/** Load the post-build runtime closure and the subset only the Kestrel worker needs. */
 async function loadBuildRuntimeAssets() {
   const response = await fetch(BUILD_RUNTIME_MANIFEST_URL, { cache: "no-store" });
   if (!response.ok) throw new Error("The document runtime manifest could not be fetched.");
@@ -271,7 +276,11 @@ async function loadBuildRuntimeAssets() {
   ) {
     throw new Error("The document runtime manifest contains an invalid asset.");
   }
-  return assets;
+  // Optional: entries outside `assets` change nothing, so it can only defer.
+  const deferredUntilModel = Array.isArray(manifest.deferredUntilModel)
+    ? manifest.deferredUntilModel
+    : [];
+  return { assets, deferredUntilModel };
 }
 
 async function hasVerifiedKestrelBundle() {

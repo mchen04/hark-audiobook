@@ -44,7 +44,9 @@ predecessor/current servers or direct writes can invalidate it. See
 [receipt ordering](local-first.md#3-aggregate-and-receipt-ordering).
 
 Prebuild copies/verifies pinned browser assets locally and postbuild emits the
-runtime precache manifest. Serve the matching `.next` output, static chunks, and
+runtime precache manifest. Its `deferredUntilModel` subset (the Kestrel worker's
+own chunks) is cached once the verified model bundle exists; older service
+workers ignore the field and cache everything. Serve the matching `.next` output, static chunks, and
 `public` assets together. The standalone test runner stages these assets and
 reads an explicit env file; see [development](development.md#checks).
 `pnpm verify:kestrel-export` is a separate provenance check that downloads pinned

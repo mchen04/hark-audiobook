@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { collectRuntimeChunkNames } from "../../scripts/build-runtime-precache-core.mjs";
+import {
+  collectModelOnlyChunkNames,
+  collectRuntimeChunkNames,
+} from "../../scripts/build-runtime-precache-core.mjs";
 
 describe("document runtime precache graph", () => {
   it("includes offline-route lazy chunks and every literal worker dependency", () => {
@@ -40,6 +43,33 @@ describe("document runtime precache graph", () => {
 
     expect(() => collectRuntimeChunkNames(sources, [])).toThrow(
       "The document runtime references a missing build chunk: missing.js",
+    );
+  });
+
+  it("defers only chunks the Kestrel worker alone reaches", () => {
+    const worker = (entries: string[]) =>
+      `e.b(t,"static/chunks/turbopack-worker-boot.js",[${entries.map((e) => `"static/chunks/${e}"`).join(",")}],a)`;
+    const sources = new Map([
+      [
+        "import.js",
+        `${worker(["kestrel-entry.js", "turbopack-k.js"])}; ${worker(["hash-entry.js"])}`,
+      ],
+      ["kestrel-entry.js", 'MARKER; load("static/chunks/ort.js"); load("static/chunks/shared.js")'],
+      ["turbopack-k.js", "runtime"],
+      ["ort.js", "onnxruntime"],
+      ["shared.js", "shared helpers"],
+      ["hash-entry.js", 'load("static/chunks/shared.js")'],
+      ["turbopack-worker-boot.js", "bootstrap"],
+    ]);
+    const selected = [...sources.keys()];
+
+    expect(collectModelOnlyChunkNames(sources, selected, "MARKER")).toEqual([
+      "kestrel-entry.js",
+      "ort.js",
+      "turbopack-k.js",
+    ]);
+    expect(() => collectModelOnlyChunkNames(sources, selected, "ABSENT")).toThrow(
+      "Kestrel worker entry",
     );
   });
 });
