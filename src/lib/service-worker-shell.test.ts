@@ -169,6 +169,38 @@ describe("service-worker shell generations", () => {
     for (const asset of testModelRuntimeAssets) expect(ready.has(readyStage, asset)).toBe(true);
   });
 
+  it("defers the Kestrel worker's chunks until the matching model bundle is verified", async () => {
+    const original = runtimeManifest;
+    runtimeManifest = {
+      version: 1,
+      assets: ["/_next/static/chunks/document-runtime.js", "/_next/static/chunks/kestrel-only.js"],
+      deferredUntilModel: [
+        "/_next/static/chunks/kestrel-only.js",
+        "/_next/static/chunks/unlisted.js",
+      ],
+    };
+    try {
+      const cold = namedShellStorage();
+      const coldStage = await createShellFunctions(
+        cold.cacheStorage,
+        shellFetch("cold.js"),
+      ).stageShell();
+      expect(cold.has(coldStage, "/_next/static/chunks/document-runtime.js")).toBe(true);
+      expect(cold.has(coldStage, "/_next/static/chunks/kestrel-only.js")).toBe(false);
+      expect(cold.has(coldStage, "/_next/static/chunks/unlisted.js")).toBe(false);
+
+      const ready = namedShellStorage({ verifiedKestrelBundle: true });
+      const readyStage = await createShellFunctions(
+        ready.cacheStorage,
+        shellFetch("ready.js"),
+      ).stageShell();
+      expect(ready.has(readyStage, "/_next/static/chunks/kestrel-only.js")).toBe(true);
+      expect(ready.has(readyStage, "/_next/static/chunks/unlisted.js")).toBe(false);
+    } finally {
+      runtimeManifest = original;
+    }
+  });
+
   it("promotes only after every required chunk is cached", async () => {
     const storage = namedShellStorage({ initialDocument: shellDocument("working-old.js") });
     const shell = createShellFunctions(storage.cacheStorage, shellFetch("candidate.js"));
@@ -606,11 +638,13 @@ function runtimeManifestRequest(input: RequestInfo | URL): boolean {
   return new URL(value, ORIGIN).pathname === "/chapterline-runtime-assets.json";
 }
 
+let runtimeManifest: { version: number; assets: string[]; deferredUntilModel?: string[] } = {
+  version: 1,
+  assets: ["/_next/static/chunks/document-runtime.js"],
+};
+
 function runtimeManifestResponse(): Response {
-  return Response.json({
-    version: 1,
-    assets: ["/_next/static/chunks/document-runtime.js"],
-  });
+  return Response.json(runtimeManifest);
 }
 
 /** The shared-cache refresh implementation deployed at a3270cd. */

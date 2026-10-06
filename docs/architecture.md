@@ -35,6 +35,9 @@ account's library. Authentication and settings are not universally offline.
    model, voice, graphs, and runtime are verified against the
    [asset manifest](../src/lib/kestrel/asset-manifest.json). The first use fetches
    public model assets; it does not send the document to a speech service.
+   A second small worker turns each chunk's spectrogram into audio while the
+   next chunk runs through the model; if it cannot load, the Kestrel worker
+   renders inline. Both paths produce the same samples.
 3. Generated PCM is progressively encoded into chunked MP3 storage. Progress and
    cancellation stay in the library. Only completed, committed audio is playable.
    Client navigation can preserve an import; closing the page or changing account

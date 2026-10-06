@@ -1,10 +1,11 @@
 import * as ort from "onnxruntime-web/webgpu";
 
 import { KESTREL_ASSETS, loadKestrelAssets } from "./assets";
-import { KESTREL_SAMPLE_RATE, renderKestrelAudio } from "./dsp";
+import { KESTREL_SAMPLE_RATE, renderKestrelAudio, type KestrelSpectralFrames } from "./dsp";
 import { configureKestrelFftRuntime } from "./fft";
 import { ORT_RUNTIME_ASSETS } from "./manifest";
 import type { KestrelWorkerRequest, KestrelWorkerResponse } from "./protocol";
+import { createAudioRenderer, synthesizeInOrder, type AudioRenderer } from "./render-pipeline";
 import { prepareKestrelText, type KestrelTextChunk } from "./text";
 
 type Sessions = {
@@ -13,6 +14,7 @@ type Sessions = {
   decoder: ort.InferenceSession;
   voice: Float32Array;
   backend: "webgpu" | "wasm";
+  render: AudioRenderer;
 };
 
 const workerScope = self as unknown as {
@@ -28,6 +30,10 @@ workerScope.onmessage = (event) => {
   requestTail = requestTail.then(() => handleRequest(request)).catch(() => undefined);
 };
 
+/**
+ * Resolves once this request no longer needs the inference sessions, so the
+ * next queued request can start while this one's last chunks still render.
+ */
 async function handleRequest(request: KestrelWorkerRequest): Promise<void> {
   try {
     const sessions = await getSessions(request.id);
@@ -41,37 +47,49 @@ async function handleRequest(request: KestrelWorkerRequest): Promise<void> {
     if (chunks.length === 0) throw new Error("This section does not contain readable text.");
     post({ type: "progress", id: request.id, stage: "phonemes", fraction: 1 });
 
-    const parts: Float32Array[] = [];
-    let totalSamples = 0;
-    for (let index = 0; index < chunks.length; index += 1) {
-      const audio = await synthesizeChunk(sessions, chunks[index]!, request.seed + index);
-      parts.push(audio);
-      totalSamples += audio.length;
-      post({
-        type: "progress",
-        id: request.id,
-        stage: "speech",
-        fraction: (index + 1) / chunks.length,
-      });
-    }
-
-    const audio = concatenate(parts, totalSamples);
-    workerScope.postMessage(
-      {
-        type: "synthesized",
-        id: request.id,
-        audio,
-        sampleRate: KESTREL_SAMPLE_RATE,
-      },
-      [audio.buffer],
+    // Each chunk's audio renders beside the next chunk's inference.
+    const { inferred, audio } = synthesizeInOrder(
+      chunks.length,
+      (index) => inferChunk(sessions, chunks[index]!, request.seed + index),
+      sessions.render,
+      (index) =>
+        post({
+          type: "progress",
+          id: request.id,
+          stage: "speech",
+          fraction: (index + 1) / chunks.length,
+        }),
     );
+    audio.then(
+      (parts) => {
+        const combined = concatenate(
+          parts,
+          parts.reduce((total, part) => total + part.length, 0),
+        );
+        workerScope.postMessage(
+          {
+            type: "synthesized",
+            id: request.id,
+            audio: combined,
+            sampleRate: KESTREL_SAMPLE_RATE,
+          },
+          [combined.buffer],
+        );
+      },
+      (error: unknown) => postError(request.id, error),
+    );
+    await inferred.catch(() => undefined);
   } catch (error) {
-    post({
-      type: "error",
-      id: request.id,
-      message: friendlyError(error),
-    });
+    postError(request.id, error);
   }
+}
+
+function postError(id: number, error: unknown): void {
+  post({
+    type: "error",
+    id,
+    message: friendlyError(error),
+  });
 }
 
 function getSessions(requestId: number): Promise<Sessions> {
@@ -107,10 +125,20 @@ async function initializeSessions(requestId: number): Promise<Sessions> {
   configureKestrelFftRuntime(assets.fft);
 
   const voice = readVoice(assets.voice);
+  const render = createAudioRenderer(
+    () =>
+      new Worker(new URL("./render.worker.ts", import.meta.url), {
+        type: "module",
+        name: "hark-kestrel-render",
+      }),
+    renderKestrelAudio,
+    assets.fft,
+  );
   const canUseWebGpu = typeof navigator !== "undefined" && "gpu" in navigator;
   if (canUseWebGpu) {
     try {
       return await createSessions(
+        render,
         "webgpu",
         ["webgpu", "wasm"],
         assets.prosodyEncode,
@@ -125,6 +153,7 @@ async function initializeSessions(requestId: number): Promise<Sessions> {
     }
   }
   return createSessions(
+    render,
     "wasm",
     ["wasm"],
     assets.prosodyEncode,
@@ -136,6 +165,7 @@ async function initializeSessions(requestId: number): Promise<Sessions> {
 }
 
 async function createSessions(
+  render: AudioRenderer,
   backend: "webgpu" | "wasm",
   executionProviders: ort.InferenceSession.ExecutionProviderConfig[],
   encodeGraph: Uint8Array,
@@ -172,7 +202,7 @@ async function createSessions(
           { path: externalPathFor("head"), data: assets.head },
         ],
       });
-      return { encode, frames, decoder, voice, backend };
+      return { encode, frames, decoder, voice, backend, render };
     } catch (error) {
       await frames.release();
       throw error;
@@ -183,11 +213,11 @@ async function createSessions(
   }
 }
 
-async function synthesizeChunk(
+async function inferChunk(
   sessions: Sessions,
   chunk: KestrelTextChunk,
   seed: number,
-): Promise<Float32Array> {
+): Promise<KestrelSpectralFrames> {
   const ids = new BigInt64Array(512);
   ids.set(chunk.ids);
   const style = styleFor(sessions.voice, chunk.phonemeCount);
@@ -232,14 +262,15 @@ async function synthesizeChunk(
         style: decoderStyle,
       });
       try {
-        return await renderKestrelAudio({
-          f0: f0.data as Float32Array,
-          filterMagnitude: decoderResults.filter_magnitude!.data as Float32Array,
-          filterPhase: decoderResults.filter_phase!.data as Float32Array,
-          noiseEnvelope: decoderResults.noise_envelope!.data as Float32Array,
+        // Copies outlive the tensors disposed below.
+        return {
+          f0: (f0.data as Float32Array).slice(),
+          filterMagnitude: (decoderResults.filter_magnitude!.data as Float32Array).slice(),
+          filterPhase: (decoderResults.filter_phase!.data as Float32Array).slice(),
+          noiseEnvelope: (decoderResults.noise_envelope!.data as Float32Array).slice(),
           trueFrameCount: alignment.trueFrames80,
           seed,
-        });
+        };
       } finally {
         Object.values(decoderResults).forEach((tensor) => tensor.dispose());
       }

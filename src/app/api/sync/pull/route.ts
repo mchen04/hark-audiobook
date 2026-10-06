@@ -21,8 +21,13 @@ export const GET = withQuery(async ({ request, session }) => {
   // Clients that gate snapshot application on `complete` declare it with
   // `snapshots=final`; older bundles get the streams on every page.
   const finalSnapshotsOnly = query.get("snapshots") === "final";
+  // A device that sends the digest of its local book ids is spared the complete
+  // id list when that list would delete nothing there.
+  const liveBookDigest = query.get("liveBooks");
   // The cursor is passed through as the text the server issued: parsing it into
   // a Date would truncate the microseconds it needs to stay strictly ahead of
   // the rows it has already covered.
-  return Response.json(await loadPullBatch(session.user.id, since, { finalSnapshotsOnly }));
+  return Response.json(
+    await loadPullBatch(session.user.id, since, { finalSnapshotsOnly, liveBookDigest }),
+  );
 });

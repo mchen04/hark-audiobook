@@ -8,6 +8,7 @@ import {
 import { selectContinueBook, type LibraryBook } from "@/domain/library";
 import type { PlayerBook } from "@/domain/player";
 import { notifyLibraryChanged } from "./library-revision";
+import { liveBookDigest } from "./live-book-digest";
 import type { MediaFingerprintKind } from "@/lib/media-fingerprint";
 import { listLocalPlaybackStates } from "@/lib/playback-core";
 import {
@@ -90,10 +91,28 @@ export type MirrorPlayerBook = {
 // ---------------------------------------------------------------------------
 
 /**
+ * Thrown when a batch that omitted `liveBookIds` meets a book set that changed
+ * after the device sent its digest. Nothing is applied; pull again without one.
+ */
+export class LiveBookSetChangedError extends Error {
+  constructor() {
+    super("The device's books changed while the pull was in flight.");
+  }
+}
+
+/**
  * Applies one pulled batch. Either all of it lands — aggregates, tombstones
  * and the new cursor — or none of it does.
+ *
+ * `digestedBookIds` are the ids whose digest the request carried. A complete
+ * batch that omitted the id list on that basis applies only while the device
+ * still holds exactly those ids; see `LiveBookSetChangedError`.
  */
-export async function applyPullBatch(userId: string, batch: PullBatch): Promise<void> {
+export async function applyPullBatch(
+  userId: string,
+  batch: PullBatch,
+  digestedBookIds?: readonly string[],
+): Promise<void> {
   assertAccountWritable(userId);
   const db = await database();
   const transaction = db.transaction(MIRROR_STORES, "readwrite");
@@ -118,7 +137,7 @@ export async function applyPullBatch(userId: string, batch: PullBatch): Promise<
       await writePreferences(transaction, userId, batch);
       await writeListeningSessions(transaction, userId, batch);
     }
-    await applyTombstones(transaction, userId, batch);
+    await applyTombstones(transaction, userId, batch, digestedBookIds);
 
     const meta: MirrorSyncMeta = {
       userId,
@@ -395,10 +414,16 @@ async function applyTombstones(
   transaction: MirrorTransaction,
   userId: string,
   batch: PullBatch,
+  digestedBookIds: readonly string[] | undefined,
 ): Promise<void> {
   const doomedSet = new Set((batch.tombstones || []).map((tombstone) => tombstone.bookId));
   const localKeys = await transaction.objectStore("books").index("by-user").getAllKeys(userId);
   const localIds = localKeys.map(mirrorKeyTail);
+  // The server left the id list out because it matched the digested ids. That
+  // is only the same as applying it while this device still holds those ids.
+  if (batch.complete && !batch.liveBookIds && digestedBookIds) {
+    if (!sameIds(localIds, digestedBookIds)) throw new LiveBookSetChangedError();
+  }
   if (batch.liveBookIds) {
     const live = new Set(batch.liveBookIds);
     for (const bookId of localIds) if (!live.has(bookId)) doomedSet.add(bookId);
@@ -638,6 +663,19 @@ function momentOf(isoTimestamp: string | null | undefined): number {
 
 function laterClock(left: string, right: string): string {
   return Date.parse(left) >= Date.parse(right) ? left : right;
+}
+
+/** The book ids this device holds for one account, and their digest; see `live-book-digest.ts`. */
+export async function localLiveBooks(userId: string): Promise<{ ids: string[]; digest: string }> {
+  const db = await database();
+  const ids = (await db.getAllKeysFromIndex("books", "by-user", userId)).map(mirrorKeyTail);
+  return { ids, digest: await liveBookDigest(ids) };
+}
+
+function sameIds(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  const sortedRight = [...right].sort();
+  return [...left].sort().every((id, index) => id === sortedRight[index]);
 }
 
 /** One coherent account snapshot per library refresh. Filters need no IDB reads. */

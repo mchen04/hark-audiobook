@@ -13,6 +13,7 @@ import type {
 } from "@/lib/offline/sync-protocol";
 import { db, type Transaction } from "@/server/db/client";
 import { serializePlayerPreferences } from "@/server/preferences/write-policy";
+import { liveBookIdsFor } from "@/server/sync/live-book-ids";
 import { planBookPage } from "@/server/sync/page-plan";
 import { planTombstoneWindow } from "@/server/sync/tombstone-window";
 import {
@@ -62,7 +63,7 @@ function after(column: SQLWrapper, cursor: string) {
 export async function loadPullBatch(
   userId: string,
   since: string | null,
-  options: { finalSnapshotsOnly?: boolean } = {},
+  options: { finalSnapshotsOnly?: boolean; liveBookDigest?: string | null } = {},
 ): Promise<PullBatch> {
   return db.transaction(
     async (transaction) => {
@@ -102,8 +103,13 @@ export async function loadPullBatch(
           // before tombstone consumption shipped ignore `tombstones` entirely,
           // and a cursor older than the tombstone retention window (route
           // DELETE prunes at 365 days) would silently miss deletions. It may
-          // drop to first-sync-only once neither reader exists.
-          page.complete ? loadLiveBookIds(transaction, userId) : Promise.resolve(null),
+          // drop to first-sync-only once neither reader exists. A device whose
+          // digest proves it already holds exactly this set gets null instead.
+          page.complete
+            ? loadLiveBookIds(transaction, userId).then((ids) =>
+                liveBookIdsFor(ids, options.liveBookDigest ?? null),
+              )
+            : Promise.resolve(null),
         ]);
 
       return {

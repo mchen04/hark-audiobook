@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
-import { collectRuntimeChunkNames } from "./build-runtime-precache-core.mjs";
+import {
+  collectModelOnlyChunkNames,
+  collectRuntimeChunkNames,
+} from "./build-runtime-precache-core.mjs";
 
 const chunksDirectory = resolve(".next/static/chunks");
 const output = resolve("public/chapterline-runtime-assets.json");
@@ -40,6 +43,17 @@ for (const [feature, marker] of [
   }
 }
 
+// Only the Kestrel worker loads this runtime, and it is useless until the model
+// weights exist; the service worker caches these once the model bundle is verified.
+const modelOnly = collectModelOnlyChunkNames(
+  sources,
+  selected,
+  "Kestrel's voice tensor is invalid.",
+);
+if (!modelOnly.some((filename) => (sources.get(filename) || "").includes("onnxruntime"))) {
+  throw new Error("The ONNX runtime is not among the model-only chunks.");
+}
+
 const records = [];
 for (const filename of selected) {
   const path = join(chunksDirectory, filename);
@@ -58,8 +72,12 @@ const manifest = {
   revision: createHash("sha256").update(signature).digest("hex"),
   byteSize: records.reduce((total, record) => total + record.byteSize, 0),
   assets: records.map(({ url }) => url),
+  // A subset of `assets`. Service workers that know this field cache it only
+  // once the verified Kestrel bundle exists; older ones cache all of `assets`.
+  deferredUntilModel: modelOnly.map((filename) => `/_next/static/chunks/${filename}`),
 };
 await writeFile(output, `${JSON.stringify(manifest, null, 2)}\n`);
 console.log(
-  `Prepared ${manifest.assets.length} document-runtime chunks (${Math.ceil(manifest.byteSize / 1024)} KiB).`,
+  `Prepared ${manifest.assets.length} document-runtime chunks (${Math.ceil(manifest.byteSize / 1024)} KiB), ` +
+    `${manifest.deferredUntilModel.length} deferred until the model is present.`,
 );

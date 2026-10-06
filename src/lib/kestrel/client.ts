@@ -33,7 +33,14 @@ export class KestrelClient {
     });
     this.worker.onmessage = (event: MessageEvent<KestrelWorkerResponse>) =>
       this.handleMessage(event.data);
-    this.worker.onerror = () => this.failAll("Kestrel stopped unexpectedly on this device.");
+    // Offline, the worker's own code may not be on this device yet: it is
+    // cached with the model, which only a first online narration downloads.
+    this.worker.onerror = () =>
+      this.failAll(
+        typeof navigator !== "undefined" && !navigator.onLine
+          ? "Connect once so Hark can download Kestrel to this device."
+          : "Kestrel stopped unexpectedly on this device.",
+      );
   }
 
   async initialize(onProgress?: ProgressCallback): Promise<"webgpu" | "wasm"> {

@@ -19,6 +19,14 @@
   bounded lock admission. Retryable server-busy writes remain queued; sign-out
   can retry within its existing drain budget without blocking terminal progress
   writes during the retry wait.
+- Document narration renders each chunk's audio while the next chunk is
+  synthesized. Narrated audio is unchanged; long documents finish sooner.
+- Background sync skips resending the full book-id list when the device already
+  holds the same books, which shrinks routine syncs for large libraries. A book
+  imported while a sync is in flight no longer briefly disappears.
+- A first visit downloads about a third less: the narration engine's code is
+  cached with the model on the first narration instead of up front. Offline
+  narration still works once the model is on the device.
 - Setup, architecture, operations, and testing docs describe the current app.
   Generated implementation/review reports are no longer shipped as reader docs.
 
