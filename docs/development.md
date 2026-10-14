@@ -199,3 +199,11 @@ Use `--reps 1` for smoke checks and `--noise <aa.json>` for comparisons.
 Record video and frames with `pnpm bench record --build-dir <build> --out <external-directory>`.
 WebKit playback starts from a warm library; its cold start is unavailable on this host. Chromium relaunch results stay separate.
 The fixed [protocol](../tests/perf/BASELINE.md#benchmark-protocol-v1--fixed-before-any-application-edit) defines measurements and acceptance.
+
+### Update and playback checks
+
+Run `pnpm test:update --previous <git-ref> --out "$TMPDIR/update.json"` for rollover on port 3400.
+It exports and builds the current worktree under `TMPDIR`; `--next-dir <prepared-build>` reuses a build or checks a broken temporary copy.
+WebKit keeps one live page process; Chromium uses a persistent profile and real browser relaunches.
+Readiness checks content, caches, progress, and settled requests; reports retain open audio and successful RSC streams separately.
+Run `pnpm exec playwright test --project=iphone-webkit tests/e2e/media-session-resume.spec.ts` for Media Session, exact progress, offline reload, history, and range delivery.

@@ -24,6 +24,13 @@ Persistent-context suites probe browser storage support and can use Chromium
 when persistent WebKit cannot serve its own cached entries. Read the browser
 selected in the raw output; do not label that run physical iOS coverage.
 
+### Rollover and Media Session
+
+The [update and playback commands](development.md#update-and-playback-checks) use real production builds and the generated ten-minute MP3.
+Rollover proves served build IDs, chunk bytes, shell cleanup, saved progress, and offline range delivery.
+WebKit uses one live page because Cache Storage fails across process exit on this host; Chromium covers browser relaunches separately.
+The Media Session spec checks native action handlers and exact non-round progress; `tests/resume/position-drift.spec.ts` already covers SIGKILL resume.
+
 ## Physical installation and listening
 
 Use a disposable account and source files, on an HTTPS instance you are authorized

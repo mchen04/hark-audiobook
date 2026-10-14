@@ -1,5 +1,6 @@
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -41,7 +42,6 @@ export function runCommand(command, args, options = {}) {
 
 export async function prepareBuild(ref, directory) {
   const destination = outsideRepository(directory, true);
-  const { execFileSync } = await import("node:child_process");
   const commit = execFileSync("git", ["rev-parse", `${ref}^{commit}`], {
     cwd: root,
     encoding: "utf8",
@@ -78,6 +78,57 @@ export async function prepareBuild(ref, directory) {
       });
     }
   });
+  return finishBuild(destination, { commit });
+}
+
+export async function prepareWorktree() {
+  const git = (args) => execFileSync("git", args, { cwd: root });
+  const commit = git(["rev-parse", "HEAD"]).toString().trim();
+  const untracked = git(["ls-files", "--others", "--exclude-standard", "-z"])
+    .toString()
+    .split("\0")
+    .filter(Boolean);
+  const hash = createHash("sha256")
+    .update(commit)
+    .update(git(["diff", "--binary", "HEAD"]));
+  for (const file of untracked) hash.update(file).update(readFileSync(path.join(root, file)));
+  const snapshot = hash.digest("hex");
+  const destination = outsideRepository(
+    path.join(tmpdir(), "builds", `next-${snapshot.slice(0, 12)}`),
+    true,
+  );
+  const receipt = path.join(destination, "benchmark-build.json");
+  if (existsSync(receipt)) {
+    const saved = JSON.parse(readFileSync(receipt, "utf8"));
+    if (
+      saved.snapshot === snapshot &&
+      existsSync(path.join(destination, ".next/standalone/server.js")) &&
+      existsSync(path.join(destination, ".next/BUILD_ID")) &&
+      saved.buildId === readFileSync(path.join(destination, ".next/BUILD_ID"), "utf8").trim()
+    )
+      return saved;
+    throw new Error("Worktree snapshot build is incomplete.");
+  }
+  if (existsSync(destination)) throw new Error("Worktree snapshot export is incomplete.");
+  mkdirSync(destination, { recursive: true });
+  const files = git(["ls-files", "--cached", "--others", "--exclude-standard", "-z"])
+    .toString()
+    .split("\0")
+    .filter(Boolean);
+  for (const file of files) {
+    const source = path.join(root, file);
+    if (!existsSync(source)) continue;
+    mkdirSync(path.dirname(path.join(destination, file)), { recursive: true });
+    cpSync(source, path.join(destination, file));
+  }
+  return finishBuild(destination, {
+    commit,
+    snapshot,
+    dirty: !!git(["status", "--porcelain"]).length,
+  });
+}
+
+async function finishBuild(destination, source) {
   const env = testEnvironment();
   await runCommand("pnpm", ["install", "--frozen-lockfile", "--prefer-offline"], {
     cwd: destination,
@@ -85,11 +136,14 @@ export async function prepareBuild(ref, directory) {
   });
   await runCommand("pnpm", ["build"], { cwd: destination, env });
   const saved = {
-    commit,
+    ...source,
     directory: destination,
     buildId: readFileSync(path.join(destination, ".next/BUILD_ID"), "utf8").trim(),
     preparedAt: new Date().toISOString(),
   };
-  writeFileSync(receipt, `${JSON.stringify(saved, null, 2)}\n`);
+  writeFileSync(
+    path.join(destination, "benchmark-build.json"),
+    `${JSON.stringify(saved, null, 2)}\n`,
+  );
   return saved;
 }
