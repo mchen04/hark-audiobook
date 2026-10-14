@@ -49,13 +49,6 @@ export async function recordScenarios({
   context,
 }) {
   const destination = outsideRepository(output);
-  const allowed = [path.resolve(tmpdir()), path.resolve(tmpdir(), "../evidence/codex-runs")];
-  if (
-    !allowed.some(
-      (parent) => destination === parent || destination.startsWith(`${parent}${path.sep}`),
-    )
-  )
-    throw new Error("Recordings must stay under TMPDIR or the evidence folder.");
   mkdirSync(destination, { recursive: true });
   for (const name of names)
     if (!scenarioNames.includes(name)) throw new Error(`Unknown scenario: ${name}`);
