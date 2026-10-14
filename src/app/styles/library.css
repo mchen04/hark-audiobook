@@ -141,6 +141,13 @@
   gap: 0.6rem;
 }
 
+@media (min-width: 20rem) and (max-height: 64rem) {
+  .book-grid > .book-item:nth-child(n + 25) {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 320px;
+  }
+}
+
 .book-cover {
   position: relative;
   display: flex;
