@@ -185,6 +185,15 @@ export async function seedLibrary(
       );
       await expect(bookLink(remote.page, book.title)).toBeVisible({ timeout: 60_000 });
     }
+    await expect
+      .poll(
+        async () => {
+          const ids = await bookIdsByTitle(remote.page);
+          return remoteBooks.filter((book) => !ids.has(book.title)).map((book) => book.title);
+        },
+        { timeout: 60_000, message: "Remote seed books were never registered" },
+      )
+      .toEqual([]);
   } finally {
     await remote.context.close();
   }

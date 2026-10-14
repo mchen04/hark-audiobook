@@ -59,6 +59,7 @@ export default defineConfig({
     {
       name: "launch-perf",
       testDir: "./tests/perf",
+      testIgnore: "**/*.test.ts",
       // Four profiles x repeated launches, one of them delayed by 3000ms.
       timeout: 600_000,
       use: { ...devices["iPhone 15"], browserName: "webkit" },
