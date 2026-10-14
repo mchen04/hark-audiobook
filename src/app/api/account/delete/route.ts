@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { and, eq, gt, inArray, like, lte } from "drizzle-orm";
+import { and, eq, gt, inArray, like, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { auth } from "@/server/auth";
@@ -112,6 +112,9 @@ async function commitDeletion(
   const now = new Date();
   await pruneExpiredDeletionIntents(now);
   const committed = await db.transaction(async (transaction) => {
+    await transaction.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`hark:sync:${data.userId}`}, 0))`,
+    );
     const claimed = await transaction
       .update(verification)
       .set({ value: deleted, updatedAt: now })
