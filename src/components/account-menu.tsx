@@ -5,8 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { authClient } from "@/lib/auth-client";
-
 type AccountMenuProps = {
   email: string;
 };
@@ -26,6 +24,7 @@ export function AccountMenu({ email }: AccountMenuProps) {
 
   async function signOut() {
     setPending(true);
+    const { authClient } = await import("@/lib/auth-client");
     // Resolves only once the sweep has finished: `authClient` awaits it on the
     // sign-out path, so nothing below can run while this account's data is
     // still on the device.

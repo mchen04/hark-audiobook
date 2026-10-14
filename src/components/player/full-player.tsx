@@ -30,7 +30,7 @@ import { formatClock, formatDurationRounded } from "@/lib/format-time";
 import { getChapterTranscript, getTranscriptChapterIndexes } from "@/lib/offline/transcript-store";
 import type { SuspendedSession } from "@/lib/playback-core";
 
-import { PlayerSheet, type PlayerSheetView } from "./chapter-sheet";
+import type { PlayerSheetView } from "./chapter-sheet";
 import {
   useCurrentChapter,
   usePlayback,
@@ -48,6 +48,10 @@ const BookDetailsDialog = dynamic(
   () => import("@/components/book/book-details-dialog").then((mod) => mod.BookDetailsDialog),
   { ssr: false },
 );
+
+const PlayerSheet = dynamic(() => import("./chapter-sheet").then((mod) => mod.PlayerSheet), {
+  ssr: false,
+});
 
 export function FullPlayer({
   playerBook,

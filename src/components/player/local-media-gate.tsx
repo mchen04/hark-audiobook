@@ -15,9 +15,8 @@ import {
   UNAVAILABLE_RENDITION_MESSAGE,
 } from "@/lib/document-import/rendition";
 import { formatBytes } from "@/lib/format-bytes";
-import { type MediaFingerprintKind, fingerprintMedia } from "@/lib/media-fingerprint";
+import type { MediaFingerprintKind } from "@/lib/media-fingerprint";
 import { getOfflineBook } from "@/lib/offline/library";
-import { storeLocalBookMedia } from "@/lib/offline/media-store";
 import { DOCUMENT_FILE_ACCEPT, isDocumentSource, MP3_FILE_ACCEPT } from "@/lib/source-formats";
 
 type GateState =
@@ -158,7 +157,10 @@ function MediaForIdentity({
       targetBook: Omit<PlayerBook, "mediaUrl" | "coverUrl">,
       signal: AbortSignal,
     ) {
-      const { parseLocalMp3 } = await import("@/lib/local-import");
+      const [{ parseLocalMp3 }, { storeLocalBookMedia }] = await Promise.all([
+        import("@/lib/local-import"),
+        import("@/lib/offline/media-store"),
+      ]);
       const { artwork } = await parseLocalMp3(source, signal);
       return storeLocalBookMedia(
         userId,
@@ -180,11 +182,13 @@ function MediaForIdentity({
         );
       }
       const fingerprint = mediaFingerprintKind
-        ? await fingerprintMedia(
-            file,
-            mediaFingerprintKind,
-            (fraction) => reportAttachment(Math.round(fraction * 100), "Checking the source"),
-            controller.signal,
+        ? await import("@/lib/media-fingerprint").then(({ fingerprintMedia }) =>
+            fingerprintMedia(
+              file,
+              mediaFingerprintKind,
+              (fraction) => reportAttachment(Math.round(fraction * 100), "Checking the source"),
+              controller.signal,
+            ),
           )
         : undefined;
       if (mediaFingerprint && fingerprint !== mediaFingerprint) {
