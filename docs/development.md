@@ -190,3 +190,12 @@ migration snapshots; `scripts/measure-browser.mjs` measures live browser work.
 Source measurements require a build and their own output path. Build-wide asset
 size is not initial transfer size. Preserve the measured commit and command;
 do not relabel old browser measurements after a source change.
+
+### Benchmark
+
+Export `TMPDIR` to the task temporary directory and use `pnpm bench prepare --ref <ref> --dir "$TMPDIR/builds/<name>"`.
+Run `pnpm bench run --a <base-build> --b <candidate-build> --label <label> --out <external.json>`.
+Use `--reps 1` for smoke checks and `--noise <aa.json>` for comparisons.
+Record video and frames with `pnpm bench record --build-dir <build> --out <external-directory>`.
+WebKit playback starts from a warm library; its cold start is unavailable on this host. Chromium relaunch results stay separate.
+The fixed [protocol](../tests/perf/BASELINE.md#benchmark-protocol-v1--fixed-before-any-application-edit) defines measurements and acceptance.

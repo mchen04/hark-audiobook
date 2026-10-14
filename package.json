@@ -42,7 +42,8 @@
     "db:studio": "drizzle-kit studio",
     "verify:quick": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "verify:browser": "pnpm test:e2e:ios && pnpm test:e2e:parity && pnpm test:sync && pnpm test:resume:ci && pnpm test:e2e:launch",
-    "verify": "pnpm verify:quick && pnpm verify:browser"
+    "verify": "pnpm verify:quick && pnpm verify:browser",
+    "bench": "node scripts/bench/cli.mjs"
   },
   "dependencies": {
     "@mediabunny/mp3-encoder": "1.53.0",
