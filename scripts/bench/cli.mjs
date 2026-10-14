@@ -9,24 +9,9 @@ import { recordScenarios, scenarioNames } from "./scenarios.mjs";
 const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: Object.fromEntries(
-    [
-      "ref",
-      "dir",
-      "a",
-      "b",
-      "label",
-      "out",
-      "reps",
-      "noise",
-      "url",
-      "build-dir",
-      "scenarios",
-      "first-visit-reps",
-      "warm-start-reps",
-      "playback-reps",
-      "transitions-reps",
-      "memory-reps",
-    ].map((key) => [key, { type: "string" }]),
+    ["ref", "dir", "a", "b", "label", "out", "reps", "noise", "url", "build-dir", "scenarios"].map(
+      (key) => [key, { type: "string" }],
+    ),
   ),
 });
 const required = (...keys) => {
@@ -45,13 +30,6 @@ try {
       label: values.label,
       output: values.out,
       reps: number("reps"),
-      overrides: {
-        first_visit: number("first-visit-reps"),
-        warm_start: number("warm-start-reps"),
-        playback: number("playback-reps"),
-        transitions: number("transitions-reps"),
-        memory: number("memory-reps"),
-      },
       noisePath: values.noise,
     });
     if (!report.completed || report.noiseFailure || report.samples.some((sample) => !sample.ok))

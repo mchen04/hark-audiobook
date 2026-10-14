@@ -247,7 +247,7 @@ export function subscribeAccountDeletionFence(onChange: () => void): () => void 
   };
 }
 
-export function subscribeAccountWriteFence(onChange: () => void): () => void {
+function subscribeAccountWriteFence(onChange: () => void): () => void {
   if (typeof window === "undefined") return () => undefined;
   const onStorage = (event: StorageEvent) => {
     if (

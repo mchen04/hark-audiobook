@@ -212,7 +212,7 @@ export async function storage(page, userId, bookId) {
   );
 }
 
-export async function serverPosition(bookId) {
+async function serverPosition(bookId) {
   const sql = postgres(testEnvironment().DATABASE_URL, { max: 1 });
   try {
     const [row] = await sql`select position_ms from playback_states where book_id = ${bookId}`;

@@ -9,7 +9,7 @@
  * device that imported it and there is no route capable of moving it.
  */
 
-export type PulledMedia = {
+type PulledMedia = {
   originalFilename: string;
   mimeType: string;
   byteSize: number;
@@ -20,7 +20,7 @@ export type PulledMedia = {
   durationMs: number;
 };
 
-export type PulledChapter = {
+type PulledChapter = {
   position: number;
   title: string;
   startMs: number;
@@ -73,7 +73,7 @@ export type PulledCollection = {
   books: { bookId: string; position: number }[];
 };
 
-export type PulledPreferences = {
+type PulledPreferences = {
   skipBackMs: number;
   skipForwardMs: number;
   smartRewind: boolean;

@@ -3,7 +3,7 @@ import { KESTREL_BUNDLE_REVISION } from "@/lib/kestrel/manifest";
 
 export const NARRATION_CHUNK_CHARACTERS = 320;
 export const GENERATED_MP3_BITRATE = 64_000;
-export const KESTREL_VOICE_ID = "af_heart";
+const KESTREL_VOICE_ID = "af_heart";
 
 const DOCUMENT_EXTRACTION_REVISION = "extract-v2";
 const SENTENCE_SPLITTER_REVISION = "split-v1";

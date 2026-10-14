@@ -3,7 +3,7 @@ import { isAccountWriteFenced } from "@/lib/account-deletion-fence";
 
 /** How close to a boundary counts as "at" it, in milliseconds. */
 export const CHAPTER_END_EPSILON_MS = 350;
-export const BOOK_END_EPSILON_MS = 1_000;
+const BOOK_END_EPSILON_MS = 1_000;
 
 /**
  * The chapter containing a position. Positions at or past the last chapter's

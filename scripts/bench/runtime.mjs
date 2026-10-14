@@ -29,7 +29,7 @@ for (const [signal, code] of [
     process.exit(code);
   });
 
-export const title = "Hark Benchmark Fixture";
+const title = "Hark Benchmark Fixture";
 export const startPath = "/library?source=pwa";
 export const headers = TEST_CLIENT_HEADERS.launch;
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

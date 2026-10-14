@@ -48,7 +48,7 @@ const SHELL_CACHE_PREFIX = "chapterline-shell-";
  * out. The bound is what stops "never lose a write" from turning into "never
  * finish signing out".
  */
-export const SIGN_OUT_DRAIN_TIMEOUT_MS = 8_000;
+const SIGN_OUT_DRAIN_TIMEOUT_MS = 8_000;
 
 /**
  * A user write that was still on the device when the account left it.

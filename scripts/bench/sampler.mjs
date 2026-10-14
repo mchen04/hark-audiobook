@@ -1,4 +1,4 @@
-export function frameSampler() {
+function frameSampler() {
   const documentId = `${performance.timeOrigin}`;
   const frames = [];
   const actions = [];

@@ -86,14 +86,6 @@
   gap: 0.7rem;
 }
 
-.cover-upload {
-  cursor: pointer;
-}
-
-.cover-upload .secondary-button {
-  justify-content: center;
-}
-
 .details-side {
   display: grid;
   gap: 1.35rem;

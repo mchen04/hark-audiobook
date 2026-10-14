@@ -186,7 +186,7 @@ receipts outside the repository.
 
 Reusable measurement helpers remain available: `scripts/measure-source.mjs`
 counts application TS/TSX and the service worker separately from tests, CSS, and
-migration snapshots; `scripts/measure-browser.mjs` measures live browser work.
+migration snapshots; `pnpm bench run` measures live browser work under the fixed protocol.
 Source measurements require a build and their own output path. Build-wide asset
 size is not initial transfer size. Preserve the measured commit and command;
 do not relabel old browser measurements after a source change.

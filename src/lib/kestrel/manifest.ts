@@ -1,11 +1,10 @@
 import manifest from "./asset-manifest.json";
 
-export const KESTREL_MODEL_REVISION = manifest.kestrelModelRevision;
-export const KESTREL_EXPORTER_REVISION = manifest.kestrelExporter.sha256;
-export const KOKORO_SOURCE_REVISION = manifest.kokoroSourceRevision;
+const KESTREL_MODEL_REVISION = manifest.kestrelModelRevision;
+const KOKORO_SOURCE_REVISION = manifest.kokoroSourceRevision;
 export const KESTREL_BUNDLE_REVISION = manifest.bundleRevision;
 
-export type KestrelAssetId =
+type KestrelAssetId =
   | "prosody"
   | "decoder"
   | "head"

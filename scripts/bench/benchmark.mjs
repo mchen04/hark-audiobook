@@ -39,7 +39,7 @@ const quantile = (sorted, fraction) => {
   const low = Math.floor(index);
   return sorted[low] + (sorted[Math.ceil(index)] - sorted[low]) * (index - low);
 };
-export function aggregate(values, failures = 0) {
+function aggregate(values, failures = 0) {
   const sorted = [...values].sort((a, b) => a - b);
   return {
     median: sorted.length ? quantile(sorted, 0.5) : null,
@@ -52,7 +52,7 @@ export function aggregate(values, failures = 0) {
   };
 }
 
-export function compareResults(report, noise) {
+function compareResults(report, noise) {
   const metrics = {};
   let gain = false;
   let regression = false;
@@ -125,7 +125,7 @@ export function compareResults(report, noise) {
   };
 }
 
-export function printTable(report) {
+function printTable(report) {
   console.log("WebKit playback metrics: from warm library.");
   console.log("cold_relaunch_playback_chromium_ms: from relaunched Chromium cold start.");
   console.log(
@@ -143,7 +143,7 @@ export function printTable(report) {
   );
 }
 
-export async function runBenchmark({ A, B, label, output, reps, overrides = {}, noisePath }) {
+export async function runBenchmark({ A, B, label, output, reps, noisePath }) {
   A = outsideRepository(A, true);
   B = outsideRepository(B, true);
   const baseReceipt = JSON.parse(readFileSync(path.join(A, "benchmark-build.json"), "utf8"));
@@ -155,7 +155,7 @@ export async function runBenchmark({ A, B, label, output, reps, overrides = {}, 
   const destination = outsideRepository(output);
   mkdirSync(path.dirname(destination), { recursive: true });
   const repetitions = Object.fromEntries(
-    Object.entries(defaults).map(([key, value]) => [key, overrides[key] ?? reps ?? value]),
+    Object.entries(defaults).map(([key, value]) => [key, reps ?? value]),
   );
   if (Object.values(repetitions).some((count) => !Number.isInteger(count) || count < 1))
     throw new Error("Repetitions must be positive integers.");

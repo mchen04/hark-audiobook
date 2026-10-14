@@ -341,7 +341,6 @@
   margin: 0.4rem 0 1.25rem;
 }
 
-.upload-status,
 .upload-error {
   position: fixed;
   z-index: 30;
@@ -356,47 +355,6 @@
   background: color-mix(in srgb, var(--surface-strong) 94%, transparent);
   box-shadow: var(--shadow);
   backdrop-filter: blur(18px);
-}
-
-.upload-status {
-  padding: 1rem;
-}
-
-.upload-status > div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.7rem;
-  font-size: var(--text-sm);
-}
-
-.upload-status span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.upload-status progress {
-  display: block;
-  width: 100%;
-  height: 0.4rem;
-  overflow: hidden;
-  border: 0;
-  border-radius: var(--radius-pill);
-  appearance: none;
-}
-
-.upload-status progress::-webkit-progress-bar {
-  background: var(--surface-muted);
-}
-
-.upload-status progress::-webkit-progress-value {
-  background: var(--accent);
-}
-
-.upload-status progress::-moz-progress-bar {
-  background: var(--accent);
 }
 
 .upload-error {
