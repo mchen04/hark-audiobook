@@ -5,7 +5,7 @@ import { devices } from "@playwright/test";
 
 import { startLatencyProxy, PROBE_PATH } from "./proxy.mjs";
 import { outsideRepository, root } from "./build.mjs";
-import { analyzeFrames, attachSampler } from "./sampler.mjs";
+import { analyzeFrames, attachSampler, isHandledReloadDiagnostic } from "./sampler.mjs";
 import {
   audioFixture,
   backButton,
@@ -20,6 +20,7 @@ import {
   signIn,
   sleep,
   startPath,
+  storedAudioReady,
   syntheticAccount,
   trackWebKitPages,
 } from "./runtime.mjs";
@@ -79,7 +80,7 @@ export async function recordScenarios({
   let pendingVideo;
   let cookies;
   const scenarios = [];
-  const reopens = ["cold-reopen", "slow-reopen", "offline-reopen"];
+  const reopens = ["cold-reopen", "slow-reopen"];
   const executionOrder = [
     ...names.filter((name) => !reopens.includes(name)),
     ...names.filter((name) => reopens.includes(name)),
@@ -133,11 +134,55 @@ export async function recordScenarios({
     page.setDefaultTimeout(15000);
     const startedAt = Date.now();
     const errors = [];
-    const onError = (error) => errors.push(error.message);
+    const pageErrors = [];
+    const failedRequests = [];
+    const notes = [];
+    const responses = [];
+    const requestDocuments = new WeakMap();
+    const pendingResponses = new Set();
+    const onRequest = (request) => {
+      if (new URL(request.url()).pathname === "/api/sync/pull")
+        requestDocuments.set(
+          request,
+          page.evaluate(() => window.__harkSampler?.documentId ?? null).catch(() => null),
+        );
+    };
+    const onResponse = (response) => {
+      if (new URL(response.url()).pathname !== "/api/sync/pull") return;
+      const wallTime = Date.now();
+      const pending = Promise.resolve(requestDocuments.get(response.request())).then((documentId) =>
+        responses.push({ documentId, url: response.url(), status: response.status(), wallTime }),
+      );
+      pendingResponses.add(pending);
+      void pending.finally(() => pendingResponses.delete(pending));
+    };
+    const onError = (error) => {
+      pageErrors.push({
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+        wallTime: Date.now(),
+      });
+    };
+    const onRequestFailed = (request) =>
+      failedRequests.push({
+        url: request.url(),
+        failure: request.failure(),
+        wallTime: Date.now(),
+      });
+    const onConsole = (message) => {
+      if (message.type() === "error")
+        notes.push({ text: message.text(), location: message.location() });
+    };
     page.on("pageerror", onError);
+    page.on("console", onConsole);
+    page.on("request", onRequest);
+    page.on("response", onResponse);
+    page.on("requestfailed", onRequestFailed);
     let failure = null;
     let control = null;
     try {
+      const livePid = name === "offline-reopen" ? handle.pageProcess(page).pid : null;
       control = await performScenario({
         name,
         page,
@@ -148,18 +193,49 @@ export async function recordScenarios({
         proxy,
         preparation,
       });
+      if (livePid !== null) {
+        const currentPid = handle.pageProcess(page).pid;
+        control.liveWebContent = { beforePid: livePid, afterPid: currentPid };
+        if (currentPid !== livePid) throw new Error("Offline navigation changed the page process.");
+      }
       if (!["signed-out", "first-sync"].includes(name) && !preparation.ok)
         throw new Error(`Prepared WebKit context failed: ${preparation.failure}`);
     } catch (error) {
       failure = String(error);
     }
     const recording = await sampler.read(handle.context);
+    await Promise.all([...pendingResponses]);
+    recording.responses = responses;
     recording.frames = recording.frames.filter((frame) => frame.wallTime >= startedAt);
+    recording.scriptErrors = recording.scriptErrors.filter((error) => error.wallTime >= startedAt);
+    errors.length = 0;
+    for (const error of pageErrors) {
+      if (isHandledReloadDiagnostic(error, recording))
+        notes.push({ source: "WebKit handled resource during reload", ...error });
+      else errors.push(error.message);
+    }
+    for (const error of recording.scriptErrors)
+      if (!errors.some((message) => message.includes(error.message)))
+        errors.push(`${error.kind}: ${error.message}`);
     const events = analyzeFrames(recording);
+    if (name === "invalid-session") {
+      const loginDocuments = new Set(
+        recording.frames
+          .filter((frame) => frame.url.split("?")[0] === "/login")
+          .map((frame) => frame.documentId),
+      );
+      if (recording.expectedTransitions.length !== 1 || loginDocuments.size !== 1)
+        failure ||= "Expired session must make exactly one confirmed navigation to login.";
+    }
     const result = {
       name,
       failure,
       errors,
+      pageErrors,
+      failedRequests,
+      notes,
+      responses,
+      expectedTransitions: recording.expectedTransitions,
       control,
       engine: "WebKit",
       webkitVersion: handle.version,
@@ -183,6 +259,10 @@ export async function recordScenarios({
     scenarios.push(result);
     pendingVideo = { video: page.video(), result };
     page.off("pageerror", onError);
+    page.off("console", onConsole);
+    page.off("request", onRequest);
+    page.off("response", onResponse);
+    page.off("requestfailed", onRequestFailed);
     proxy.setDelay(0);
     proxy.setOffline(false);
     save();
@@ -287,10 +367,16 @@ async function performScenario({
       if (!response.ok() || control.probeMs < 2900) throw new Error("Socket delay did not bite.");
     }
     if (name === "offline-reopen") {
+      const previousDocumentTimeOrigin = await page.evaluate(() => performance.timeOrigin);
+      const audioSavedBefore = await page.evaluate(storedAudioReady);
+      if (!audioSavedBefore) throw new Error("Offline reopen requires both saved audio chunks.");
       proxy.setOffline(true);
       proxy.reset();
       control = {
         offline: true,
+        scope: "Same live page process; upstream socket cut before navigation",
+        previousDocumentTimeOrigin,
+        audioSavedBefore,
         probeFailed: await context.request.get(`${proxy.origin}${PROBE_PATH}`).then(
           () => false,
           () => true,
@@ -377,7 +463,11 @@ async function performScenario({
         page.getByRole("link", { name: "Library", exact: true }).click(),
       );
     }
-    if (name === "offline-reopen") control.hits = proxy.report();
+    if (name === "offline-reopen") {
+      control.hits = proxy.report();
+      control.audioSavedAfter = await page.evaluate(storedAudioReady);
+      if (!control.audioSavedAfter) throw new Error("Offline reopen lost saved audio chunks.");
+    }
   }
   await sleep(1000);
 

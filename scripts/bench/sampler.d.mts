@@ -7,6 +7,7 @@ export declare function attachSampler(context: BrowserContext): Promise<{
   read(context: BrowserContext): Promise<unknown>;
 }>;
 export declare function frameSampler(): void;
+export declare function isHandledReloadDiagnostic(error: unknown, recording: unknown): boolean;
 export declare function analyzeFrames(
   recording: unknown,
 ): Array<{ kind: string; landmark?: string; emptyFrames?: number; emptyDurationMs?: number }>;

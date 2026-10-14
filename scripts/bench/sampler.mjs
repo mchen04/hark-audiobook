@@ -7,6 +7,20 @@ export function frameSampler() {
   let sampling = true;
   let firstPaint = false;
   let imports = 0;
+  const scriptError = (kind, message, stack) =>
+    void window.__harkScriptError?.({
+      documentId,
+      wallTime: performance.timeOrigin + performance.now(),
+      kind,
+      message,
+      stack,
+    });
+  addEventListener("error", (event) => {
+    if (event.message) scriptError("error", event.message, event.error?.stack ?? null);
+  });
+  addEventListener("unhandledrejection", (event) =>
+    scriptError("unhandledrejection", String(event.reason), event.reason?.stack ?? null),
+  );
   document.addEventListener(
     "change",
     (event) => {
@@ -51,6 +65,7 @@ export function frameSampler() {
     }
   };
   window.__harkSampler = {
+    documentId,
     frames,
     actions,
     flush,
@@ -141,7 +156,9 @@ export function frameSampler() {
 export async function attachSampler(context) {
   const frames = [];
   const actions = [];
+  const scriptErrors = [];
   await context.exposeBinding("__harkFrameBatch", (_source, batch) => frames.push(...batch.frames));
+  await context.exposeBinding("__harkScriptError", (_source, error) => scriptErrors.push(error));
   await context.addInitScript(frameSampler);
   return {
     async begin(page, target, leaving, kind = "click") {
@@ -163,7 +180,7 @@ export async function attachSampler(context) {
       for (const page of context.pages())
         await page.evaluate(() => window.__harkSampler?.flush()).catch(() => {});
       await new Promise((resolve) => setTimeout(resolve, 50));
-      return { frames: [...frames].sort((a, b) => a.wallTime - b.wallTime), actions };
+      return { frames: [...frames].sort((a, b) => a.wallTime - b.wallTime), actions, scriptErrors };
     },
   };
 }
@@ -184,6 +201,8 @@ export function analyzeFrames(recording) {
   let blank = false;
   let painted = false;
   const emptyRuns = new Map();
+  const expiredDocuments = new Set();
+  recording.expectedTransitions = [];
   for (const frame of recording.frames) {
     const history = emptyRuns.get(frame.documentId) ?? { runs: [], previous: null };
     if (frame.state === "empty library") {
@@ -209,13 +228,40 @@ export function analyzeFrames(recording) {
       recording.actions.find(
         (a) => frame.wallTime >= a.startWallTime && frame.wallTime <= (a.endWallTime ?? Infinity),
       );
+    if (previous && previous.documentId !== frame.documentId) {
+      seen.clear();
+      painted = false;
+      blank = false;
+    }
     painted ||= frame.firstPaint;
     if (painted && frame.state === "blank") {
       if (!blank) add("blank-after-first-paint", frame, {});
       blank = true;
     } else blank = false;
-    if (previous?.state === "books" && frame.state !== "books" && !action)
-      add("state-regression", frame, { from: "books", to: frame.state });
+    if (previous?.state === "books" && frame.state !== "books" && !action) {
+      const expiry = recording.responses?.find(
+        (response) =>
+          response.documentId === previous.documentId &&
+          [401, 403].includes(response.status) &&
+          new URL(response.url).pathname === "/api/sync/pull" &&
+          response.wallTime <= frame.wallTime,
+      );
+      if (
+        frame.documentId !== previous.documentId &&
+        frame.url.split("?")[0] === "/login" &&
+        expiry &&
+        !expiredDocuments.has(previous.documentId)
+      ) {
+        expiredDocuments.add(previous.documentId);
+        recording.expectedTransitions.push({
+          kind: "confirmed-session-expiry",
+          fromDocumentId: previous.documentId,
+          toDocumentId: frame.documentId,
+          wallTime: frame.wallTime,
+          response: expiry,
+        });
+      } else add("state-regression", frame, { from: "books", to: frame.state });
+    }
     for (const [name, rect] of Object.entries(frame.landmarks)) {
       const past = seen.get(name);
       const leaving = action?.leaving?.includes(name);
@@ -254,6 +300,25 @@ export function analyzeFrames(recording) {
     previous = frame;
   }
   return events;
+}
+
+export function isHandledReloadDiagnostic(error, recording) {
+  const resource =
+    (error.name === "Fetch API cannot load http" && error.stack.includes("/api/sync/pull?")) ||
+    (error.name === "Cannot load blob" &&
+      error.stack.startsWith("Cannot load blob:http://127.0.0.1:") &&
+      error.stack.includes("at peekBuffer"));
+  return (
+    resource &&
+    error.message.endsWith(" due to access control checks.") &&
+    recording.scriptErrors.length === 0 &&
+    recording.actions.some(
+      (action) =>
+        ["reload-player", "reload-library"].includes(action.kind) &&
+        error.wallTime >= action.startWallTime &&
+        error.wallTime <= action.endWallTime,
+    )
+  );
 }
 
 export function timingProbe() {

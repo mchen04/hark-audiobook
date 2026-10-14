@@ -191,12 +191,6 @@
   min-width: 0;
 }
 
-/* Off-screen cards in very large libraries skip layout and paint. */
-.book-item {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 320px;
-}
-
 .book-title {
   display: block;
   overflow: hidden;
