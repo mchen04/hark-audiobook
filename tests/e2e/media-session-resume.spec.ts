@@ -27,7 +27,7 @@ test("Media Session uses preferences and exact progress survives offline reload 
     throw error;
   } finally {
     writeFileSync(output, `${JSON.stringify(report, null, 2)}\n`);
-    console.log(JSON.stringify({ output, ...report }, null, 2));
+    console.log(JSON.stringify({ output, ok: report.ok, failure: report.failure }));
     await info.attach("media-session-resume", { path: output, contentType: "application/json" });
   }
 });

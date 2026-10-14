@@ -80,21 +80,7 @@ test("library and player retain their visible landmarks across launches and navi
     origin: baseURL!,
     output,
   });
-  console.log(
-    JSON.stringify(
-      {
-        output,
-        scenarios: summary.scenarios.map(({ name, failure, errors, events }) => ({
-          name,
-          failure,
-          errors,
-          events,
-        })),
-      },
-      null,
-      2,
-    ),
-  );
+  console.log("Frame evidence:", output);
   expect(
     summary.scenarios.filter((scenario) => scenario.failure || scenario.errors.length),
     "All scenarios must complete without page errors",

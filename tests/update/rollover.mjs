@@ -13,6 +13,7 @@ import {
 } from "../../scripts/bench/build.mjs";
 import {
   audioFixture,
+  failureMessage,
   backButton,
   bookCard,
   booksReady,
@@ -21,6 +22,7 @@ import {
   launchChromium,
   launchWebKit,
   playerReady,
+  playAndPause,
   processSnapshot,
   sha256,
   shellReady,
@@ -34,6 +36,7 @@ import {
   offlineRanges,
   persisted,
   position,
+  positionNear,
   rangeEvidence,
   storage,
   until,
@@ -161,7 +164,7 @@ async function scenario(engine, previous, next, report, save) {
         waitUntil: "domcontentloaded",
         timeout: 60000,
       });
-    const response = await (engine === "WebKit" ? handle.capture(navigate) : navigate());
+    const response = await handle.capture(navigate);
     assert(response, "Launch must have a document response");
     const html = await response.text();
     const ids = [previous.buildId, next.buildId].filter((id) => html.includes(id));
@@ -189,13 +192,12 @@ async function scenario(engine, previous, next, report, save) {
     result.steps.push(entry);
     save();
     try {
-      if (engine === "WebKit") await handle.capture(() => action(entry.evidence));
-      else await action(entry.evidence);
+      await handle.capture(() => action(entry.evidence));
       entry.evidence.webContent = pidProof();
       await witness.clean();
       entry.ok = true;
     } catch (error) {
-      entry.failure = String(error);
+      entry.failure = failureMessage(error);
       throw error;
     } finally {
       save();
@@ -216,19 +218,8 @@ async function scenario(engine, previous, next, report, save) {
       await bookCard(page).click();
       await playerReady(page);
       await page.getByRole("slider", { name: "Audiobook position" }).fill("123000");
-      await until(
-        async () => Math.abs((await position(page)) - 123) <= 0.25,
-        "Initial seek must reach 123s",
-      );
-      const start = await position(page);
-      await page.getByRole("button", { name: "Play", exact: true }).click();
-      await page.waitForFunction(
-        (start) =>
-          !document.querySelector("audio").paused &&
-          document.querySelector("audio").currentTime >= start + 1,
-        start,
-      );
-      await page.getByRole("button", { name: "Pause", exact: true }).click();
+      await positionNear(page, 123, "Initial seek must reach 123s");
+      await playAndPause(page, 1);
       saved = await position(page);
       evidence.requestedSeekSeconds = 123;
       result.savedSeconds = saved;
@@ -327,9 +318,7 @@ async function scenario(engine, previous, next, report, save) {
       await witness.quiet();
       const openPlayer = () =>
         page.goto(`http://127.0.0.1:3400/books/${bookId}`, { waitUntil: "domcontentloaded" });
-      const playerResponse = await (engine === "WebKit"
-        ? handle.capture(openPlayer)
-        : openPlayer());
+      const playerResponse = await handle.capture(openPlayer);
       const playerHtml = await playerResponse.text();
       assert(
         playerHtml.includes(next.buildId) && !playerHtml.includes(previous.buildId),
@@ -370,10 +359,7 @@ async function scenario(engine, previous, next, report, save) {
       evidence.document = await launch(next.buildId);
       await bookCard(page).click();
       await playerReady(page);
-      await until(
-        async () => Math.abs((await position(page)) - saved) <= 0.25,
-        "Offline player does not resume within 0.25s",
-      );
+      await positionNear(page, saved, "Offline player does not resume within 0.25s");
       evidence.resumeSeconds = await position(page);
       evidence.storage = await persisted(page, account.id, bookId, saved, false);
       assert(evidence.storage.download, "Local book record must survive rollover");
@@ -382,26 +368,14 @@ async function scenario(engine, previous, next, report, save) {
         "Media cache must survive rollover",
       );
       evidence.range = await rangeEvidence(page, evidence.storage.download.offlineMediaUrl);
-      const start = await position(page);
-      await page.getByRole("button", { name: "Play", exact: true }).click();
-      await page.waitForFunction(
-        (start) =>
-          !document.querySelector("audio").paused &&
-          document.querySelector("audio").currentTime >= start + 0.2,
-        start,
-      );
-      evidence.playback = { startSeconds: start, advancedSeconds: await position(page) };
-      await page.getByRole("button", { name: "Pause", exact: true }).click();
+      evidence.playback = await playAndPause(page);
       evidence.mediaResponses = offlineRanges(witness.evidence, offlineMediaStart);
     });
     result.ok = true;
   } catch (error) {
-    result.failure = String(error);
+    result.failure = failureMessage(error);
   } finally {
-    if (handle) {
-      if (engine === "WebKit") await handle.close();
-      else await handle.context.close();
-    }
+    await handle?.close();
     await server?.close();
     save();
   }
@@ -448,7 +422,7 @@ try {
     await scenario(engine, report.previous, report.next, report, save);
   report.ok = report.engines.every((engine) => engine.ok);
 } catch (error) {
-  report.failure = String(error);
+  report.failure = failureMessage(error);
 } finally {
   save();
   console.log(

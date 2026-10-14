@@ -26,8 +26,9 @@ a personal library or reset a retained database to improve a score.
   relevant samples count. CPU calibration normalizes a fixed reference workload;
   viewport emulation alone does not simulate phone CPU speed.
 
-The harness probes persistent WebKit first. If its Cache Storage behavior fails
-the probe, it can use Chromium with iPhone viewport emulation and calibrated CPU.
+The harness probes persistent WebKit first. The chosen engine must support
+persistent Cache Storage and CPU throttling. Chromium can provide both with
+iPhone viewport emulation and calibrated CPU.
 The report names the engine and capability result. Neither that fallback nor
 Playwright WebKit is a physical-iPhone measurement.
 
@@ -40,124 +41,137 @@ external receipt directory. Keep failures and incomplete output. A printed table
 before assertions finish is not a passing result.
 
 This file defines the protocol, not the latest measured score. Historical results
-remain attributable to their original commits in Git history and external task
+remain attributable to their original commits in Git history and external
 artifacts. Do not carry an earlier browser score forward as a measurement of a
 new source head. Source LOC/complexity and build-wide asset totals from
 `scripts/measure-source.mjs` are separate measurements, not launch latency or
 initial-download size.
 
-# Benchmark protocol v1 — fixed before any application edit
+# Benchmark protocol v1.1
 
-Written 2026-10-14 (before Codex turn 1, before any src/ or public/ change). Base app: e4525ac70dd5bc3113ce3c8a76b97dcdd2d47858.
-Any later change to this protocol must be recorded in attempts.md with a re-measured base under the new protocol.
+Results, videos, and command receipts stay outside the repository.
 
-## Host and engine
+## Setup and fixtures
 
-- Host: this Mac (mbp-old), Darwin 25.5.0, Apple Silicon. Record `sysctl -n hw.model machdep.cpu.brand_string hw.memsize` per run.
-- Engine: Playwright 1.61.1 WebKit (project-pinned build 2311), headless. Record `browser.version()`.
-- Device profile: Playwright `devices["iPhone 15"]` (viewport, DPR 3, mobile, touch, iPhone UA).
-- No CPU throttling: WebKit has no CPU-throttle API, so timings are desktop-CPU timings. They are NOT iPhone latencies.
-- Server: production `next build` standalone (`scripts/run-standalone.mjs`) on 127.0.0.1, Node v26.3.1; Postgres 18.4 (Docker, local).
-- Nothing else heavy runs on the host during a measurement (no builds, no other browser suites).
+- Use a quiet Mac, production standalone builds, local Postgres, and headless
+  Playwright 1.61.1 WebKit build 2311. Use `devices["iPhone 15"]` without CPU throttling.
+- Record host model, CPU, memory, OS, Node, Playwright, browser versions, Git head,
+  dirty status, build IDs, directories, fixture hashes, and measurement order.
+  Desktop CPU timings and RSS are not physical-iPhone measurements.
+- A is the archived frozen base `e4525ac70dd5bc3113ce3c8a76b97dcdd2d47858`.
+  B is the prepared candidate. Each has its own server port, account, and context.
+  Builds stay under `TMPDIR`; servers use 3100/3200 and the test environment.
+- Each account has 1,000 metadata books seeded by [seed-perf.mjs](../../scripts/seed-perf.mjs).
+  Import the generated MP3 through the real file chooser: 600 seconds of sine
+  tones, mono, 64 kb/s, five ID3 chapters, and more than 4 MiB across two media chunks.
+  Record SHA-256 and the first FFmpeg version line.
+- First visits use fresh contexts with only the session cookie. Other WebKit
+  metrics share one prepared non-persistent context per variant: SW controlling,
+  shell cached, mirror synced, and audio saved. The page process stays live.
+- Chromium uses a separately prepared persistent profile with the same fixture.
+  Chromium measurements remain labelled Chromium; they are not Safari results.
+  See [WebKit limits](../../docs/development.md#benchmark).
+- Continue the A,B,B,A sequence across metric groups. An A/A run of the frozen
+  base sets the noise band. Reduced repetitions are functional smoke checks only.
 
-## Variants and interleaving
+## Metrics
 
-- A = frozen base build of e4525ac (exported with `git archive`, built once under the task tmp dir).
-- B = candidate build of the worktree under test.
-- Each variant has its own server port, its own persistent WebKit profile directory, and its own synthetic account
-  (identical seeding). Repetitions alternate A,B,B,A,... so host drift hits both variants equally.
-- An A/A run (base vs a second copy of base) at baseline sets the noise band.
+The library end marker is `[data-launch-ready="books"]` with at least one
+`.book-grid .book-item`. The start URL is `/library?source=pwa`.
 
-## Fixture (synthetic only)
+| Metric                                | Definition                                                                                                                                                                         |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `first_visit_ms`                      | Empty context, session cookie only; navigation to `/library` through complete first sync and the books marker.                                                                     |
+| `cold_start_ms`, `cold_start_wall_ms` | Not measurable in this WebKit build; report unavailable, never zero.                                                                                                               |
+| `warm_start_ms`                       | Navigate the same live library page to the start URL; navigation start to the books marker.                                                                                        |
+| `time_to_playback_ms`                 | From a warm-started WebKit library, card tap to unpaused audio at least 0.2 s past its pre-play position. Wait for enabled Play, then tap it.                                      |
+| `open_player_ms`                      | Card tap to player heading and enabled Play visible on an animation frame.                                                                                                         |
+| `play_start_ms`                       | Play tap to the same 0.2 s advancement boundary.                                                                                                                                   |
+| `cold_relaunch_chromium_ms`           | SIGKILL the owned Chromium browser, relaunch its prepared persistent profile, then navigate the start URL to the books marker. Browser launch is outside the timer.                |
+| `cold_relaunch_playback_chromium_ms`  | Card tap to 0.2 s advancement from that relaunched Chromium library.                                                                                                               |
+| Screen transitions                    | Click to the first animation frame with the target: library → player heading + Play; player → books marker; library → settings heading; settings → books marker.                   |
+| `playback_rss_kib`                    | `ps` RSS of owned WebKit UI, WebContent, Networking, and GPU processes, 10 s after playback begins. Identify by PID difference and WebKit bundle path. Confirm playback continues. |
+| `cold_rss_kib`                        | Unavailable because WebKit cold start is unavailable.                                                                                                                              |
+| JS heap                               | `null`, reason `unavailable in WebKit`; never zero.                                                                                                                                |
 
-- Per variant: one synthetic account seeded with 1,000 metadata books (`scripts/seed-perf.mjs`).
-- One synthetic MP3 generated by ffmpeg (sine tones, ~10 min, 64 kb/s mono, several ID3 chapters, > 4 MiB so it spans
-  two 4 MiB media chunks), imported through the real UI file chooser so audio lives in Cache Storage.
-- Record the fixture's sha256 and the ffmpeg version.
+Before each warm navigation, wait for the books marker, no pending requests, and
+3,000 ms of network quiet. This readiness wait is outside the measured interval.
+Playback measurements state “from warm library”. No metric waits for server
+revalidation before the initial warm paint.
 
-## Metrics (WebKit, iPhone 15 profile)
+Bundle sizes come from the built files, compressed independently with gzip -9
+and Brotli -11:
 
-1. first_visit_ms — empty profile, signed in (session cookie only), navigate `/library`; time from navigation start
-   to `[data-launch-ready="books"]` with >= 1 `.book-grid .book-item` in the DOM (first sync of 1,000 books included).
-2. cold_start_ms — warm profile (service worker active, shell cached, mirror synced, audio saved); browser process
-   relaunched before every repetition; navigate the manifest start URL `/library?source=pwa`; same end marker.
-   Reported as in-page time from navigation start, plus Node wall clock (relaunch excluded) for reference.
-3. warm_start_ms — same running browser process; close the page and open a new page to the start URL; same marker.
-4. time_to_playback_ms — from a cold-started library: tap the synthetic book card, wait for the enabled Play button,
-   tap Play; end = first moment `audio.currentTime` has advanced >= 0.2 s past its pre-play position while not paused.
-   Sub-metrics: card tap -> Play enabled (open_player_ms); Play tap -> audio advancing (play_start_ms).
-5. Screen transitions (warm session): library -> player (card tap -> player heading + Play visible),
-   player -> library (Back tap -> books marker), library -> settings (tap -> settings heading),
-   settings -> library. Click timestamp to first animation frame where the target is visible.
-6. Memory — OS resident set size (ps RSS, KiB) of this browser instance's WebKit processes (UI, WebContent,
-   Networking, GPU if present), identified by pid set difference around launch and executable path in the
-   Playwright WebKit bundle. Sampled (a) 3 s after cold-start paint, (b) after 10 s of playback. JS heap is
-   UNAVAILABLE in WebKit (no performance.memory) and is recorded as null with that reason, never zero.
-   RSS of desktop WebKit is not iPhone Safari memory.
-7. Bundle size — deterministic from the build: (a) JS + CSS referenced by the launch document (`/offline` shell
-   served for `/library?source=pwa`) and by `/books/[id]`: raw, gzip -9, brotli -11 bytes; (b) total client JS in
-   `.next/static`; (c) service-worker install closure (bytes the SW precaches on install, without the model);
-   (d) bytes actually transferred for `/_next/static` on first_visit.
+- Launch JS/CSS referenced by the `/offline` document used for the start URL.
+- Player JS/CSS closure from the `/books/[id]` client-reference manifest, including
+  required document runtime scripts.
+- Total client JS bytes under `.next/static`.
+- SW install closure: shell, referenced assets, and runtime precache assets,
+  excluding dependencies deferred until the model exists.
+- First-visit `/_next/static` wire bytes completed by books paint, counted at the
+  server socket, including SW fetches and HTTP headers. Reject ambiguous pipelining.
 
-## Repetitions and aggregation
+## Repetitions, validation, and aggregation
 
-- first_visit n=5; cold_start n=10; warm_start n=10; time_to_playback n=10; each transition n=10; memory n=5.
-- Report median (primary), p90, min, max, IQR and n per metric per variant. Keep every raw sample in the JSON.
-- Timed-out or wrong-content samples are failures, never dropped silently.
+Per variant: first visit 5; warm start 10; playback 10; each transition 10;
+Chromium relaunch/playback 10; playback RSS 5. WebKit cold metrics have no samples.
+Metric order is first visit, warm start, playback, transitions, memory, Chromium.
+Keep every current-run raw sample, timeout, content failure, and page error.
+Every valid library sample needs the books marker and cards; playback must advance.
 
-## Decision rule (fixed now)
+Report median, p90, min, max, IQR, n, and failure count per metric and variant.
+Median and quartiles use linear interpolation; p90 uses nearest rank.
+Noise input requires complete full-repetition A/A results with matching host,
+OS, Node, engines, fixture, metric definitions, and measurement order.
+Without it, timing and memory decisions say `noise band unknown`.
 
-- Timing metric gain: B median <= A median by at least max(10% of A median, 2 x A/A median delta for that metric).
-  Regression: worse by the same threshold.
-- Memory gain: B median RSS lower by at least max(5%, 2 x A/A delta). Regression: higher by the same threshold.
-- Bundle gain: launch-closure gzip bytes lower by >= 1% (deterministic; any change is reported).
-- A performance change is KEPT only if it gains on at least one metric, regresses none, and all checks stay green.
-- Cleanup/correctness changes may be kept for their own reason; they are reported separately and are not called
-  performance wins unless they meet the rule.
-- Hill-climb: at most 3 improve-and-measure rounds; stop after 2 consecutive rounds without a gain and report a plateau.
+## Decision rule
 
-## Flicker / layout-jump scenarios (videos + frame sampler, same scenarios before and after)
+- Timing gain: B's median falls by at least the larger of 10% of A and twice the
+  absolute A/A median delta. The same increase is a regression.
+- Memory uses the same rule with 5% instead of 10%.
+- Bundle gain: launch-closure gzip falls by at least 1%; report every byte change.
+- Static transfer bytes and cold-start wall time are informational.
+- A performance change needs a gain, no regression, valid samples, and all external
+  checks green. Smoke runs cannot qualify. The JSON leaves external check/keep
+  decisions unset; a caller must supply their outcomes.
+- Cleanup or correctness changes need their own reason; they are not performance
+  wins without meeting this rule. Limit optimization to three rounds and stop
+  after two consecutive rounds without a gain.
 
-First open signed out (/ -> /login -> sign in -> library); first open signed in on a new device (first sync);
-reopen (cold relaunch, warm profile); reopen with slow server (3,000 ms) ; reopen offline; library -> book -> Back;
-browser back/forward; reload on player and on library; expired session with a warm profile; library <-> settings.
-Per animation frame the sampler records the readiness marker, card count, landmark rectangles (header, main heading,
-first card, player heading, Play button), and which state is visible (blank, header-only, first-sync notice, empty,
-books, player). Flicker = a visible landmark disappears then returns, a content state regresses (books -> non-books),
-a blank frame after first paint, or a landmark moves > 1 px after it first appears without a user action.
-If the baseline shows none, that is recorded as the honest baseline.
+## Flicker and layout stability
 
-## Amendment v1.1 (2026-10-14 ~11:00Z, still before any application edit and before any baseline sample)
+Record video and per-frame readiness, card count, state, and rectangles for the
+header, main heading, first card, player heading, and Play button.
+States include blank, header-only, first-sync notice, empty library, books,
+player, settings, and login.
 
-Reason: proven on this host that Playwright WebKit 26.5 (build 2311) persistent contexts accept Cache Storage writes
-but return no keys/bodies, even in the same session (probe: tmp/probe/probe.mjs; IndexedDB and localStorage do persist;
-Chromium 149 persistent works). The app therefore cannot save audio or its shell in a persistent WebKit profile, so a
-browser-process relaunch cannot be measured in WebKit on this host. Changes:
+Scenarios: signed-out `/` → login → sign-in → library; first sync on a new device;
+reopen; reopen with 3,000 ms server delay; offline reopen; book and Back; browser
+back/forward; reload player and library; invalid session; library ↔ settings.
+Reopen closes pages and proves their WebContent PIDs exit before opening a new page.
+Offline reopen keeps the live page process and cuts the upstream socket.
+These recorder scenarios do not make WebKit cold-start timing available.
 
-- All WebKit measurements use ONE prepared non-persistent browser context per variant (SW active, shell cached, mirror
-  synced, audio saved). Storage lives as long as that context.
-- cold_start_ms (WebKit, scoped): close every page of the prepared context, wait until that page's WebContent process
-  has exited (pid gone), then open a new page to `/library?source=pwa`. New page process; browser/network processes and
-  storage stay warm; whether the SW was still running is recorded. This is a page-process cold start, not an app relaunch.
-- warm_start_ms (WebKit): navigate the same live page back to the start URL from the library (no process exit).
-- cold_relaunch_chromium_ms (supplementary, labelled Chromium, NOT Safari): Chromium persistent profile, browser process
-  killed and relaunched each rep, start URL to books marker. Reported and regression-checked, never presented as WebKit.
-- time_to_playback starts from a WebKit page-process cold start.
-- Memory: RSS of the prepared WebKit context's processes; unchanged otherwise.
-- Flicker: an empty-library state shown before books appear without a user import (false-empty flash) counts as a
-  flicker event, as does any first-sync/empty/books sequence that shows wrong content.
+Five event kinds stay fixed:
 
-The amendment overrides the original v1 definitions above. First visits retain empty storage and session cookies only.
-Use the commands in [development](../../docs/development.md#benchmark). Reduced repetitions are functional smoke checks; their timings are non-evidence.
-Frame logs retain all samples, document boundaries, action intervals, and false-empty frame counts and durations.
-Only outgoing landmarks receive navigation exemptions. Blank frames and incoming landmarks remain checked.
-The regression control proves all five event kinds. A/A noise input requires full repetitions and matching host, engines, and fixture.
+1. **Blink:** a visible landmark disappears and returns.
+2. **State regression:** books changes to non-books without a user action.
+3. **Blank after first paint:** a blank frame appears after content has painted.
+4. **Layout jump:** a landmark moves more than 1 CSS px from its first position.
+5. **False empty:** an empty library is followed by books in the same document
+   without an intervening import; report frame count and visible duration.
 
-On this host, page-process exit loses WebKit Cache Storage entries; a later warm navigation can terminate Networking and clear storage.
-The keeper-page probe cannot make the measured PID exit within 60 seconds: cold_start_ms is “not measurable in this WebKit build”.
+Never compare landmarks across documents. Exempt only the outgoing landmarks
+named by the harness action, only for that navigation's duration. Incoming content
+and blank frames stay checked. One library-to-login navigation is expected only
+with its preceding 401/403 sync response recorded for that library document.
+Nothing excuses an earlier blink or regression inside that document.
 
-WebKit time_to_playback_ms, open_player_ms, and play_start_ms start “from warm library” after warm_start in the same live page.
-Before warm navigation, the harness waits for pending requests to finish and 3,000 ms of network quiet, outside the measured interval.
-Chromium cold_relaunch_playback_chromium_ms starts from the relaunched Chromium cold library.
-The JSON records metric order and unavailable metrics. Playback RSS uses the prepared live WebKit page; cold-paint RSS is unavailable.
-Chromium is the only browser relaunch measurement. Earlier failed samples and both defect probes remain in the evidence JSON.
+True page errors and unhandled rejections fail scenarios. Console diagnostics
+remain notes. The sampler narrowly recognizes WebKit's handled sync/blob resource
+cancellation during the recorded reload, only without a script error.
+The synthetic regression control must detect all five event kinds.
+
+Use the [benchmark commands](../../docs/development.md#benchmark) to prepare,
+measure, and record. This protocol defines measurements, not a current score.

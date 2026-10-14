@@ -32,8 +32,19 @@ for (const [signal, code] of [
 const title = "Hark Benchmark Fixture";
 export const startPath = "/library?source=pwa";
 export const headers = TEST_CLIENT_HEADERS.launch;
+export const failureMessage = (error) => String(error).split("\n")[0];
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+
+export async function until(read, message, timeout = 60000, interval = 100) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const value = await read();
+    if (value) return value;
+    await sleep(interval);
+  }
+  throw new Error(message);
+}
 
 export async function startServer(directory, port, measureTransfers = false) {
   if (![3100, 3200, 3300, 3400].includes(port))
@@ -256,10 +267,14 @@ export async function signIn(context, origin, account, ui = false) {
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await page.waitForURL(/\/library/, { waitUntil: "domcontentloaded" });
   } else {
-    const response = await context.request.post(`${origin}/api/auth/sign-in/email`, {
-      headers: { origin, ...headers },
-      data: { email: account.email, password: account.password },
-    });
+    const response = await context.request
+      .post(`${origin}/api/auth/sign-in/email`, {
+        headers: { origin, ...headers },
+        data: { email: account.email, password: account.password },
+      })
+      .catch((error) => {
+        throw new Error(failureMessage(error));
+      });
     if (!response.ok()) throw new Error(`Synthetic sign-in failed: HTTP ${response.status()}`);
   }
   const cookies = (await context.cookies()).filter((cookie) =>
@@ -379,13 +394,10 @@ export async function closeWebKitPages(handle) {
   const checkedAt = new Date().toISOString();
   for (const page of pages) await page.close();
   const started = performance.now();
-  while (processes.some((p) => processSnapshot().some((current) => current.pid === p.pid))) {
-    if (performance.now() - started > 60000)
-      throw new Error(
-        `Page WebContent PID did not exit: ${processes.map((p) => p.pid).join(", ")}`,
-      );
-    await sleep(100);
-  }
+  await until(
+    () => processes.every((p) => !processSnapshot().some((current) => current.pid === p.pid)),
+    `Page WebContent PID did not exit: ${processes.map((p) => p.pid).join(", ")}`,
+  );
   return {
     processes: processes.map((p) => ({ ...p, checkedAt, exited: true })),
     audioSavedBefore,
@@ -424,14 +436,16 @@ export async function launchChromium(profile) {
   return {
     context,
     pid,
+    close: () => context.close(),
+    capture: (action) => action(),
     version: context.browser().version(),
     async kill() {
       process.kill(pid, "SIGKILL");
-      const deadline = Date.now() + 10000;
-      while (processSnapshot().some((p) => p.pid === pid)) {
-        if (Date.now() > deadline) throw new Error("Owned Chromium browser PID did not exit.");
-        await sleep(100);
-      }
+      await until(
+        () => !processSnapshot().some((p) => p.pid === pid),
+        "Owned Chromium browser PID did not exit.",
+        10000,
+      );
       await context.close().catch(() => {});
       release();
       return { pid, signal: "SIGKILL", exited: true, exitObservedAt: new Date().toISOString() };
@@ -521,19 +535,7 @@ export async function importAudio(page, fixture) {
   await bookCard(page).click();
   await playerReady(page);
   await page.waitForFunction(storedAudioReady, null, { timeout: 60000 });
-  await page.evaluate(() => {
-    window.__harkAudioBefore = document.querySelector("audio").currentTime;
-  });
-  await playButton(page).click();
-  await page.waitForFunction(
-    () => {
-      const audio = document.querySelector("audio");
-      return !audio.paused && audio.currentTime >= window.__harkAudioBefore + 0.2;
-    },
-    null,
-    { polling: "raf", timeout: 15000 },
-  );
-  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await playAndPause(page);
   const bookPath = new URL(page.url()).pathname;
   await backButton(page).click();
   await page.getByLabel("Sort books").selectOption("activity");
@@ -541,6 +543,22 @@ export async function importAudio(page, fixture) {
   await bookCard(page).waitFor();
   await shellReady(page);
   return bookPath;
+}
+
+export async function playAndPause(page, advance = 0.2) {
+  const start = await page.locator("audio").evaluate((audio) => audio.currentTime);
+  await playButton(page).click();
+  await page.waitForFunction(
+    ({ start, advance }) => {
+      const audio = document.querySelector("audio");
+      return !audio.paused && audio.currentTime >= start + advance;
+    },
+    { start, advance },
+    { polling: "raf", timeout: 15000 },
+  );
+  const advanced = await page.locator("audio").evaluate((audio) => audio.currentTime);
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  return { startSeconds: start, advancedSeconds: advanced };
 }
 
 export async function shellReady(page) {

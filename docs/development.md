@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Node 22 is the GitHub Actions runtime; pnpm is pinned to 9.6.0. The package
-  minimum is Node 20.19, but the commands below use Node 22's `--run` support.
+  minimum is Node 20.19. The shell commands below are verified on Node 26.
 - Docker with Compose for the disposable test database.
 - FFmpeg on `PATH` for generated browser audio fixtures.
 - Playwright WebKit and Chromium for browser suites.
@@ -24,8 +24,10 @@ For a **new** disposable setup:
 ```sh
 test -f .env.test || cp .env.test.example .env.test
 pnpm db:test:up
-pnpm prepare:browser-assets
-node --env-file=.env.test --run dev
+set -a
+. ./.env.test
+set +a
+pnpm dev
 ```
 
 Open [localhost:3000](http://localhost:3000). `db:test:up` starts the Compose
@@ -33,10 +35,11 @@ Postgres service at `127.0.0.1:54329`, checks `pg_trgm`, applies ordered migrati
 and seeds the account named in `.env.test`. It fills only blank signing secrets
 and test passwords. Keep this ignored env file with its matching retained database.
 
-`node --run` does not execute package pre/post hooks. Preparing assets explicitly
-above covers development; `verify:quick` calls `pnpm build`, which does execute
-its prebuild and postbuild hooks. A direct `pnpm dev` instead loads Next's
-`.env.local` and runs its predev hook.
+Exporting the file passes its values to pnpm and child processes. On Node 26,
+`node --env-file=.env.test --run verify:quick` leaves child commands without these
+values. `pnpm dev` and `pnpm build` run their asset preparation hooks.
+CI uses Node 22 and copies the generated test environment to `.env.local`.
+Node 22 was not run locally.
 
 For a separate development database, copy `.env.example` to `.env.local` **only if
 that file does not already exist**, set its database URL and fresh auth secret,
@@ -89,10 +92,13 @@ port. Provision a separate disposable database deliberately before selecting it.
 
 ## Checks
 
-On Node 22, after local test setup:
+After local test setup:
 
 ```sh
-node --env-file=.env.test --run verify:quick
+set -a
+. ./.env.test
+set +a
+pnpm verify:quick
 pnpm verify:browser
 ```
 
@@ -115,7 +121,7 @@ suite's storage doubles. Disable it for these commands:
 
 ```sh
 NODE_OPTIONS=--no-experimental-webstorage pnpm test
-NODE_OPTIONS=--no-experimental-webstorage node --env-file=.env.test --run verify:quick
+NODE_OPTIONS=--no-experimental-webstorage pnpm verify:quick
 ```
 
 This flag is a unit runtime requirement on Node 26, not an app storage setting.
@@ -193,17 +199,49 @@ do not relabel old browser measurements after a source change.
 
 ### Benchmark
 
-Export `TMPDIR` to the task temporary directory and use `pnpm bench prepare --ref <ref> --dir "$TMPDIR/builds/<name>"`.
-Run `pnpm bench run --a <base-build> --b <candidate-build> --label <label> --out <external.json>`.
-Use `--reps 1` for smoke checks and `--noise <aa.json>` for comparisons.
-Record video and frames with `pnpm bench record --build-dir <build> --out <external-directory>`.
-WebKit playback starts from a warm library; its cold start is unavailable on this host. Chromium relaunch results stay separate.
-The fixed [protocol](../tests/perf/BASELINE.md#benchmark-protocol-v1--fixed-before-any-application-edit) defines measurements and acceptance.
+Use a quiet Mac, FFmpeg, and the local test database. Export `TMPDIR` to a writable
+scratch directory outside the repository. Build before measuring:
+
+```sh
+pnpm bench prepare --ref e4525ac70dd5bc3113ce3c8a76b97dcdd2d47858 --dir "$TMPDIR/builds/base-e4525ac"
+pnpm bench prepare --ref HEAD --dir "$TMPDIR/builds/candidate"
+pnpm bench run --a "$TMPDIR/builds/base-e4525ac" --b "$TMPDIR/builds/candidate" --label comparison --out "$TMPDIR/comparison.json"
+pnpm bench record --build-dir "$TMPDIR/builds/candidate" --out "$TMPDIR/recordings"
+```
+
+`prepare` archives a Git ref, installs the frozen lockfile, and builds with the test
+environment. It does not include uncommitted changes. Build directories stay under
+`TMPDIR`; reports stay outside the repository. Servers use ports 3100/3200, and
+the recorder's delay/offline proxy uses 3300. Only owned processes are closed.
+
+Use the base directory for both variants to create an A/A noise result. Pass it
+with `--noise "$TMPDIR/aa.json"`. `--reps 1` checks functionality; its timings are
+not performance evidence. JSON retains samples, failures, aggregates, and the
+comparison rule. Without A/A input, the table reports `noise band unknown`.
+Recordings contain one video and frame log per scenario plus `summary.json`.
+
+Persistent Playwright WebKit drops Cache Storage entries on this host; ephemeral
+WebKit loses them when its page process exits. WebKit cold start is unavailable.
+Chromium relaunch measurements are labelled Chromium. WebKit playback starts from
+a warm library. See the [protocol](../tests/perf/BASELINE.md#benchmark-protocol-v11)
+for definitions, repetitions, and acceptance.
 
 ### Update and playback checks
 
-Run `pnpm test:update --previous <git-ref> --out "$TMPDIR/update.json"` for rollover on port 3400.
-It exports and builds the current worktree under `TMPDIR`; `--next-dir <prepared-build>` reuses a build or checks a broken temporary copy.
-WebKit keeps one live page process; Chromium uses a persistent profile and real browser relaunches.
-Readiness checks content, caches, progress, and settled requests; reports retain open audio and successful RSC streams separately.
-Run `pnpm exec playwright test --project=iphone-webkit tests/e2e/media-session-resume.spec.ts` for Media Session, exact progress, offline reload, history, and range delivery.
+```sh
+pnpm test:update --previous e4525ac70dd5bc3113ce3c8a76b97dcdd2d47858 --out "$TMPDIR/update.json"
+pnpm exec playwright test --project=iphone-webkit tests/e2e/launch-flicker.spec.ts tests/e2e/media-session-resume.spec.ts
+NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run tests/perf/frame-sampler.test.ts
+```
+
+The update command prepares the previous ref and exports the current worktree,
+including uncommitted changes, into its own temporary build. `--next-dir <build>`
+reuses a prepared build. Reports stay outside the repository. Both builds use
+one origin on port 3400. WebKit keeps one live page process; Chromium uses a
+persistent profile and browser relaunches. The report asserts build IDs, chunk
+hashes, cache cleanup, exact progress, and offline 206 ranges in both engines.
+
+The flicker spec checks the shared recorder and proves all five event kinds with
+a synthetic control. The Media Session spec invokes the app's native action
+handlers and checks preferences, exact persistence, offline reload, history,
+and Range delivery. Its JSON report is attached to the Playwright result.

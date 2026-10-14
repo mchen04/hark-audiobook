@@ -7,6 +7,7 @@ import { frozenBase, outsideRepository, root } from "./build.mjs";
 import { bundleSizes } from "./bundles.mjs";
 import {
   audioFixture,
+  failureMessage,
   backButton,
   bookCard,
   booksReady,
@@ -22,6 +23,7 @@ import {
   startPath,
   startServer,
   syntheticAccount,
+  until,
 } from "./runtime.mjs";
 import { timedClick, timingProbe } from "./sampler.mjs";
 
@@ -194,104 +196,18 @@ export async function runBenchmark({ A, B, label, output, reps, noisePath }) {
       {
         kind: "network-process-exit-after-page-process-exit",
         probe: "network-process-exit-probe.json",
-        evidence: {
-          engine: "WebKit",
-          version: "26.5",
-          provenance:
-            "Captured console output of the independent cold-then-warm probe on 2026-10-14; no app files changed.",
-          definition:
-            "Non-persistent context; prepared library and shell; close measured page and prove its WebContent PID exits; new page to start URL; then warm navigation.",
-          pageProcessExit: {
-            pid: 76325,
-            exited: true,
-            exitWaitMs: 10189.266791000002,
-          },
-          beforeWarm: {
-            pagePid: 77048,
-            networkPid: 76304,
-            cookies: 1,
-            localStorageKeys: 2,
-            cacheNames: 5,
-          },
-          warmFailure: "page.goto: WebKit encountered an internal error",
-          afterWarm: {
-            remainingOwnedPids: [76302, 76324, 77048],
-            cookies: 0,
-            localStorageKeys: 0,
-            cacheNames: 0,
-            networkPid: 76304,
-            networkPidGone: true,
-          },
-        },
+        evidence:
+          "A warm navigation after page-process exit terminates Networking and clears storage.",
       },
       {
         kind: "cache-entries-lost-after-page-process-exit",
         probe: "webkit-ephemeral-page-exit-probe.json",
-        evidence: {
-          engine: "WebKit",
-          version: "26.5",
-          before: {
-            cacheNames: ["synthetic-storage-witness"],
-            keys: 1,
-            body: "must-survive",
-            localStorage: "survive",
-          },
-          proof: {
-            processes: [
-              {
-                pid: 85253,
-                parent: 1,
-                rssKiB: 85120,
-                executable:
-                  "/Users/michaelchen/Library/Caches/ms-playwright/webkit-2311/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent.Development",
-                checkedAt: "2026-10-14T11:55:52.549Z",
-                exited: true,
-              },
-            ],
-            exitObservedAt: "2026-10-14T11:55:52.708Z",
-            exitWaitMs: 156.73129100000006,
-            serviceWorkerRunning: "unknown",
-            serviceWorkerReason: "Playwright cannot observe running WebKit service workers.",
-          },
-          after: {
-            cacheNames: ["synthetic-storage-witness"],
-            keys: 0,
-            body: null,
-            localStorage: "survive",
-          },
-        },
+        evidence: "Cache names remain, but keys and bodies disappear after the page process exits.",
       },
       {
         kind: "keeper-cannot-prove-measured-pid-exit",
         probe: "webkit-keeper-probe.json",
-        evidence: {
-          engine: "WebKit",
-          version: "26.5",
-          definition: "new page process, keeper page alive",
-          ok: false,
-          failure: "Error: Page WebContent PID did not exit: 95001",
-          keeperPid: 95035,
-          measuredPidBefore: 95001,
-          before: {
-            shell: true,
-            shellAssets: 15,
-            shellAssetsComplete: true,
-            audio: [
-              {
-                path: "/offline-media/87763c2b-e8c6-4b38-a0b6-4ca188178513/chunk/1",
-                bytes: 606526,
-              },
-              {
-                path: "/offline-media/87763c2b-e8c6-4b38-a0b6-4ca188178513/chunk/0",
-                bytes: 4194304,
-              },
-              {
-                path: "/offline-media/87763c2b-e8c6-4b38-a0b6-4ca188178513",
-                bytes: 95,
-              },
-            ],
-          },
-        },
+        evidence: "The keeper shares a process; the measured WebContent PID does not exit.",
       },
     ],
     memoryAvailability: { jsHeapBytes: null, reason: "unavailable in WebKit" },
@@ -354,7 +270,7 @@ export async function runBenchmark({ A, B, label, output, reps, noisePath }) {
       if (result.errors.length) throw new Error("Page errors occurred.");
       result.ok = true;
     } catch (error) {
-      result.failure = String(error);
+      result.failure = failureMessage(error);
     }
     report.samples.push(result);
     save();
@@ -405,12 +321,12 @@ export async function runBenchmark({ A, B, label, output, reps, noisePath }) {
   const warm = async (state) => {
     const page = state.handle.context.pages()[0];
     await booksReady(page);
-    const deadline = performance.now() + 60000;
-    while (state.network.pending.size || performance.now() - state.network.changedAt < 3000) {
-      if (performance.now() > deadline)
-        throw new Error("Prepared library requests did not settle before warm navigation.");
-      await sleep(50);
-    }
+    await until(
+      () => !state.network.pending.size && performance.now() - state.network.changedAt >= 3000,
+      "Prepared library requests did not settle before warm navigation.",
+      60000,
+      50,
+    );
     const readiness = {
       pendingRequests: state.network.pending.size,
       networkQuietMs: performance.now() - state.network.changedAt,
@@ -487,16 +403,6 @@ export async function runBenchmark({ A, B, label, output, reps, noisePath }) {
             (total, transfer) => total + transfer.wireBytes,
             0,
           );
-          result.resourceTimings = await launchResult.page.evaluate(() =>
-            performance
-              .getEntriesByType("resource")
-              .filter((resource) => new URL(resource.name).pathname.startsWith("/_next/static/"))
-              .map((resource) => ({
-                pathname: new URL(resource.name).pathname,
-                transferSize: resource.transferSize,
-                encodedBodySize: resource.encodedBodySize,
-              })),
-          );
         } finally {
           await close(state);
         }
@@ -522,7 +428,7 @@ export async function runBenchmark({ A, B, label, output, reps, noisePath }) {
         if (preparation.errors.length) throw new Error("Page errors during preparation.");
         preparation.ok = true;
       } catch (error) {
-        preparation.failure = String(error);
+        preparation.failure = failureMessage(error);
         state.preparationFailure = preparation.failure;
       } finally {
         save();
@@ -629,7 +535,7 @@ export async function runBenchmark({ A, B, label, output, reps, noisePath }) {
         preparation.profileCommitted = true;
         preparation.ok = true;
       } catch (error) {
-        preparation.failure = String(error);
+        preparation.failure = failureMessage(error);
       }
       save();
     }
@@ -658,7 +564,7 @@ export async function runBenchmark({ A, B, label, output, reps, noisePath }) {
       });
     report.completed = true;
   } catch (error) {
-    report.fatalFailure = String(error);
+    report.fatalFailure = failureMessage(error);
     throw error;
   } finally {
     for (const state of Object.values(variants)) {
@@ -724,7 +630,7 @@ export async function runBenchmark({ A, B, label, output, reps, noisePath }) {
           "Noise result must be a full valid A/A run on the same host, engine and fixture.",
         );
     } catch (error) {
-      report.noiseFailure = String(error);
+      report.noiseFailure = failureMessage(error);
       noise = null;
     }
     report.compare = compareResults(report, noise);

@@ -2,17 +2,9 @@ import assert from "node:assert/strict";
 import postgres from "postgres";
 
 import { testEnvironment } from "../../scripts/bench/build.mjs";
-import { sha256, sleep, storedAudioReady } from "../../scripts/bench/runtime.mjs";
+import { failureMessage, sha256, storedAudioReady, until } from "../../scripts/bench/runtime.mjs";
 
-export async function until(read, message, timeout = 60000) {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    const value = await read();
-    if (value) return value;
-    await sleep(100);
-  }
-  throw new Error(message);
-}
+export { until } from "../../scripts/bench/runtime.mjs";
 
 export function observe(page) {
   const evidence = {
@@ -20,54 +12,28 @@ export function observe(page) {
     failedStatic: [],
     staticResponses: [],
     mediaResponses: [],
-    responses: [],
-    redirects: [],
-    streamingFailures: [],
-    readiness:
-      "Content, shell, and progress assertions plus settled requests; audio and successful RSC response streams are recorded without waiting for their bodies",
   };
   const pending = new Set();
-  const streamingMedia = new Set();
   const streamingRsc = new Set();
-  const bodies = new Set();
+  const bodies = [];
   let changedAt = Date.now();
   page.on("pageerror", (error) => evidence.errors.push(error.message));
   page.on("request", (request) => {
-    const redirected = request.redirectedFrom();
-    if (redirected) {
-      pending.delete(redirected);
-      evidence.redirects.push({ from: redirected.url(), to: request.url() });
-    }
-    if (new URL(request.url()).pathname.startsWith("/offline-media/")) {
-      streamingMedia.add(request);
-      return;
-    }
+    pending.delete(request.redirectedFrom());
+    if (new URL(request.url()).pathname.startsWith("/offline-media/")) return;
     pending.add(request);
     changedAt = Date.now();
   });
   for (const event of ["requestfinished", "requestfailed"])
     page.on(event, (request) => {
-      if (streamingRsc.delete(request)) {
-        if (event === "requestfailed")
-          evidence.streamingFailures.push({ url: request.url(), failure: request.failure() });
-        return;
-      }
-      if (new URL(request.url()).pathname.startsWith("/offline-media/")) {
-        streamingMedia.delete(request);
-        return;
-      }
+      if (streamingRsc.delete(request)) return;
+      if (new URL(request.url()).pathname.startsWith("/offline-media/")) return;
       pending.delete(request);
       changedAt = Date.now();
       if (event === "requestfailed" && new URL(request.url()).pathname.startsWith("/_next/static/"))
         evidence.failedStatic.push({ url: request.url(), failure: request.failure() });
     });
   page.on("response", (response) => {
-    evidence.responses.push({
-      url: response.url(),
-      status: response.status(),
-      contentType: response.headers()["content-type"] ?? null,
-      fromServiceWorker: response.fromServiceWorker(),
-    });
     if (
       new URL(response.url()).searchParams.has("_rsc") &&
       response.headers()["content-type"]?.startsWith("text/x-component") &&
@@ -105,30 +71,18 @@ export function observe(page) {
         entry.sha256 = sha256(bytes);
       })
       .catch((error) => {
-        entry.bodyFailure = String(error);
+        entry.bodyFailure = failureMessage(error);
       });
-    bodies.add(body);
-    void body.finally(() => bodies.delete(body));
+    bodies.push(body);
   });
   return {
     evidence,
     async quiet() {
-      await until(() => {
-        evidence.pendingNetworkRequests = [...pending].map((request) => ({
-          url: request.url(),
-          method: request.method(),
-        }));
-        evidence.streamingMediaRequests = [...streamingMedia].map((request) => ({
-          url: request.url(),
-          range: request.headers().range ?? null,
-        }));
-        evidence.streamingRscRequests = [...streamingRsc].map((request) => ({
-          url: request.url(),
-          method: request.method(),
-        }));
-        return pending.size === 0 && Date.now() - changedAt >= 3000;
-      }, "Requests did not settle before navigation.");
-      await Promise.all([...bodies]);
+      await until(
+        () => pending.size === 0 && Date.now() - changedAt >= 3000,
+        "Requests did not settle before navigation.",
+      );
+      await Promise.all(bodies);
       for (const entry of evidence.staticResponses)
         if (entry.bodyFailure && entry.fromServiceWorker && !entry.sha256) {
           entry.sha256 = await page.evaluate(async (url) => {
@@ -143,7 +97,7 @@ export function observe(page) {
         }
     },
     async clean() {
-      await Promise.all([...bodies]);
+      await Promise.all(bodies);
       assert.deepEqual(evidence.errors, [], "Page errors");
       assert.deepEqual(evidence.failedStatic, [], "Failed /_next/static requests");
       assert.equal(
@@ -224,6 +178,10 @@ async function serverPosition(bookId) {
 
 export async function position(page) {
   return page.locator("audio").evaluate((audio) => audio.currentTime);
+}
+
+export function positionNear(page, expected, message) {
+  return until(async () => Math.abs((await position(page)) - expected) <= 0.25, message);
 }
 
 export async function persisted(page, userId, bookId, expected, online = true) {

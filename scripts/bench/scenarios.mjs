@@ -8,6 +8,7 @@ import { outsideRepository, root } from "./build.mjs";
 import { analyzeFrames, attachSampler, isHandledReloadDiagnostic } from "./sampler.mjs";
 import {
   audioFixture,
+  failureMessage,
   backButton,
   bookCard,
   booksReady,
@@ -39,18 +40,6 @@ export const scenarioNames = [
 ];
 const libraryLeaving = ["mainHeading", "firstCard"];
 const playerLeaving = ["mainHeading", "playerHeading", "playButton"];
-
-async function navigate(page, sampler, target, leaving, action, kind = "click") {
-  const mark = await sampler.begin(page, target, leaving, kind);
-  await action();
-  if (target === "books") await booksReady(page);
-  else if (target === "player") await playerReady(page);
-  else if (target === "settings")
-    await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
-  else if (target === "login") await page.getByLabel("Email").waitFor();
-  await sampler.end(page, mark);
-  await sleep(500);
-}
 
 export async function recordScenarios({
   origin,
@@ -135,7 +124,6 @@ export async function recordScenarios({
     const startedAt = Date.now();
     const errors = [];
     const pageErrors = [];
-    const failedRequests = [];
     const notes = [];
     const responses = [];
     const requestDocuments = new WeakMap();
@@ -164,12 +152,6 @@ export async function recordScenarios({
         wallTime: Date.now(),
       });
     };
-    const onRequestFailed = (request) =>
-      failedRequests.push({
-        url: request.url(),
-        failure: request.failure(),
-        wallTime: Date.now(),
-      });
     const onConsole = (message) => {
       if (message.type() === "error")
         notes.push({ text: message.text(), location: message.location() });
@@ -178,7 +160,6 @@ export async function recordScenarios({
     page.on("console", onConsole);
     page.on("request", onRequest);
     page.on("response", onResponse);
-    page.on("requestfailed", onRequestFailed);
     let failure = null;
     let control = null;
     try {
@@ -201,14 +182,13 @@ export async function recordScenarios({
       if (!["signed-out", "first-sync"].includes(name) && !preparation.ok)
         throw new Error(`Prepared WebKit context failed: ${preparation.failure}`);
     } catch (error) {
-      failure = String(error);
+      failure = failureMessage(error);
     }
     const recording = await sampler.read(handle.context);
     await Promise.all([...pendingResponses]);
     recording.responses = responses;
     recording.frames = recording.frames.filter((frame) => frame.wallTime >= startedAt);
     recording.scriptErrors = recording.scriptErrors.filter((error) => error.wallTime >= startedAt);
-    errors.length = 0;
     for (const error of pageErrors) {
       if (isHandledReloadDiagnostic(error, recording))
         notes.push({ source: "WebKit handled resource during reload", ...error });
@@ -232,7 +212,6 @@ export async function recordScenarios({
       failure,
       errors,
       pageErrors,
-      failedRequests,
       notes,
       responses,
       expectedTransitions: recording.expectedTransitions,
@@ -262,7 +241,6 @@ export async function recordScenarios({
     page.off("console", onConsole);
     page.off("request", onRequest);
     page.off("response", onResponse);
-    page.off("requestfailed", onRequestFailed);
     proxy.setDelay(0);
     proxy.setOffline(false);
     save();
@@ -295,7 +273,7 @@ export async function recordScenarios({
       await shellReady(page);
       preparation.ok = true;
     } catch (error) {
-      preparation.failure = String(error);
+      preparation.failure = failureMessage(error);
     }
     for (const name of executionOrder) {
       if (["signed-out", "first-sync"].includes(name)) {
@@ -349,6 +327,17 @@ async function performScenario({
   proxy,
   preparation,
 }) {
+  async function navigate(target, leaving, action, kind = "click") {
+    const mark = await sampler.begin(page, target, leaving, kind);
+    await action();
+    if (target === "books") await booksReady(page);
+    else if (target === "player") await playerReady(page);
+    else if (target === "settings")
+      await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
+    await sampler.end(page, mark);
+    await sleep(500);
+  }
+
   let control = null;
   if (name === "signed-out") {
     await page.goto(`${proxy.origin}/`, { waitUntil: "domcontentloaded" });
@@ -389,10 +378,13 @@ async function performScenario({
         cookies.map((cookie) => ({ ...cookie, value: "invalid-benchmark-session" })),
       );
     }
-    const opening =
-      ["first-sync", "cold-reopen", "slow-reopen", "offline-reopen", "invalid-session"].includes(
-        name,
-      ) || page.url() === "about:blank";
+    const opening = [
+      "first-sync",
+      "cold-reopen",
+      "slow-reopen",
+      "offline-reopen",
+      "invalid-session",
+    ].includes(name);
     const canMark = opening && (await page.evaluate(() => !!window.__harkSampler));
     const openingAction = canMark ? await sampler.begin(page, "books", [], "reopen") : null;
     if (opening) await page.goto(`${proxy.origin}${startPath}`, { waitUntil: "domcontentloaded" });
@@ -412,21 +404,15 @@ async function performScenario({
     await sleep(800);
     if (["book-back", "history", "reload"].includes(name)) {
       if (!preparation.ok) throw new Error(`Audio preparation failed: ${preparation.failure}`);
-      await navigate(page, sampler, "player", ["header", ...libraryLeaving], () =>
-        bookCard(page).click(),
-      );
+      await navigate("player", ["header", ...libraryLeaving], () => bookCard(page).click());
       if (name === "history") {
         await navigate(
-          page,
-          sampler,
           "books",
           playerLeaving,
           () => page.goBack({ waitUntil: "domcontentloaded" }),
           "history-back",
         );
         await navigate(
-          page,
-          sampler,
           "player",
           ["header", ...libraryLeaving],
           () => page.goForward({ waitUntil: "domcontentloaded" }),
@@ -435,19 +421,15 @@ async function performScenario({
       }
       if (name === "reload") {
         await navigate(
-          page,
-          sampler,
           "player",
           [],
           () => page.reload({ waitUntil: "domcontentloaded" }),
           "reload-player",
         );
       }
-      await navigate(page, sampler, "books", playerLeaving, () => backButton(page).click());
+      await navigate("books", playerLeaving, () => backButton(page).click());
       if (name === "reload")
         await navigate(
-          page,
-          sampler,
           "books",
           [],
           () => page.reload({ waitUntil: "domcontentloaded" }),
@@ -455,11 +437,10 @@ async function performScenario({
         );
     }
     if (name === "settings") {
-      const target = "settings";
-      await navigate(page, sampler, target, libraryLeaving, () =>
+      await navigate("settings", libraryLeaving, () =>
         page.getByRole("link", { name: "Settings", exact: true }).click(),
       );
-      await navigate(page, sampler, "books", ["mainHeading"], () =>
+      await navigate("books", ["mainHeading"], () =>
         page.getByRole("link", { name: "Library", exact: true }).click(),
       );
     }

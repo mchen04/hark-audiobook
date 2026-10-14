@@ -46,19 +46,8 @@ export async function prepareBuild(ref, directory) {
     cwd: root,
     encoding: "utf8",
   }).trim();
-  const receipt = path.join(destination, "benchmark-build.json");
-  if (existsSync(receipt)) {
-    const saved = JSON.parse(readFileSync(receipt, "utf8"));
-    if (
-      saved.commit === commit &&
-      existsSync(path.join(destination, ".next/standalone/server.js")) &&
-      existsSync(path.join(destination, ".next/BUILD_ID"))
-    )
-      return saved;
-    throw new Error("Existing build receipt does not match the requested complete build.");
-  }
-  if (existsSync(destination))
-    throw new Error("Build directory already exists without a complete receipt.");
+  const saved = reusableBuild(destination, { commit });
+  if (saved) return saved;
   mkdirSync(destination, { recursive: true });
   await new Promise((resolve, reject) => {
     const archive = spawn("git", ["archive", commit], {
@@ -97,19 +86,8 @@ export async function prepareWorktree() {
     path.join(tmpdir(), "builds", `next-${snapshot.slice(0, 12)}`),
     true,
   );
-  const receipt = path.join(destination, "benchmark-build.json");
-  if (existsSync(receipt)) {
-    const saved = JSON.parse(readFileSync(receipt, "utf8"));
-    if (
-      saved.snapshot === snapshot &&
-      existsSync(path.join(destination, ".next/standalone/server.js")) &&
-      existsSync(path.join(destination, ".next/BUILD_ID")) &&
-      saved.buildId === readFileSync(path.join(destination, ".next/BUILD_ID"), "utf8").trim()
-    )
-      return saved;
-    throw new Error("Worktree snapshot build is incomplete.");
-  }
-  if (existsSync(destination)) throw new Error("Worktree snapshot export is incomplete.");
+  const saved = reusableBuild(destination, { snapshot });
+  if (saved) return saved;
   mkdirSync(destination, { recursive: true });
   const files = git(["ls-files", "--cached", "--others", "--exclude-standard", "-z"])
     .toString()
@@ -126,6 +104,22 @@ export async function prepareWorktree() {
     snapshot,
     dirty: !!git(["status", "--porcelain"]).length,
   });
+}
+
+function reusableBuild(destination, expected) {
+  const receipt = path.join(destination, "benchmark-build.json");
+  if (!existsSync(destination)) return null;
+  if (existsSync(receipt)) {
+    const saved = JSON.parse(readFileSync(receipt, "utf8"));
+    if (
+      Object.entries(expected).every(([key, value]) => saved[key] === value) &&
+      existsSync(path.join(destination, ".next/standalone/server.js")) &&
+      existsSync(path.join(destination, ".next/BUILD_ID")) &&
+      saved.buildId === readFileSync(path.join(destination, ".next/BUILD_ID"), "utf8").trim()
+    )
+      return saved;
+  }
+  throw new Error("Existing build does not match the requested complete build.");
 }
 
 async function finishBuild(destination, source) {

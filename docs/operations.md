@@ -47,15 +47,17 @@ Prebuild copies/verifies pinned browser assets locally and postbuild emits the
 runtime precache manifest. Its `deferredUntilModel` subset (the Kestrel worker's
 own chunks) is cached once the verified model bundle exists; older service
 workers ignore the field and cache everything. Serve the matching `.next`
-output, static chunks, and `public` assets together. The standalone test runner stages these assets and
+output, static chunks, and `public` assets together. Post-launch chunk warm-up
+and runtime precaching preserve offline access to deferred controls.
+The standalone test runner stages these assets and
 reads an explicit env file; see [development](development.md#checks).
 `pnpm verify:kestrel-export` is a separate provenance check that downloads pinned
 upstream weights and reproduces the ONNX graphs; it is not required at each app
 startup.
 
 The optional `vercel-build` script applies migrations only when
-`VERCEL_ENV=production`. Other builds use placeholder build credentials rather
-than opening the production database. This does **not** make an automatically
+`VERCEL_ENV=production`. Other builds supply placeholder database/auth values
+only when those environment values are absent. This does **not** make an automatically
 published preview harmless or authorize deployment. Git hosting integrations
 can create previews on pushes and production deployments on merges independently
 of CI; inspect and resolve those triggers before a publication that must not deploy.
@@ -89,6 +91,9 @@ JSON. It does not export audio, source documents, covers, or transcript payloads
 and Hark has no JSON-restore UI. Database backups likewise do not back up media.
 Account deletion verifies the password and journals local purge before the
 idempotent server deletion commit; interrupted deletion resumes on next load.
+That commit shares the per-account sync lock and waits for admitted writes.
+Export uses a read-only snapshot and filters playback history by account before
+sorting and paging. The existing user index can serve that filter.
 
 For a report, record the served commit/build, runtime/browser/device, action,
 observed result, HTTP status, and relevant console error. Settings **Resume

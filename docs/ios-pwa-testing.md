@@ -1,37 +1,38 @@
 # iPhone PWA testing
 
-## Automated production checks
+Follow [local setup](development.md#local-test-environment), then run
+`pnpm test:e2e:ios`. The project uses headless WebKit with an iPhone 15 profile,
+a production build, and synthetic local data. See [checks](development.md#checks)
+and [update commands](development.md#update-and-playback-checks).
 
-Follow [local setup](development.md#local-test-environment), then run:
+Automation proves these checks for the recorded build and engine:
 
-```sh
-pnpm test:e2e:ios
-```
-
-The `iphone-webkit` project uses Playwright WebKit with an iPhone 15 profile,
-real production build, service worker, and disposable local Postgres fixtures.
-The harness normally builds and starts its own server. Reuse is allowed only
-when the served commit/build and local fixture environment are known; do not
-reuse an unrelated server or personal library. See [checks](development.md#checks).
-
-The [iPhone specs](../tests/e2e) exercise import/playback, local narration,
-retained controls, account changes, and offline/recovery behavior. The full
-`pnpm verify:browser` command also covers parity, sync, resume, and launch.
-Failures retain screenshots and traces under ignored `test-results/`.
-
-This is an automated WebKit check, not an installed app on a physical iPhone.
-Persistent-context suites probe browser storage support and can use Chromium
-when persistent WebKit cannot serve its own cached entries. Read the browser
-selected in the raw output; do not label that run physical iOS coverage.
-
-### Rollover and Media Session
-
-The [update and playback commands](development.md#update-and-playback-checks) use real production builds and the generated ten-minute MP3.
-Rollover proves served build IDs, chunk bytes, shell cleanup, saved progress, and offline range delivery.
-WebKit uses one live page because Cache Storage fails across process exit on this host; Chromium covers browser relaunches separately.
-The Media Session spec checks native action handlers and exact non-round progress; `tests/resume/position-drift.spec.ts` already covers SIGKILL resume.
+- [iphone-pwa.spec.ts](../tests/e2e/iphone-pwa.spec.ts): real file import, playback,
+  seeking, local availability, and offline recovery.
+- [retained-workflows.spec.ts](../tests/e2e/retained-workflows.spec.ts): retained
+  player controls, document narration, organization, settings, export, deletion,
+  and first-sync recovery.
+- [launch-flicker.spec.ts](../tests/e2e/launch-flicker.spec.ts): frame stability
+  across launch/navigation scenarios and detection of all five flicker kinds.
+- [media-session-resume.spec.ts](../tests/e2e/media-session-resume.spec.ts): native
+  Media Session handlers, exact saved position, same-page offline reload/history,
+  and local 206 ranges. Invoking handlers does not prove lock-screen controls.
+- [rollover.mjs](../tests/update/rollover.mjs): real previous/next builds, lazy
+  chunks, cache cleanup, progress, and offline playback. WebKit uses one live
+  page; Chromium proves browser relaunches separately.
+- [position-drift.spec.ts](../tests/resume/position-drift.spec.ts): measured resume
+  positions after supported lifecycle events and renderer kills. Its existing
+  Cache Storage snapshot restoration is a harness workaround. Real-background
+  cases report `UNCOVERED` when the engine cannot hide a page; CI excludes them.
 
 ## Physical installation and listening
+
+Only a physical iPhone can prove:
+
+- Lock-screen controls and background audio with the screen off.
+- Installed-PWA suspension and relaunch.
+- iOS storage eviction and recovery.
+- Real cellular network behavior.
 
 Use a disposable account and source files, on an HTTPS instance you are authorized
 to test. Do not change production data to complete this checklist.
