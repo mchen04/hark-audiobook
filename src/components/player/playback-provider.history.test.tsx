@@ -42,6 +42,8 @@ vi.mock("./use-sleep-timer", () => ({
     setSleepMinutes: vi.fn(),
     setSleepAtChapterEnd: vi.fn(),
     clearSleep: vi.fn(),
+    clearChapterSleep: vi.fn(),
+    onSeek: vi.fn(),
     onTimeUpdate: vi.fn(),
   }),
 }));

@@ -48,6 +48,18 @@ export function useSleepTimer(audioRef: RefObject<HTMLAudioElement | null>) {
     [clearSleep],
   );
 
+  const clearChapterSleep = useCallback(() => {
+    if (sleepModeRef.current?.kind === "chapter") clearSleep();
+  }, [clearSleep]);
+
+  const onSeek = useCallback(
+    (positionMs: number, chapters: PlayerChapter[]) => {
+      if (sleepModeRef.current?.kind !== "chapter") return;
+      setSleepAtChapterEnd(positionMs, chapters);
+    },
+    [setSleepAtChapterEnd],
+  );
+
   /** Called from the audio timeupdate loop; pauses exactly once at the boundary. */
   const onTimeUpdate = useCallback(
     (audio: HTMLAudioElement) => {
@@ -61,8 +73,8 @@ export function useSleepTimer(audioRef: RefObject<HTMLAudioElement | null>) {
       const targetEndMs = chapterEndRef.current;
       if (targetEndMs !== null && positionMs >= targetEndMs - CHAPTER_END_EPSILON_MS) {
         clearSleep();
-        audio.pause();
         audio.currentTime = targetEndMs / 1000;
+        audio.pause();
       }
     },
     [clearSleep],
@@ -84,5 +96,13 @@ export function useSleepTimer(audioRef: RefObject<HTMLAudioElement | null>) {
     };
   }, [audioRef, onTimeUpdate]);
 
-  return { sleepMode, setSleepMinutes, setSleepAtChapterEnd, clearSleep, onTimeUpdate };
+  return {
+    sleepMode,
+    setSleepMinutes,
+    setSleepAtChapterEnd,
+    clearSleep,
+    clearChapterSleep,
+    onSeek,
+    onTimeUpdate,
+  };
 }

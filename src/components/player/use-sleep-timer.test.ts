@@ -22,7 +22,8 @@ describe("synthetic suspended sleep timeout", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);
     const audio = { currentTime: 5, pause: vi.fn() } as unknown as HTMLAudioElement;
-    const { result } = renderHook(() => useSleepTimer({ current: audio }));
+    const audioRef = { current: audio };
+    const { result } = renderHook(() => useSleepTimer(audioRef));
     act(() => result.current.setSleepMinutes(1));
     vi.setSystemTime(1_061_000);
     act(() => result.current.onTimeUpdate(audio));
@@ -36,7 +37,8 @@ describe("synthetic suspended sleep timeout", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);
     const audio = { currentTime: 5, pause: vi.fn() } as unknown as HTMLAudioElement;
-    const { result } = renderHook(() => useSleepTimer({ current: audio }));
+    const audioRef = { current: audio };
+    const { result } = renderHook(() => useSleepTimer(audioRef));
     act(() => result.current.setSleepMinutes(1));
     vi.setSystemTime(1_061_000);
     act(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
@@ -47,11 +49,25 @@ describe("synthetic suspended sleep timeout", () => {
   it("cancels the outstanding timeout when the player unmounts", () => {
     vi.useFakeTimers();
     const audio = { currentTime: 5, pause: vi.fn() } as unknown as HTMLAudioElement;
-    const { result, unmount } = renderHook(() => useSleepTimer({ current: audio }));
+    const audioRef = { current: audio };
+    const { result, unmount } = renderHook(() => useSleepTimer(audioRef));
     act(() => result.current.setSleepMinutes(1));
     unmount();
     act(() => vi.advanceTimersByTime(61_000));
     expect(audio.pause).not.toHaveBeenCalled();
+  });
+
+  it("still pauses at the deadline when the ordinary timeout fires", () => {
+    vi.useFakeTimers();
+    const audio = { currentTime: 5, pause: vi.fn() } as unknown as HTMLAudioElement;
+    const audioRef = { current: audio };
+    const { result } = renderHook(() => useSleepTimer(audioRef));
+    act(() => result.current.setSleepMinutes(1));
+    act(() => vi.advanceTimersByTime(59_999));
+    expect(audio.pause).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    expect(audio.pause).toHaveBeenCalledOnce();
+    expect(result.current.sleepMode).toBeNull();
   });
 });
 

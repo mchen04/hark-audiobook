@@ -102,6 +102,8 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
     setSleepMinutes: setSleepMinutesTarget,
     setSleepAtChapterEnd: setSleepAtChapterEndTarget,
     clearSleep: clearSleepTarget,
+    clearChapterSleep,
+    onSeek: onSleepSeek,
     onTimeUpdate: onSleepTick,
   } = useSleepTimer(audioRef);
 
@@ -118,14 +120,16 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
     if (!audio) return;
 
     const updateTime = () => {
+      if (activeBookRef.current) onSleepTick(audio);
       const positionMs = audio.currentTime * 1000;
       timeStore.write(positionMs);
       // Programmatic seeks also fire timeupdate; only actual listening may
       // persist, otherwise merely opening a book would overwrite the position.
       if (!audio.paused) onListeningTick(positionMs);
-      if (activeBookRef.current) {
-        onSleepTick(audio);
-      }
+    };
+    const updateSleepChapter = () => {
+      const activeBook = activeBookRef.current;
+      if (activeBook) onSleepSeek(audio.currentTime * 1000, activeBook.chapters);
     };
     const markPlaying = () => {
       markInProgress();
@@ -182,6 +186,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
     };
 
     audio.addEventListener("timeupdate", updateTime);
+    audio.addEventListener("seeking", updateSleepChapter);
     audio.addEventListener("play", markPlaying);
     audio.addEventListener("pause", markPaused);
     audio.addEventListener("ended", markEnded);
@@ -190,6 +195,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
     document.addEventListener("visibilitychange", reconcileVisible);
     return () => {
       audio.removeEventListener("timeupdate", updateTime);
+      audio.removeEventListener("seeking", updateSleepChapter);
       audio.removeEventListener("play", markPlaying);
       audio.removeEventListener("pause", markPaused);
       audio.removeEventListener("ended", markEnded);
@@ -203,6 +209,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
     markPositionChanged,
     onListeningTick,
     onSleepTick,
+    onSleepSeek,
     persistProgress,
     recordAction,
     saveDurableState,
@@ -229,6 +236,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
         const audio = audioRef.current;
         if (!audio) return;
         if (activeBookRef.current?.id !== nextBook.id) {
+          clearChapterSleep();
           const previousBook = activeBookRef.current;
           if (previousBook) {
             // The previous book's position is made durable BEFORE the seek
@@ -341,6 +349,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
         recordAction("sleep_timer_cleared");
       },
       unloadBook() {
+        clearSleepTarget();
         const audio = audioRef.current;
         // Durable BEFORE anything is torn down. `cancelSeekPersist` used to run
         // first and `audio.pause()` on an already-paused element fires no
@@ -371,6 +380,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
     cancelSeekPersist,
     clearHistory,
     clearHistoryNotice,
+    clearChapterSleep,
     clearSleepTarget,
     hydrateHistory,
     markPositionChanged,

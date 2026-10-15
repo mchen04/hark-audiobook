@@ -127,9 +127,65 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   Reflect.deleteProperty(navigator, "mediaSession");
+});
+
+describe("synthetic chapter sleep navigation", () => {
+  it("follows a deliberate seek into another chapter without jumping back", () => {
+    const { result, audio } = mount();
+    act(() => result.current.playback.setSleepAtChapterEnd());
+    act(() => result.current.playback.toggle());
+    act(() => result.current.playback.seek(75_000));
+    act(() => audio.dispatchEvent(new Event("seeking")));
+    act(() => audio.dispatchEvent(new Event("timeupdate")));
+    expect(audio.currentTime).toBe(75);
+    expect(audio.paused).toBe(false);
+    expect(result.current.playback.sleepMode).toEqual({ kind: "chapter" });
+    audio.currentTime = 120;
+    act(() => audio.dispatchEvent(new Event("timeupdate")));
+    expect(audio.paused).toBe(true);
+    expect(result.current.playback.sleepMode).toBeNull();
+  });
+
+  it("saves and displays the chapter boundary before delivering the sleep pause", () => {
+    const { result, audio } = mount();
+    act(() => result.current.playback.setSleepAtChapterEnd());
+    act(() => result.current.playback.toggle());
+    audio.currentTime = 60.25;
+    act(() => audio.dispatchEvent(new Event("timeupdate")));
+    expect(persistence.persistProgress).toHaveBeenLastCalledWith("pause", 60_000);
+    expect(result.current.time).toBe(60_000);
+    expect(audio.currentTime).toBe(60);
+  });
+
+  it("clears the old chapter target when another book opens", () => {
+    const { result } = mount();
+    act(() => result.current.playback.setSleepAtChapterEnd());
+    act(() => result.current.playback.loadBook(nextBook));
+    expect(result.current.playback.sleepMode).toBeNull();
+  });
+
+  it("clears a minute timer on unload so it cannot pause a later book", () => {
+    vi.useFakeTimers();
+    const { result, audio } = mount();
+    act(() => result.current.playback.setSleepMinutes(1));
+    act(() => result.current.playback.unloadBook());
+    expect(result.current.playback.sleepMode).toBeNull();
+    act(() => result.current.playback.loadBook(nextBook, true));
+    act(() => vi.advanceTimersByTime(61_000));
+    expect(audio.paused).toBe(false);
+  });
+
+  it("keeps a minute deadline through a book switch without a timer reset", () => {
+    const { result } = mount();
+    act(() => result.current.playback.setSleepMinutes(10));
+    const mode = result.current.playback.sleepMode;
+    act(() => result.current.playback.loadBook(nextBook));
+    expect(result.current.playback.sleepMode).toEqual(mode);
+  });
 });
 
 describe("synthetic Media Session lifecycle", () => {
