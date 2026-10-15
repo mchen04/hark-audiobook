@@ -128,6 +128,27 @@ This flag is a unit runtime requirement on Node 26, not an app storage setting.
 Node 22 CI uses no such flag. Do not treat a different runtime/options combination
 as the same test run.
 
+Run resume files separately after exporting the test environment:
+
+```sh
+pnpm test:resume:position-drift
+pnpm test:resume:suspension-recovery
+pnpm test:resume:uncovered-axes
+```
+
+Each command has a 30-minute total limit and excludes only the two T1 hidden
+cases, matching CI. Position drift covers termination, repeated opens, and
+smart rewind. Suspension recovery covers saved-position recovery and estimates.
+Uncovered axes covers isolated persistence writers, write rate, queued rewind,
+and two-device conflicts. These commands preserve the oracle's assertions.
+Process checks stop when browser ownership is missing or ambiguous.
+
+Observed local runtimes are 24.1 minutes, 1.6 minutes, and 4.7 minutes respectively.
+Position drift reports the existing C3 ten-minute timeout. Uncovered axes reports
+S1 as `UNCOVERED`: its queued position is not far enough ahead to test replay.
+The oracle restores fixture media after the [WebKit storage failure](#benchmark);
+this does not prove native cache preservation across process death.
+
 Vitest has coverage reporters configured, but no coverage provider is installed
 in the pinned dependencies. `pnpm test` reports outcomes and timing, not line or
 branch coverage. Report coverage as unmeasured unless a compatible provider was

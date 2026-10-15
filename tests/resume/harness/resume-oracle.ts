@@ -9,11 +9,10 @@ import {
   type Page,
 } from "@playwright/test";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { isRendererCommand } from "../../shared/render-process";
+import { ownedBrowserProcesses } from "../../../scripts/lib/owned-browser-processes.mjs";
 import { awaitSignInBudget } from "../../shared/sign-in-budget";
 import { testAccountPassword } from "../../shared/test-account-password";
 import { TEST_CLIENT_HEADERS } from "../../shared/test-client-ip";
@@ -996,42 +995,15 @@ type SessionCookieWitness = {
 };
 let sessionCookieWitness: SessionCookieWitness | null = null;
 
-/**
- * Renderer processes that were already running when this run started. They
- * belong to somebody else and are never killed. (Another session on this
- * machine periodically runs `pkill -f playwright`; the courtesy is returned.)
- */
-let foreignRenderPids = new Set<string>();
-
-/**
- * Recognises THIS engine's renderer process in `ps` output.
- *
- * Scoped to the exact browser BUILD this run drives, because more than one
- * Playwright browser build is usually installed on a developer machine and
- * killing another run's renderer would be both rude and untraceable. WebKit's
- * `executablePath()` is `<build>/pw_run.sh`; macOS names its renderer
- * `com.apple.WebKit.WebContent`, while Linux GTK/WPE names it
- * `WebKitWebProcess`/`WPEWebProcess`.
- */
-function isRenderProcess(line: string): boolean {
-  return isRendererCommand(line, ENGINE, browserType().executablePath());
-}
-
 function renderPids(): string[] {
-  try {
-    return execFileSync("/bin/ps", ["-Ao", "pid=,command="], { encoding: "utf8" })
-      .split("\n")
-      .filter(isRenderProcess)
-      .map((line) => line.trim().split(/\s+/)[0]!)
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
+  return ownedBrowserProcesses({
+    engine: ENGINE,
+    executable: browserType().executablePath(),
+  }).renderers.map((entry) => String(entry.pid));
 }
 
 async function openDevice(): Promise<Device> {
   if (device) return device;
-  foreignRenderPids = new Set(renderPids());
   const browser = await browserType().launch();
   const context = await browser.newContext({
     ...devices["iPhone 15"],
@@ -1820,12 +1792,6 @@ let deviceMediaBroken = false;
  *
  * The true position is a sample carried forward across an interval, so which
  * instant the interval ENDS at is part of the measurement, not bookkeeping.
- * `hardKill` shells out to `/bin/ps -Ao pid=,command=` to find the renderer,
- * and on a loaded machine that scan is not free — MEASURED, during a full
- * 19-row pass: a row extrapolated to the moment the kill was REQUESTED read
- * 900 ms AHEAD of where the app came back, because the audio went on playing,
- * and the 200 ms cadence went on writing, for the whole length of that scan.
- * The same row standalone read 16 ms.
  *
  * "Resumed ahead" is the most serious verdict this suite has, and it was being
  * manufactured by the instrument's own latency. So the extrapolation ends where
@@ -1834,7 +1800,7 @@ let deviceMediaBroken = false;
 let lastKillAtMs = 0;
 
 function hardKill(): string[] {
-  const pids = renderPids().filter((pid) => !foreignRenderPids.has(pid));
+  const pids = renderPids();
   expect(
     pids.length,
     `no ${ENGINE} renderer process started by this run was found, so nothing was hard-killed and ` +

@@ -8,7 +8,9 @@ import { hashPassword } from "better-auth/crypto";
 import postgres from "postgres";
 
 import { awaitAuthBudget } from "../../tests/shared/auth-budget.ts";
-import { isRendererCommand } from "../../tests/shared/render-process.ts";
+import { ownedBrowserProcesses, processSnapshot } from "../lib/owned-browser-processes.mjs";
+
+export { processSnapshot } from "../lib/owned-browser-processes.mjs";
 import { TEST_CLIENT_HEADERS } from "../../tests/shared/test-client-ip.ts";
 import { envFile, root, runCommand, testEnvironment } from "./build.mjs";
 
@@ -284,24 +286,6 @@ export async function signIn(context, origin, account, ui = false) {
   return cookies;
 }
 
-export function processSnapshot() {
-  return execFileSync("ps", ["-axww", "-o", "pid=,ppid=,rss=,comm="], { encoding: "utf8" })
-    .split("\n")
-    .flatMap((line) => {
-      const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(.+)$/);
-      return match
-        ? [
-            {
-              pid: Number(match[1]),
-              parent: Number(match[2]),
-              rssKiB: Number(match[3]),
-              executable: match[4],
-            },
-          ]
-        : [];
-    });
-}
-
 export async function launchWebKit(options = {}) {
   const before = new Set(processSnapshot().map((p) => p.pid));
   const browser = await webkit.launch({
@@ -320,12 +304,23 @@ export async function launchWebKit(options = {}) {
   browser.once("disconnected", release);
   const executable = webkit.executablePath();
   const bundle = path.dirname(executable);
-  const owned = new Set();
-  const claim = (snapshot) => {
-    for (const p of processSnapshot())
-      if (!snapshot.has(p.pid) && p.executable.startsWith(bundle)) owned.add(p.pid);
-  };
-  claim(before);
+  let roots;
+  try {
+    roots = ownedBrowserProcesses({
+      engine: "webkit",
+      executable,
+      requireRenderer: false,
+    }).mains.filter((p) => !before.has(p.pid));
+  } catch (error) {
+    await close();
+    throw error;
+  }
+  if (roots.length !== 1) {
+    await close();
+    throw new Error(`Expected one owned WebKit main PID; found ${roots.length}.`);
+  }
+  const mainPid = roots[0].pid;
+  const ownership = () => ownedBrowserProcesses({ engine: "webkit", executable, mainPid });
   await context.addInitScript(() =>
     Object.defineProperty(navigator, "standalone", { configurable: true, value: true }),
   );
@@ -334,20 +329,10 @@ export async function launchWebKit(options = {}) {
     close,
     version: browser.version(),
     build: path.basename(bundle),
-    ...trackWebKitPages(context, claim),
-    async capture(action) {
-      const snapshot = new Set(processSnapshot().map((p) => p.pid));
-      try {
-        return await action();
-      } finally {
-        claim(snapshot);
-      }
-    },
+    ...trackWebKitPages(context, mainPid),
+    capture: (action) => action(),
     rss() {
-      const matched = processSnapshot().filter(
-        (p) => owned.has(p.pid) && p.executable.startsWith(bundle),
-      );
-      if (!matched.length) throw new Error("No owned WebKit processes matched the bundle path.");
+      const matched = ownership().processes;
       return {
         rssKiB: matched.reduce((sum, p) => sum + p.rssKiB, 0),
         processes: matched,
@@ -358,18 +343,18 @@ export async function launchWebKit(options = {}) {
   };
 }
 
-export function trackWebKitPages(context, claim = () => {}) {
+export function trackWebKitPages(context, mainPid) {
   const executable = webkit.executablePath();
   const pagePids = new WeakMap();
+  const ownership = (requireRenderer = true) =>
+    ownedBrowserProcesses({ engine: "webkit", executable, mainPid, requireRenderer });
   return {
+    ownedProcesses: () => ownership(),
     context,
     async newPage() {
-      const snapshot = new Set(processSnapshot().map((p) => p.pid));
+      const snapshot = new Set(ownership(false).renderers.map((p) => p.pid));
       const page = await context.newPage();
-      claim(snapshot);
-      const renderers = processSnapshot().filter(
-        (p) => !snapshot.has(p.pid) && isRendererCommand(p.executable, "webkit", executable),
-      );
+      const renderers = ownership().renderers.filter((p) => !snapshot.has(p.pid));
       if (renderers.length !== 1) {
         await page.close();
         throw new Error(`Expected one new page WebContent PID; found ${renderers.length}.`);
@@ -379,7 +364,7 @@ export function trackWebKitPages(context, claim = () => {}) {
     },
     pageProcess(page) {
       const renderer = pagePids.get(page);
-      if (!renderer || !processSnapshot().some((p) => p.pid === renderer.pid))
+      if (!renderer || !ownership().renderers.some((p) => p.pid === renderer.pid))
         throw new Error("The page's recorded WebContent PID is no longer alive.");
       return renderer;
     },
@@ -420,9 +405,17 @@ export async function launchChromium(profile) {
     serviceWorkers: "allow",
     extraHTTPHeaders: headers,
   });
-  const roots = processSnapshot().filter(
-    (p) => !before.has(p.pid) && p.executable === executable && p.parent === process.pid,
-  );
+  let roots;
+  try {
+    roots = ownedBrowserProcesses({
+      engine: "chromium",
+      executable,
+      requireRenderer: false,
+    }).mains.filter((p) => !before.has(p.pid));
+  } catch (error) {
+    await context.close();
+    throw error;
+  }
   if (roots.length !== 1) {
     await context.close();
     throw new Error(`Expected one owned Chromium browser PID; found ${roots.length}.`);
@@ -440,6 +433,7 @@ export async function launchChromium(profile) {
     capture: (action) => action(),
     version: context.browser().version(),
     async kill() {
+      ownedBrowserProcesses({ engine: "chromium", executable, mainPid: pid });
       process.kill(pid, "SIGKILL");
       await until(
         () => !processSnapshot().some((p) => p.pid === pid),

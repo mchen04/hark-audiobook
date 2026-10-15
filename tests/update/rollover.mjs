@@ -66,7 +66,11 @@ function buildInfo(directory) {
     .split("\0")
     .filter((file) => file && existsSync(path.join(directory, file)));
   const receipt = path.join(directory, "benchmark-build.json");
+  const worker = readFileSync(path.join(directory, "public/sw.js"), "utf8");
+  const precache = worker.match(/const PRECACHE = \[([\s\S]*?)\];/)?.[1];
+  assert(precache, "Built service worker must declare its install closure");
   return {
+    precacheAssets: [...precache.matchAll(/"([^"\n]+)"/g)].map((match) => match[1]),
     directory,
     source: existsSync(receipt) ? JSON.parse(readFileSync(receipt, "utf8")) : null,
     applicationSourceSha256: sha256(
@@ -122,9 +126,7 @@ async function scenario(engine, previous, next, report, save) {
   };
   const pidProof = () => {
     if (engine !== "WebKit") return null;
-    const renderers = handle
-      .rss()
-      .processes.filter((process) => process.executable.includes("WebContent"));
+    const renderers = handle.ownedProcesses().renderers;
     assert.deepEqual(
       renderers.map((process) => process.pid),
       [webContentPid],
@@ -301,6 +303,20 @@ async function scenario(engine, previous, next, report, save) {
       }, "The app does not stage the next shell after launch paint.");
       evidence.stagedStorage = staged;
       evidence.workerBytesChanged = previous.serviceWorkerSha256 !== next.serviceWorkerSha256;
+      evidence.installedArtwork = await page.evaluate(() =>
+        navigator.mediaSession.metadata.artwork.map(
+          ({ src }) => new URL(src, location.href).pathname,
+        ),
+      );
+      assert(
+        evidence.installedArtwork.includes("/icons/icon-512.png"),
+        "Media Session must declare its large artwork",
+      );
+      for (const asset of evidence.installedArtwork)
+        assert(
+          next.precacheAssets.includes(asset),
+          `Next worker must install Media Session artwork: ${asset}`,
+        );
       evidence.document = await launch(next.buildId);
       assert(result.previousBuildLaunches <= 1, "At most one launch may show the previous build");
       await shellReady(page);
@@ -369,6 +385,46 @@ async function scenario(engine, previous, next, report, save) {
       );
       evidence.range = await rangeEvidence(page, evidence.storage.download.offlineMediaUrl);
       evidence.playback = await playAndPause(page);
+      evidence.artwork = await page.evaluate(async () =>
+        Promise.all(
+          navigator.mediaSession.metadata.artwork.map(async ({ src }) => {
+            try {
+              const response = await fetch(src);
+              const bytes = await response.arrayBuffer();
+              const hash = await crypto.subtle.digest("SHA-256", bytes);
+              return {
+                src,
+                status: response.status,
+                byteSize: bytes.byteLength,
+                sha256: [...new Uint8Array(hash)]
+                  .map((byte) => byte.toString(16).padStart(2, "0"))
+                  .join(""),
+              };
+            } catch (error) {
+              return { src, failure: String(error) };
+            }
+          }),
+        ),
+      );
+      assert(
+        evidence.artwork.some(
+          (entry) => new URL(entry.src, page.url()).pathname === "/icons/icon-512.png",
+        ),
+        "Media Session must include its large artwork",
+      );
+      for (const artwork of evidence.artwork) {
+        assert.equal(artwork.status, 200, `Offline Media Session artwork: ${artwork.src}`);
+        assert.equal(
+          artwork.sha256,
+          sha256(
+            readFileSync(
+              path.join(next.directory, "public", new URL(artwork.src, page.url()).pathname),
+            ),
+          ),
+          "Offline artwork bytes must match the next build",
+        );
+      }
+      await witness.quiet();
       evidence.mediaResponses = offlineRanges(witness.evidence, offlineMediaStart);
     });
     result.ok = true;
