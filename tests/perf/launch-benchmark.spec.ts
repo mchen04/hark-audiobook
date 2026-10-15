@@ -547,11 +547,18 @@ async function measureLaunch(
     let readyKind: string | null = null;
     try {
       const remaining = Math.max(250, LAUNCH_TIMEOUT_MS - (performance.now() - started));
-      const marker = await page.waitForSelector("[data-launch-ready]", {
-        state: "attached",
-        timeout: remaining,
-      });
-      readyKind = await marker.getAttribute("data-launch-ready");
+      await page.waitForFunction(
+        () => {
+          const signal = (window as unknown as { __harkLaunch?: PaintRecord | null }).__harkLaunch;
+          return typeof signal === "object" && signal !== null;
+        },
+        undefined,
+        { polling: "raf", timeout: remaining },
+      );
+      readyKind = await page.evaluate(
+        () =>
+          document.querySelector("[data-launch-ready]")?.getAttribute("data-launch-ready") ?? null,
+      );
     } catch {
       timedOut = true;
     }
