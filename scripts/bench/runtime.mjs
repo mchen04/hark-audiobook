@@ -286,9 +286,19 @@ export async function signIn(context, origin, account, ui = false) {
   return cookies;
 }
 
+function browserLaunchOptions(executable) {
+  return process.platform === "darwin"
+    ? {
+        executablePath: path.join(import.meta.dirname, "browser-exec.py"),
+        env: { ...process.env, HARK_BROWSER_EXECUTABLE: executable },
+      }
+    : { executablePath: executable };
+}
+
 export async function launchWebKit(options = {}) {
   const before = new Set(processSnapshot().map((p) => p.pid));
   const browser = await webkit.launch({
+    ...browserLaunchOptions(webkit.executablePath()),
     headless: true,
     handleSIGINT: false,
     handleSIGTERM: false,
@@ -398,7 +408,7 @@ export async function launchChromium(profile) {
   const before = new Set(processSnapshot().map((p) => p.pid));
   const context = await chromium.launchPersistentContext(profile, {
     ...devices["iPhone 15"],
-    executablePath: executable,
+    ...browserLaunchOptions(executable),
     headless: true,
     handleSIGINT: false,
     handleSIGTERM: false,

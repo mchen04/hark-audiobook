@@ -143,3 +143,46 @@ it("refuses attribution when our main has no renderer but a foreign browser does
   expect(result.processes).toEqual([]);
   expect(result.reason).toContain("No owned webkit renderer");
 });
+
+it("refuses to split two owned macOS browsers with shared responsibility", () => {
+  const processes = [
+    row(12, 10, "/b/webkit/Playwright.app/Contents/MacOS/Playwright", 5),
+    row(13, 1, "/b/webkit/com.apple.WebKit.WebContent", 5),
+    row(20, 10, "/b/webkit/Playwright.app/Contents/MacOS/Playwright", 5),
+    row(21, 1, "/b/webkit/com.apple.WebKit.WebContent", 5),
+  ];
+  for (const mainPid of [undefined, 12, 20]) {
+    const result = attribute("darwin", "webkit", processes, mainPid);
+    expect(result.status).toBe("ambiguous");
+    expect(result.processes).toEqual([]);
+  }
+});
+it("refuses a formerly owned closing main after it is reparented", () => {
+  const closing = row(20, 10, "/b/webkit/Playwright.app/Contents/MacOS/Playwright", 5);
+  const processes = [
+    row(12, 10, "/b/webkit/Playwright.app/Contents/MacOS/Playwright", 5),
+    row(13, 1, "/b/webkit/com.apple.WebKit.WebContent", 5),
+    closing,
+  ];
+  closing.parent = 1;
+  const result = attribute("darwin", "webkit", processes, 12);
+  expect(result.status).toBe("ambiguous");
+  expect(result.processes).toEqual([]);
+});
+it("separates owned macOS browsers after each launch gets its own responsibility", () => {
+  const closing = row(20, 10, "/b/webkit/Playwright.app/Contents/MacOS/Playwright", 20);
+  const processes = [
+    row(12, 10, "/b/webkit/Playwright.app/Contents/MacOS/Playwright", 12),
+    row(13, 1, "/b/webkit/com.apple.WebKit.WebContent", 12),
+    closing,
+    row(21, 1, "/b/webkit/com.apple.WebKit.WebContent", 20),
+  ];
+  expect(attribute("darwin", "webkit", processes, 12).processes.map((p) => p.pid)).toEqual([
+    12, 13,
+  ]);
+  closing.parent = 1;
+  expect(attribute("darwin", "webkit", processes, 12).processes.map((p) => p.pid)).toEqual([
+    12, 13,
+  ]);
+  expect(attribute("darwin", "webkit", processes, 20).status).toBe("missing");
+});
