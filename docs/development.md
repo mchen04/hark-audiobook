@@ -136,14 +136,17 @@ pnpm test:resume:suspension-recovery
 pnpm test:resume:uncovered-axes
 ```
 
-Each command has a 30-minute total limit and excludes only the two T1 hidden
-cases, matching CI. Position drift covers termination, repeated opens, and
+Position drift has a 60-minute total limit; the other two commands have 30 minutes.
+All three exclude only the two T1 hidden cases, matching CI.
+Position drift covers termination, repeated opens, and
 smart rewind. Suspension recovery covers saved-position recovery and estimates.
 Uncovered axes covers isolated persistence writers, write rate, queued rewind,
 and two-device conflicts. These commands preserve the oracle's assertions.
 Process checks stop when browser ownership is missing or ambiguous.
 
-Observed local runtimes are 24.1 minutes, 1.6 minutes, and 4.7 minutes respectively.
+Position drift can take up to about 45 minutes here when C3 times out.
+Observed local runtimes for suspension recovery and uncovered axes are 1.6 and
+4.7 minutes respectively.
 Position drift reports the existing C3 ten-minute timeout. Uncovered axes reports
 S1 as `UNCOVERED`: its queued position is not far enough ahead to test replay.
 The oracle restores fixture media after the [WebKit storage failure](#benchmark);
