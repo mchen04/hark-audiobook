@@ -14,24 +14,23 @@ export function useSleepTimer(audioRef: RefObject<HTMLAudioElement | null>) {
   const timeoutRef = useRef<number | null>(null);
   const chapterEndRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    sleepModeRef.current = sleepMode;
-  }, [sleepMode]);
-
   const clearSleep = useCallback(() => {
-    if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
+    if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current);
     timeoutRef.current = null;
     chapterEndRef.current = null;
+    sleepModeRef.current = null;
     setSleepMode(null);
   }, []);
 
   const setSleepMinutes = useCallback(
     (minutes: number) => {
       clearSleep();
-      setSleepMode({ kind: "time", endsAt: Date.now() + minutes * 60_000 });
+      const mode = { kind: "time" as const, endsAt: Date.now() + minutes * 60_000 };
+      sleepModeRef.current = mode;
+      setSleepMode(mode);
       timeoutRef.current = window.setTimeout(() => {
+        clearSleep();
         audioRef.current?.pause();
-        setSleepMode(null);
       }, minutes * 60_000);
     },
     [audioRef, clearSleep],
@@ -41,23 +40,49 @@ export function useSleepTimer(audioRef: RefObject<HTMLAudioElement | null>) {
     (positionMs: number, chapters: PlayerChapter[]) => {
       clearSleep();
       chapterEndRef.current = selectCurrentChapter(chapters, positionMs)?.endMs || null;
-      if (chapterEndRef.current !== null) setSleepMode({ kind: "chapter" });
+      if (chapterEndRef.current !== null) {
+        sleepModeRef.current = { kind: "chapter" };
+        setSleepMode(sleepModeRef.current);
+      }
     },
     [clearSleep],
   );
 
   /** Called from the audio timeupdate loop; pauses exactly once at the boundary. */
-  const onTimeUpdate = useCallback((audio: HTMLAudioElement) => {
-    if (sleepModeRef.current?.kind !== "chapter") return;
-    const positionMs = audio.currentTime * 1000;
-    const targetEndMs = chapterEndRef.current;
-    if (targetEndMs !== null && positionMs >= targetEndMs - CHAPTER_END_EPSILON_MS) {
-      audio.pause();
-      audio.currentTime = targetEndMs / 1000;
-      chapterEndRef.current = null;
-      setSleepMode(null);
-    }
-  }, []);
+  const onTimeUpdate = useCallback(
+    (audio: HTMLAudioElement) => {
+      const mode = sleepModeRef.current;
+      if (mode?.kind === "time" && Date.now() >= mode.endsAt) {
+        clearSleep();
+        audio.pause();
+      }
+      if (mode?.kind !== "chapter") return;
+      const positionMs = audio.currentTime * 1000;
+      const targetEndMs = chapterEndRef.current;
+      if (targetEndMs !== null && positionMs >= targetEndMs - CHAPTER_END_EPSILON_MS) {
+        clearSleep();
+        audio.pause();
+        audio.currentTime = targetEndMs / 1000;
+      }
+    },
+    [clearSleep],
+  );
+
+  useEffect(() => {
+    const checkDeadline = () => {
+      if (audioRef.current) onTimeUpdate(audioRef.current);
+    };
+    const checkVisible = () => {
+      if (document.visibilityState === "visible") checkDeadline();
+    };
+    window.addEventListener("pageshow", checkDeadline);
+    document.addEventListener("visibilitychange", checkVisible);
+    return () => {
+      window.removeEventListener("pageshow", checkDeadline);
+      document.removeEventListener("visibilitychange", checkVisible);
+      if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current);
+    };
+  }, [audioRef, onTimeUpdate]);
 
   return { sleepMode, setSleepMinutes, setSleepAtChapterEnd, clearSleep, onTimeUpdate };
 }
