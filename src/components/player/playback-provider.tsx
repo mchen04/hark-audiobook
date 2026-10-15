@@ -31,12 +31,7 @@ import {
 import { createTimeStore, type PlaybackTimeStore } from "./playback-time-store";
 import { usePreferencesRef } from "./preferences-provider";
 import type { ProgressConflictDetail } from "./progress-persister";
-import {
-  setMediaSessionMetadata,
-  setMediaSessionPlaybackState,
-  syncMediaSessionPosition,
-  useMediaSession,
-} from "./use-media-session";
+import { setMediaSessionPlaybackState, useMediaSession } from "./use-media-session";
 import { usePlaybackHistoryLog } from "./use-playback-history-log";
 import { useProgressPersistence } from "./use-progress-persistence";
 import { type SleepMode, useSleepTimer } from "./use-sleep-timer";
@@ -81,7 +76,6 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
   const activeBookRef = useRef<PlayerBook | null>(null);
   const trackerRef = useRef(createListeningTracker(queueListeningSession(userId)));
   const suppressNextPauseRef = useRef(false);
-  const positionSyncKeyRef = useRef("");
   const timeStore = useMemo(() => createTimeStore(), []);
   const [book, setBook] = useState<PlayerBook | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -131,7 +125,6 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
       if (!audio.paused) onListeningTick(positionMs);
       if (activeBookRef.current) {
         onSleepTick(audio);
-        syncMediaSessionPosition(audio, activeBookRef.current.durationMs, positionSyncKeyRef);
       }
     };
     const markPlaying = () => {
@@ -260,7 +253,6 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
           clearHistory();
           timeStore.write(startAtMs);
           setRateState(startRate);
-          setMediaSessionMetadata(resolvedBook);
           recordAction(
             "opened",
             startAtMs,
@@ -291,7 +283,6 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
           setBook(refreshedBook);
           timeStore.write(positionMs);
           setRateState(rate);
-          setMediaSessionMetadata(refreshedBook);
           if (wasPlaying) safePlay(audio);
         }
         hydrateHistory(nextBook.id, historySnapshot);
@@ -400,10 +391,12 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
 
   useMediaSession({
     audioRef,
+    book,
     preferencesRef,
     play: transport.play,
     seek: transport.seek,
     skip: transport.skip,
+    moveToChapter: transport.moveToChapter,
   });
 
   const value = useMemo<PlaybackContextValue>(
