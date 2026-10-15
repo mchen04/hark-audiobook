@@ -161,16 +161,41 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
       recordAction("finished", endPositionMs);
       setLastEndedAt(Date.now());
     };
+    const reconcileElement = () => {
+      if (!activeBookRef.current) return;
+      timeStore.write(audio.currentTime * 1000);
+      const playing = !audio.paused && !audio.ended && !audio.error;
+      setIsPlaying(playing);
+      setMediaSessionPlaybackState(playing ? "playing" : "paused");
+    };
+    const reconcileVisible = () => {
+      if (document.visibilityState === "visible") reconcileElement();
+    };
+    const markError = () => {
+      const activeBook = activeBookRef.current;
+      if (!activeBook) return;
+      const positionMs = audio.currentTime * 1000;
+      audio.pause();
+      saveDurableState("pause", positionMs);
+      trackerRef.current.end(activeBook.id, positionMs);
+      reconcileElement();
+    };
 
     audio.addEventListener("timeupdate", updateTime);
     audio.addEventListener("play", markPlaying);
     audio.addEventListener("pause", markPaused);
     audio.addEventListener("ended", markEnded);
+    audio.addEventListener("error", markError);
+    window.addEventListener("pageshow", reconcileElement);
+    document.addEventListener("visibilitychange", reconcileVisible);
     return () => {
       audio.removeEventListener("timeupdate", updateTime);
       audio.removeEventListener("play", markPlaying);
       audio.removeEventListener("pause", markPaused);
       audio.removeEventListener("ended", markEnded);
+      audio.removeEventListener("error", markError);
+      window.removeEventListener("pageshow", reconcileElement);
+      document.removeEventListener("visibilitychange", reconcileVisible);
     };
   }, [
     announcePlaying,
@@ -180,6 +205,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
     onSleepTick,
     persistProgress,
     recordAction,
+    saveDurableState,
     timeStore,
     userId,
   ]);

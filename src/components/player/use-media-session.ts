@@ -28,7 +28,9 @@ export function useMediaSession(controls: {
     const syncPosition = () => syncMediaSessionPosition(audio, book.durationMs, positionKey);
     const refresh = () => {
       positionKey.current = "";
-      setMediaSessionPlaybackState(audio.paused || audio.ended ? "paused" : "playing");
+      setMediaSessionPlaybackState(
+        audio.paused || audio.ended || audio.error ? "paused" : "playing",
+      );
       syncPosition();
     };
     const moveChapter = (direction: "previous" | "next") => {
@@ -76,11 +78,18 @@ export function useMediaSession(controls: {
     ];
     for (const event of events) audio.addEventListener(event, refresh);
     audio.addEventListener("timeupdate", syncPosition);
+    const refreshVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener("pageshow", refresh);
+    document.addEventListener("visibilitychange", refreshVisible);
     setMediaSessionMetadata(book);
     refresh();
     return () => {
       for (const event of events) audio.removeEventListener(event, refresh);
       audio.removeEventListener("timeupdate", syncPosition);
+      window.removeEventListener("pageshow", refresh);
+      document.removeEventListener("visibilitychange", refreshVisible);
       for (const [action] of handlers) {
         try {
           navigator.mediaSession.setActionHandler(action, null);

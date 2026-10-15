@@ -218,3 +218,76 @@ describe("synthetic Media Session lifecycle", () => {
     expect(persistence.saveDurableState).toHaveBeenLastCalledWith("seek", 19_000);
   });
 });
+
+describe("synthetic media failures and foreground return", () => {
+  it("stops claiming playback after a media error and retries from the same position and rate", () => {
+    const { result, audio } = mount();
+    act(() => result.current.playback.setPlaybackRate(1.5));
+    act(() => result.current.playback.toggle());
+    audio.currentTime = 28.25;
+    let failure: MediaError | null = { code: 2, message: "Synthetic failed range" } as MediaError;
+    Object.defineProperty(audio, "error", { configurable: true, get: () => failure });
+    vi.mocked(audio.load).mockImplementation(() => {
+      failure = null;
+      paused = true;
+      audio.currentTime = 0;
+      audio.playbackRate = 1;
+    });
+    act(() => audio.dispatchEvent(new Event("error")));
+    expect(result.current.playback.isPlaying).toBe(false);
+    expect(session.playbackState).toBe("paused");
+    expect(audio.paused).toBe(true);
+    expect(persistence.saveDurableState).toHaveBeenCalledWith("pause", 28_250);
+    act(() => result.current.playback.toggle());
+    expect(audio.load).toHaveBeenCalledOnce();
+    expect(audio.currentTime).toBe(28.25);
+    expect(audio.playbackRate).toBe(1.5);
+    expect(result.current.playback.isPlaying).toBe(true);
+    expect(audio.getAttribute("src")).toBe(book.mediaUrl);
+  });
+
+  it("reconciles a missed system pause on persisted pageshow without playing or publishing stale progress", () => {
+    const { result, audio } = mount();
+    act(() => result.current.playback.toggle());
+    audio.currentTime = 31.5;
+    paused = true;
+    persistence.persistProgress.mockClear();
+    vi.mocked(audio.play).mockClear();
+    act(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+    expect(result.current.playback.isPlaying).toBe(false);
+    expect(result.current.time).toBe(31_500);
+    expect(session.playbackState).toBe("paused");
+    expect(audio.play).not.toHaveBeenCalled();
+    expect(persistence.persistProgress).not.toHaveBeenCalled();
+  });
+
+  it("reconciles a missed system resume when the document becomes visible without applying smart rewind", () => {
+    const { result, audio } = mount();
+    audio.currentTime = 33.5;
+    paused = false;
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(result.current.playback.isPlaying).toBe(true);
+    expect(result.current.time).toBe(33_500);
+    expect(session.playbackState).toBe("playing");
+    expect(audio.currentTime).toBe(33.5);
+    Reflect.deleteProperty(document, "visibilityState");
+  });
+
+  it("accepts a system pause and play event without a new gesture or a position jump", () => {
+    const { result, audio } = mount();
+    act(() => result.current.playback.toggle());
+    audio.currentTime = 35.5;
+    paused = true;
+    act(() => audio.dispatchEvent(new Event("pause")));
+    expect(result.current.playback.isPlaying).toBe(false);
+    paused = false;
+    act(() => audio.dispatchEvent(new Event("play")));
+    expect(result.current.playback.isPlaying).toBe(true);
+    expect(session.playbackState).toBe("playing");
+    expect(audio.currentTime).toBe(35.5);
+    remote("pause");
+    remote("play");
+    expect(audio.currentTime).toBe(35.5);
+  });
+});

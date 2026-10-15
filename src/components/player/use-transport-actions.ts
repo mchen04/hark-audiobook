@@ -197,6 +197,13 @@ function settledPositionMs(audio: HTMLAudioElement, requestedMs: number): number
 // Playing from the very end restarts the book, otherwise the press would only
 // play the residual sliver before `ended` pauses it again.
 export function safePlay(audio: HTMLAudioElement): void {
+  if (audio.error && audio.getAttribute("src")) {
+    const position = audio.currentTime;
+    const rate = audio.playbackRate;
+    audio.load();
+    audio.currentTime = position;
+    audio.playbackRate = rate;
+  }
   if (Number.isFinite(audio.duration) && audio.duration - audio.currentTime < 1) {
     audio.currentTime = 0;
   }
