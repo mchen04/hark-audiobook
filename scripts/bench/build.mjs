@@ -9,7 +9,7 @@ import { parseEnvFile } from "../lib/env-file.mjs";
 
 export const frozenBase = "e4525ac70dd5bc3113ce3c8a76b97dcdd2d47858";
 export const root = path.resolve(import.meta.dirname, "../..");
-export const envFile = path.join(root, ".env.test");
+export const envFile = path.resolve(root, process.env.HARK_ENV_FILE ?? ".env.test");
 
 export function testEnvironment() {
   const env = { ...process.env, ...parseEnvFile(readFileSync(envFile, "utf8")) };

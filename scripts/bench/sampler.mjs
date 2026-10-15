@@ -308,9 +308,12 @@ export function isHandledReloadDiagnostic(error, recording) {
     (error.name === "Cannot load blob" &&
       error.stack.startsWith("Cannot load blob:http://127.0.0.1:") &&
       error.stack.includes("at peekBuffer"));
+  const stoppedCache =
+    error.name === "Cache API operation failed" &&
+    error.message === "Context is stopped" &&
+    ["", "Cache API operation failed: Context is stopped"].includes(error.stack);
   return (
-    resource &&
-    error.message.endsWith(" due to access control checks.") &&
+    ((resource && error.message.endsWith(" due to access control checks.")) || stoppedCache) &&
     recording.scriptErrors.length === 0 &&
     recording.actions.some(
       (action) =>

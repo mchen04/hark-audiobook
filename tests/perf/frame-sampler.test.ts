@@ -13,6 +13,76 @@ const frame = (documentId: string, wallTime: number, state: string) => ({
   landmarks: { mainHeading: state === "books" ? heading : null },
 });
 
+const cacheDiagnostic = {
+  name: "Cache API operation failed",
+  message: "Context is stopped",
+  stack: "",
+  wallTime: 20,
+};
+const reloadRecording = {
+  scriptErrors: [],
+  actions: [{ kind: "reload-library", startWallTime: 10, endWallTime: 30 }],
+};
+
+it.each([
+  ["reload-library", ""],
+  ["reload-player", ""],
+  ["reload-library", "Cache API operation failed: Context is stopped"],
+  ["reload-player", "Cache API operation failed: Context is stopped"],
+])("records the native Cache diagnostic during %s with stack %j as a note", (kind, stack) => {
+  expect(
+    isHandledReloadDiagnostic(
+      { ...cacheDiagnostic, stack },
+      { ...reloadRecording, actions: [{ kind, startWallTime: 10, endWallTime: 30 }] },
+    ),
+  ).toBe(true);
+});
+
+it.each([
+  { rule: "name", error: { ...cacheDiagnostic, name: "TypeError" }, recording: reloadRecording },
+  {
+    rule: "message",
+    error: { ...cacheDiagnostic, message: "Quota exceeded" },
+    recording: reloadRecording,
+  },
+  {
+    rule: "script stack",
+    error: { ...cacheDiagnostic, stack: "at saveBook (import.js:1:1)" },
+    recording: reloadRecording,
+  },
+  {
+    rule: "console text with script frames",
+    error: {
+      ...cacheDiagnostic,
+      stack: "Cache API operation failed: Context is stopped\n    at saveBook (import.js:1:1)",
+    },
+    recording: reloadRecording,
+  },
+  {
+    rule: "unhandled rejection",
+    error: cacheDiagnostic,
+    recording: { ...reloadRecording, scriptErrors: [{ kind: "unhandledrejection" }] },
+  },
+  {
+    rule: "script error",
+    error: cacheDiagnostic,
+    recording: { ...reloadRecording, scriptErrors: [{ kind: "error" }] },
+  },
+  { rule: "before reload", error: { ...cacheDiagnostic, wallTime: 9 }, recording: reloadRecording },
+  { rule: "after reload", error: { ...cacheDiagnostic, wallTime: 31 }, recording: reloadRecording },
+  {
+    rule: "other navigation",
+    error: cacheDiagnostic,
+    recording: {
+      ...reloadRecording,
+      actions: [{ kind: "history-back", startWallTime: 10, endWallTime: 30 }],
+    },
+  },
+  { rule: "no action", error: cacheDiagnostic, recording: { ...reloadRecording, actions: [] } },
+])("keeps the Cache diagnostic as a failure when it violates $rule", ({ error, recording }) => {
+  expect(isHandledReloadDiagnostic(error, recording)).toBe(false);
+});
+
 it("only classifies a handled WebKit sync diagnostic during the actual reload as a note", () => {
   const error = {
     name: "Fetch API cannot load http",

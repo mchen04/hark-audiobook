@@ -7,7 +7,7 @@ const database = await vi.hoisted(async () => {
   const { parseEnvFile } = await import("../../scripts/lib/env-file.mjs");
   const { assertLocalDatabase } = await import("../../scripts/lib/assert-local-database.mjs");
   const environment = parseEnvFile(
-    readFileSync(new URL("../../.env.test", import.meta.url), "utf8"),
+    readFileSync(process.env.HARK_ENV_FILE ?? new URL("../../.env.test", import.meta.url), "utf8"),
   );
   assertLocalDatabase(environment.DATABASE_URL, { context: "Account deletion regression" });
   Object.assign(process.env, environment, { BETTER_AUTH_URL: "http://127.0.0.1:3400" });
