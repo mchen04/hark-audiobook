@@ -144,13 +144,40 @@ Uncovered axes covers isolated persistence writers, write rate, queued rewind,
 and two-device conflicts. These commands preserve the oracle's assertions.
 Process checks stop when browser ownership is missing or ambiguous.
 
-Position drift can take up to about 45 minutes here when C3 times out.
-Observed local runtimes for suspension recovery and uncovered axes are 1.6 and
-4.7 minutes respectively.
-Position drift reports the existing C3 ten-minute timeout. Uncovered axes reports
-S1 as `UNCOVERED`: its queued position is not far enough ahead to test replay.
-The oracle restores fixture media after the [WebKit storage failure](#benchmark);
-this does not prove native cache preservation across process death.
+The latest local runs against an already served build pass all cases:
+12 position checks in 4.8 minutes, three recovery checks in 1.4 minutes,
+and nine uncovered-axis checks in 3.2 minutes. C3 and C4 show no cumulative drift.
+S1 arms its stale queued-write trap and passes.
+
+Each measured journey uses a fresh browser from prepared cookies, localStorage,
+and IndexedDB. Its kill and reopen steps share that context. Tracing stays enabled
+with `retain-on-failure`. This bounds the tracing slowdown from sharing crashed
+pages across tests. Page evaluations and launch or relaunch page creation have
+a 30-second diagnostic deadline. Settled-position reads have a 15-second total deadline.
+
+The oracle restores and verifies fixture media after the
+[WebKit storage failure](#benchmark). It does not replace progress records after
+a measured kill. These rows do not prove native cache preservation across process death.
+
+Run the individual controls against any served production build. Start that build's
+`scripts/run-standalone.mjs` with the test environment first. Match `BETTER_AUTH_URL`
+to its origin. Set an absolute `HARK_ENV_FILE` when serving from another directory.
+
+```sh
+export HARK_REUSE_SERVER=1
+export PLAYWRIGHT_BASE_URL=http://127.0.0.1:3400
+HARK_RESUME_LEDGER="$TMPDIR/c4.jsonl" pnpm test:resume:c4 --output "$TMPDIR/c4-results"
+HARK_RESUME_LEDGER="$TMPDIR/s1.jsonl" pnpm test:resume:s1 --output "$TMPDIR/s1-results"
+```
+
+C4 checks five online post-kill opens with 65-minute absence markers and a real 65-second listen.
+Its command has a four-minute limit. S1 earns a heartbeat offline, rewinds, and kills
+before the queued write changes. It checks server, player, and library positions
+after replay. Its command has a three-minute limit. Both preserve the original assertions.
+An unarmed S1 trap fails as `UNCOVERED`.
+Each run prints the build ID from the served `/offline` document.
+Use separate ledger and output paths for each build and repetition.
+Keep results outside the checkout; failures retain their Playwright trace.
 
 Vitest has coverage reporters configured, but no coverage provider is installed
 in the pinned dependencies. `pnpm test` reports outcomes and timing, not line or

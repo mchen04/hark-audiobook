@@ -47,7 +47,9 @@
     "test:update": "node tests/update/rollover.mjs",
     "test:resume:position-drift": "playwright test --project=resume-durability tests/resume/position-drift.spec.ts --grep-invert \"T1 hidden (online|offline)\" --global-timeout=3600000",
     "test:resume:suspension-recovery": "playwright test --project=resume-durability tests/resume/suspension-recovery.spec.ts --grep-invert \"T1 hidden (online|offline)\" --global-timeout=1800000",
-    "test:resume:uncovered-axes": "playwright test --project=resume-durability tests/resume/uncovered-axes.spec.ts --grep-invert \"T1 hidden (online|offline)\" --global-timeout=1800000"
+    "test:resume:uncovered-axes": "playwright test --project=resume-durability tests/resume/uncovered-axes.spec.ts --grep-invert \"T1 hidden (online|offline)\" --global-timeout=1800000",
+    "test:resume:c4": "playwright test --project=resume-durability tests/resume/position-drift.spec.ts --grep \"C4 cycles\" --global-timeout=240000",
+    "test:resume:s1": "playwright test --project=resume-durability tests/resume/uncovered-axes.spec.ts --grep \"S1:\" --global-timeout=180000"
   },
   "dependencies": {
     "@mediabunny/mp3-encoder": "1.53.0",

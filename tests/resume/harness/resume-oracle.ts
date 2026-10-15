@@ -8,7 +8,7 @@ import {
   type BrowserType,
   type Page,
 } from "@playwright/test";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -16,6 +16,7 @@ import { ownedBrowserProcesses } from "../../../scripts/lib/owned-browser-proces
 import { awaitSignInBudget } from "../../shared/sign-in-budget";
 import { testAccountPassword } from "../../shared/test-account-password";
 import { TEST_CLIENT_HEADERS } from "../../shared/test-client-ip";
+import { resumeControl, servedBuildId } from "../../shared/resume-control";
 // Reused, not re-implemented: the sync suite owns the local-database connection
 // and the account reset; the parity suite owns the network that can actually be
 // unplugged (see the long note in `tests/parity/harness/network.ts` for why
@@ -116,18 +117,7 @@ export type Engine = "webkit" | "chromium";
 export const ENGINE: Engine = process.env.HARK_RESUME_ENGINE === "chromium" ? "chromium" : "webkit";
 const browserType = (): BrowserType => (ENGINE === "chromium" ? chromium : webkit);
 
-/**
- * The build under test. No PASS is worth anything without it: a green row from
- * a stale `.next` is a row about a build nobody is shipping.
- */
-export const BUILD_ID: string = (() => {
-  const file = path.join(process.cwd(), ".next/BUILD_ID");
-  try {
-    return existsSync(file) ? readFileSync(file, "utf8").trim() : "unknown";
-  } catch {
-    return "unknown";
-  }
-})();
+export let BUILD_ID = "unknown";
 
 // One source of truth for the account name. Keeping a bare string literal off
 // the credential line also stops secret scanners heuristically flagging an
@@ -977,12 +967,49 @@ export type Fixture = {
 
 let fixture: Fixture | null = null;
 
-/**
- * The device. One ephemeral context for the whole run, because it is the thing
- * that has to survive every kill — it is standing in for the phone's disk.
- */
 type Device = { browser: Browser; context: BrowserContext };
 let device: Device | null = null;
+let preparedStorage: Awaited<ReturnType<BrowserContext["storageState"]>> | undefined;
+let preparedCaches: CacheSnapshot | null = null;
+
+function control<T>(pending: Promise<T>, operation: string, page?: Page, timeoutMs = 30_000) {
+  return resumeControl(
+    pending,
+    () => {
+      let processes: unknown;
+      try {
+        processes = ownedBrowserProcesses({
+          engine: ENGINE,
+          executable: browserType().executablePath(),
+          requireRenderer: false,
+        }).processes.map(({ pid, rssKiB }) => ({ pid, rssKiB }));
+      } catch (error) {
+        processes = String(error);
+      }
+      return {
+        operation,
+        url: page?.url(),
+        pages: device?.context.pages().length,
+        processes,
+        cacheBase64Bytes: lastMediaSnapshot?.reduce(
+          (total, cache) =>
+            total + cache.entries.reduce((sum, entry) => sum + entry.body.length, 0),
+          0,
+        ),
+      };
+    },
+    timeoutMs,
+  );
+}
+
+export async function resetResumeDevice(): Promise<void> {
+  expect(preparedStorage, "the prepared resume device has no storage snapshot").toBeTruthy();
+  expect(preparedCaches, "the prepared resume device has no media snapshot").toBeTruthy();
+  if (device) await control(device.browser.close(), "reset browser");
+  device = null;
+  lastMediaSnapshot = preparedCaches;
+  deviceMediaBroken = false;
+}
 
 const SESSION_COOKIE_NAME = "chapterline.session_token";
 const SESSION_COOKIE_SENTINEL = "resume-oracle.session-cookie-sentinel";
@@ -1007,6 +1034,7 @@ async function openDevice(): Promise<Device> {
   const browser = await browserType().launch();
   const context = await browser.newContext({
     ...devices["iPhone 15"],
+    storageState: preparedStorage,
     serviceWorkers: "allow",
     extraHTTPHeaders: TEST_CLIENT_HEADERS.resume,
   });
@@ -1136,6 +1164,11 @@ type Session = { page: Page };
 const crashed = new WeakMap<Page, { yes: boolean }>();
 
 function trackCrash(page: Page): Page {
+  page.evaluate = new Proxy(page.evaluate.bind(page), {
+    apply(target, receiver, argumentsList) {
+      return control(Reflect.apply(target, receiver, argumentsList), "page.evaluate", page);
+    },
+  });
   const state = { yes: false };
   crashed.set(page, state);
   page.on("crash", () => {
@@ -1147,7 +1180,7 @@ function trackCrash(page: Page): Page {
 /** A fresh page on the device. Not a fresh device: that is the whole point. */
 async function launch(): Promise<Session> {
   const { context } = await openDevice();
-  const page = trackCrash(await context.newPage());
+  const page = trackCrash(await control(context.newPage(), "new page"));
   await restoreDiscardedCookieJar(context);
   return { page };
 }
@@ -1504,6 +1537,15 @@ let lastMediaSnapshot: CacheSnapshot | null = null;
  */
 async function preflightDevice(page: Page, origin: string): Promise<void> {
   await page.goto(`${origin}${RESTORE_PATH}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+  await page.evaluate(async () => {
+    if (!(await navigator.serviceWorker.getRegistration("/"))) {
+      await navigator.serviceWorker.register("/sw.js");
+      await navigator.serviceWorker.ready;
+    }
+  });
+  await page.waitForFunction(() => navigator.serviceWorker.controller !== null, undefined, {
+    timeout: 30_000,
+  });
   const inventory = await readMediaInventory(page);
   const wholeDiskGone = inventory.length > 0 && inventory.every((entry) => entry.bytes <= 0);
   if (wholeDiskGone) {
@@ -1598,14 +1640,6 @@ async function assertEngineCanStoreMedia(page: Page): Promise<void> {
   ).toBe("activated/round-trips");
 }
 
-/**
- * One signed-in device with the books already imported, built once and shared
- * by every scenario.
- *
- * Every scenario needs a warm device (service worker, Cache Storage, mirror,
- * cookies) and its own book, and rebuilding that per scenario would spend the
- * whole budget on sign-ins the rate limiter would then start refusing.
- */
 export async function resumeFixture(
   count: number,
   /**
@@ -1623,6 +1657,13 @@ export async function resumeFixture(
 ): Promise<Fixture> {
   const titles = Array.from({ length: count }, (_, index) => bookTitleFor(index));
   if (fixture) return fixture;
+
+  const offlineDocument = await fetch(`${APP_ORIGIN}/offline`, {
+    signal: AbortSignal.timeout(10_000),
+  });
+  expect(offlineDocument.ok, "the served offline document could not be read").toBe(true);
+  BUILD_ID = servedBuildId(await offlineDocument.text());
+  console.log(`[resume-oracle] served build ${BUILD_ID} from ${APP_ORIGIN}`);
 
   const net = await startControllableNetwork(APP_ORIGIN);
   const { page } = await launch();
@@ -1744,8 +1785,14 @@ export async function resumeFixture(
     // away so the FIRST measurement has something to put back too. Every kill
     // after this one takes its own.
     await snapshotCaches(page).catch(() => null);
-    // The PAGE, not the device: the device is the disk everything below depends
-    // on surviving.
+    if (fixture) {
+      preparedCaches = lastMediaSnapshot;
+      preparedStorage = await control(
+        page.context().storageState({ indexedDB: true }),
+        "prepared storage",
+        page,
+      );
+    }
     await page.close().catch(() => undefined);
   }
 }
@@ -1760,6 +1807,9 @@ export async function closeResumeFixture(): Promise<void> {
     device = null;
   }
   sessionCookieWitness = null;
+  preparedStorage = undefined;
+  preparedCaches = null;
+  lastMediaSnapshot = null;
   await closeSql();
 }
 
@@ -1799,8 +1849,7 @@ let deviceMediaBroken = false;
  */
 let lastKillAtMs = 0;
 
-function hardKill(): string[] {
-  const pids = renderPids();
+function hardKill(pids = renderPids()): string[] {
   expect(
     pids.length,
     `no ${ENGINE} renderer process started by this run was found, so nothing was hard-killed and ` +
@@ -1871,7 +1920,7 @@ async function relaunch(
       new Promise((resolve) => setTimeout(resolve, 5_000)),
     ]);
   }
-  const page = trackCrash(await context.newPage());
+  const page = trackCrash(await control(context.newPage(), "relaunch page"));
   await restoreDiscardedCookieJar(context);
   await page.goto(`${origin}${RESTORE_PATH}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
   expect(
@@ -2199,6 +2248,12 @@ async function readShelf(
  * after seconds is evidence in its own right.
  */
 async function readSettledPosition(
+  page: Page,
+): Promise<{ positionMs: number; settleMs: number; trail: number[] }> {
+  return control(sampleSettledPosition(page), "settled position", page, 15_000);
+}
+
+async function sampleSettledPosition(
   page: Page,
 ): Promise<{ positionMs: number; settleMs: number; trail: number[] }> {
   const started = Date.now();
@@ -2838,11 +2893,6 @@ export async function measure(spec: ScenarioSpec): Promise<Row> {
 
   const playMs = spec.playMs ?? 8_500;
   const notes: string[] = [];
-  // The scenarios share ONE device and run serially — one phone, several books,
-  // which is also what a user has. Isolation comes from resetting the book's
-  // server progress above; whatever local position a previous row left behind
-  // is simply where this row starts, and it is recorded as `startedAtMs`.
-
   net.restore();
   net.reset();
 
@@ -3969,34 +4019,34 @@ export async function measureStaleAheadReplay(spec: {
     ).toBeGreaterThan(0);
 
     const lifecycleBeforeKill = await readLifecycle(session.page);
-    const skippedAt = Date.now();
-    await backControl.click();
-    // The click resolves after the seek handler's synchronous local write. Do
-    // not add a fixed wait here: on a loaded WebKit process it only spends the
-    // debounce budget without proving anything about the queued row. That row
-    // is read directly from the restore stub after the kill.
-
-    const sample = await session.page.evaluate(() => {
-      const audio = document.querySelector("audio");
-      const probe = (window as unknown as { __resumeProbe?: { ticks: number } }).__resumeProbe;
-      return {
-        positionMs: audio ? audio.currentTime * 1000 : -1,
-        paused: audio?.paused ?? true,
-        rate: audio?.playbackRate ?? 1,
-        ticks: probe?.ticks ?? 0,
-      };
-    });
-    const sampleReturnedAt = Date.now();
+    await expect(backControl).toBeEnabled();
+    const ownedPids = renderPids();
+    const sample = await control(
+      backControl.evaluate((button) => {
+        const skippedAt = Date.now();
+        (button as HTMLButtonElement).click();
+        const audio = document.querySelector("audio");
+        const probe = (window as unknown as { __resumeProbe?: { ticks: number } }).__resumeProbe;
+        return {
+          skippedAt,
+          pageNowMs: Date.now(),
+          positionMs: audio ? audio.currentTime * 1000 : -1,
+          paused: audio?.paused ?? true,
+          rate: audio?.playbackRate ?? 1,
+          ticks: probe?.ticks ?? 0,
+        };
+      }),
+      "skip and sample",
+      session.page,
+    );
+    const killedPids = hardKill(ownedPids);
+    const truePositionMs = sample.positionMs + (lastKillAtMs - sample.pageNowMs) * sample.rate;
+    const skipToKillMs = lastKillAtMs - sample.skippedAt;
     expect(
       sample.paused,
       `${spec.scenario}: the audio was not playing when the process was killed, so this is not ` +
         "the interrupted-mid-listen case the trap needs",
     ).toBe(false);
-
-    const killAt = Date.now();
-    const truePositionMs = sample.positionMs + (killAt - sampleReturnedAt) * sample.rate;
-    const killedPids = hardKill();
-    const skipToKillMs = killAt - skippedAt;
     await expectPageDead(session.page, killedPids);
 
     // The network comes back BEFORE the relaunch: the replay is the step under
@@ -4522,9 +4572,10 @@ export async function measureTwoDeviceResume(spec: {
   net.reset();
 
   const { browser, context: contextA } = await openDevice();
-  const pageA = trackCrash(await contextA.newPage());
+  const pageA = trackCrash(await control(contextA.newPage(), "device A page"));
   let contextB: BrowserContext | null = null;
   try {
+    await preflightDevice(pageA, origin);
     await pageA.goto(`${origin}/library`, { waitUntil: "domcontentloaded", timeout: 90_000 });
     await pageA.waitForSelector("[data-launch-ready]", { state: "attached", timeout: 90_000 });
     await resetBookEverywhere(pageA, userId, bookId);
@@ -4565,7 +4616,7 @@ export async function measureTwoDeviceResume(spec: {
       extraHTTPHeaders: TEST_CLIENT_HEADERS.resume,
     });
     await contextB.addInitScript({ content: PROBE_SCRIPT });
-    const pageB = trackCrash(await contextB.newPage());
+    const pageB = trackCrash(await control(contextB.newPage(), "device B page"));
     await pageB.goto(`${origin}/library`, { waitUntil: "domcontentloaded", timeout: 90_000 });
     await pageB.waitForSelector("[data-launch-ready]", { state: "attached", timeout: 90_000 });
     await assertEngineCanStoreMedia(pageB);
