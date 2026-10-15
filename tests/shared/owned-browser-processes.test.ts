@@ -75,6 +75,19 @@ it.each(["linux", "darwin"])("takes only our Chromium processes on %s", (platfor
   expect(result.mains.map((p) => p.pid)).toEqual([12]);
   expect(result.processes.map((p) => p.pid)).toEqual([12, 13, 14]);
 });
+it("takes macOS Chromium descendants with independent responsible PIDs", () => {
+  const result = attribute("darwin", "chromium", [
+    row(12, 10, chromium),
+    row(13, 12, "/b/chromium/helper --type=gpu-process"),
+    row(14, 12, "/b/chromium/helper --type=renderer"),
+    row(15, 13, "/b/chromium/helper --type=utility"),
+    row(20, 99, chromium),
+    row(21, 20, "/b/chromium/helper --type=renderer"),
+  ]);
+  expect(result.status).toBe("owned");
+  expect(result.processes.map((p) => p.pid)).toEqual([12, 13, 14, 15]);
+  expect(result.renderers.map((p) => p.pid)).toEqual([14]);
+});
 it("uses macOS responsibility for reparented XPCs and isolates browsers launched later", () => {
   const processes = [
     row(11, 10, "/bin/sh /b/webkit/pw_run.sh"),

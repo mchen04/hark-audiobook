@@ -79,7 +79,7 @@ export function attributeBrowserProcesses({
   result.processes = candidates.filter((entry) =>
     owned.some((main) =>
       platform === "darwin"
-        ? entry.pid === main.pid || entry.responsible === main.responsible
+        ? descends(entry.pid, main.pid) || entry.responsible === main.responsible
         : descends(entry.pid, main.pid),
     ),
   );
