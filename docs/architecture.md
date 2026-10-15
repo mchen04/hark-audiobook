@@ -22,7 +22,8 @@ and Phosphor icons supply the UI. Exact dependency versions are in the lockfile.
 The [storage and sync contract](local-first.md) defines ownership, receipt
 ordering, conflict resolution, and migration rules. Library paint reads local
 state; a new device must complete its first sync before it can claim to show the
-account's library. Pull pages contain up to 1,000 changed book aggregates.
+account's library. Pull pages target 1,000 changed book aggregates. Books sharing
+the boundary timestamp stay together, so a page can exceed that target.
 Authentication and settings are not universally offline.
 
 ## Imports and rendition identity

@@ -126,7 +126,8 @@ mount or reconnect.
 
 `GET /api/sync/pull?since=<iso>` returns changed book aggregates and tombstones,
 plus whole-account tag/collection/preference snapshots and recent sessions.
-A page contains up to 1,000 changed book aggregates.
+A page targets 1,000 changed book aggregates. Books sharing the boundary
+timestamp stay together, so a page can exceed that target.
 The mirror applies a batch and its cursor in one IndexedDB transaction. An
 interrupted apply re-fetches the batch instead of advancing ahead of data.
 Deletion is an explicit tombstone; absence is not proof of deletion.
