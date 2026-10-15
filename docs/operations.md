@@ -48,7 +48,7 @@ runtime precache manifest. Its `deferredUntilModel` subset (the Kestrel worker's
 own chunks) is cached once the verified model bundle exists; older service
 workers ignore the field and cache everything. Serve the matching `.next`
 output, static chunks, and `public` assets together. Post-launch chunk warm-up
-and runtime precaching preserve offline access to deferred controls.
+and runtime precaching preserve offline access to MP3 parsing and hashing.
 The standalone test runner stages these assets and
 reads an explicit env file; see [development](development.md#checks).
 `pnpm verify:kestrel-export` is a separate provenance check that downloads pinned

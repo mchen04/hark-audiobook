@@ -22,7 +22,7 @@ and Phosphor icons supply the UI. Exact dependency versions are in the lockfile.
 The [storage and sync contract](local-first.md) defines ownership, receipt
 ordering, conflict resolution, and migration rules. Library paint reads local
 state; a new device must complete its first sync before it can claim to show the
-account's library. Pull pages target 1,000 changed book aggregates. Books sharing
+account's library. Pull pages target 200 changed book aggregates. Books sharing
 the boundary timestamp stay together, so a page can exceed that target.
 Authentication and settings are not universally offline.
 
@@ -108,11 +108,9 @@ Other viewport sizes render without an intrinsic estimate.
 
 Build output includes the dependency closure for lazy import, workers, encoding,
 and ONNX. Shell updates stage complete immutable cache generations before
-promotion. After launch paint, the client warms deferred MP3 parsing, hashing,
-attachment/media storage, sign-out SDK, and player-sheet chunks. The generated
-runtime precache manifest also includes their dependency closures, so splitting
-does not leave offline controls waiting for an uncached chunk. Model-only code
-waits until the verified model bundle exists.
+promotion. After launch paint, the client warms deferred MP3 parsing and hashing
+chunks. The runtime precache manifest includes their dependency closures for
+offline import. Model-only code waits until the verified model bundle exists.
 Leases retain chunks needed by open windows. Account purge preserves
 only safe shell/static assets and removes account media and private page caches.
 

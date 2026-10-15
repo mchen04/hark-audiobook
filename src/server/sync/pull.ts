@@ -39,7 +39,7 @@ import {
  * no storage key or URL column, and transcripts are not a server table at all.
  */
 
-const BOOK_PAGE_SIZE = 1000;
+const BOOK_PAGE_SIZE = 200;
 const RECENT_SESSION_LIMIT = 200;
 const EPOCH_CURSOR = "1970-01-01T00:00:00.000000Z";
 

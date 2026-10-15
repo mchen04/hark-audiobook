@@ -34,14 +34,7 @@ import { retryAllPendingOfflineDeletions } from "@/lib/offline/deletion-journal"
  * would be reporting a caching race as a merge bug.
  */
 function warmImportChunks(): void {
-  void Promise.allSettled([
-    warmMp3Parser(),
-    import("@/lib/media-hash"),
-    import("@/lib/auth-client"),
-    import("@/lib/media-fingerprint"),
-    import("@/lib/offline/media-store"),
-    import("@/components/player/chapter-sheet"),
-  ]).then(() => {
+  void Promise.allSettled([warmMp3Parser(), import("@/lib/media-hash")]).then(() => {
     document.documentElement.dataset.importReady = "1";
   });
 }

@@ -270,7 +270,6 @@ async function scenario(engine, previous, next, report, save) {
         "The next server must not have previous build's unique chunk",
       );
       evidence.document = await launch();
-      await witness.quiet();
       const start = witness.evidence.staticResponses.length;
       await bookCard(page).click();
       await playerReady(page);

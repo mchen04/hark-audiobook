@@ -91,7 +91,7 @@ describe("full player history wiring", () => {
     Element.prototype.scrollIntoView = vi.fn();
   });
 
-  it("routes every visible playback control through the recorded provider actions", async () => {
+  it("routes every visible playback control through the recorded provider actions", () => {
     const { rerender } = render(
       <FullPlayer playerBook={playerBook} historySnapshot={emptyHistorySnapshot} />,
     );
@@ -119,7 +119,7 @@ describe("full player history wiring", () => {
     expect(playback.moveToChapter).toHaveBeenCalledWith(playerBook.chapters[0], "previous");
 
     fireEvent.click(screen.getByRole("button", { name: "History" }));
-    expect(await screen.findByRole("dialog", { name: "Playback history" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Playback history" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "History" })).toHaveAttribute("aria-selected", "true");
   });
 });

@@ -4,10 +4,6 @@
 
 - The library paints once, without a card-size jump or a false “Bring your first
   audiobook” message while a new device finishes syncing.
-- First sync of a large library uses fewer requests, targeting 1,000 books per page.
-  Books sharing the boundary timestamp stay together, so a page can be larger.
-- Less JavaScript loads before the library appears. Deferred controls remain
-  available offline after their chunks are cached.
 - Account deletion no longer fails when an account write is still in flight.
 - Metadata export no longer stalls on large databases while reading playback history.
 - The player's lock-screen artwork stays available offline after an app update.
