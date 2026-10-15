@@ -52,7 +52,7 @@ read-only repeatable-read snapshot without a writer lock. Installed clients keep
 the timestamp protocol; all server writers must follow the rule. Direct SQL
 writes or mixed old/new server binaries do not provide that guarantee.
 
-Account-lock admission has a transaction-local **100 ms lock timeout**, restored
+`syncReceipt()` lock admission has a transaction-local **100 ms lock timeout**, restored
 before subsequent work. Timeout rolls back and returns **503, Retry-After: 1**;
 no progress/ownership/no-op read moves outside serialization. This bounds lock
 admission only, **not** pool checkout, arbitrary queries, the admitted transaction,
@@ -126,6 +126,8 @@ mount or reconnect.
 
 `GET /api/sync/pull?since=<iso>` returns changed book aggregates and tombstones,
 plus whole-account tag/collection/preference snapshots and recent sessions.
+A page targets 200 changed book aggregates. Books sharing the boundary
+timestamp stay together, so a page can exceed that target.
 The mirror applies a batch and its cursor in one IndexedDB transaction. An
 interrupted apply re-fetches the batch instead of advancing ahead of data.
 Deletion is an explicit tombstone; absence is not proof of deletion.
@@ -162,7 +164,8 @@ their existing append/deduplication rules. See
 The cached shell contains no user identity or books. The client checks the active
 account before showing its local snapshot. The readiness marker represents real
 book content or a verified empty library. Warm-launch revalidation runs after
-paint; a device with no completed first pull syncs immediately.
+paint; a device with no completed first pull syncs immediately. An empty state
+requires the first pull to finish applying and its mirror to be re-read.
 
 No active account redirects to login. A server 401/403 also redirects, **without
 purging downloads**: session expiry is not an instruction to destroy local audio.
@@ -216,7 +219,9 @@ remain. Session expiry alone does not invoke this purge.
 Account deletion verifies the password, journals a short-lived bearer intent,
 finishes local purge, then commits server deletion idempotently. A root runner
 resumes an interrupted intent; server deletion cannot outrun unfinished local
-purge. Metadata export does not include audio or transcript payloads.
+purge. The commit takes the same account advisory lock as sync writers before
+deleting rows; it waits for in-flight writes without the writer admission timeout.
+Metadata export does not include audio or transcript payloads.
 
 ## 12. Existing-device compatibility
 

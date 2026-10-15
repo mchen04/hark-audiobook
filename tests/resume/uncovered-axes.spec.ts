@@ -11,6 +11,7 @@ import {
   measureStaleAheadReplay,
   measureTwoDeviceResume,
   recordRow,
+  resetResumeDevice,
   resumeFixture,
   type Row,
   type ScenarioSpec,
@@ -69,6 +70,10 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await closeResumeFixture();
+});
+
+test.beforeEach(async () => {
+  await resetResumeDevice();
 });
 
 // ---------------------------------------------------------------------------

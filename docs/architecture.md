@@ -22,7 +22,9 @@ and Phosphor icons supply the UI. Exact dependency versions are in the lockfile.
 The [storage and sync contract](local-first.md) defines ownership, receipt
 ordering, conflict resolution, and migration rules. Library paint reads local
 state; a new device must complete its first sync before it can claim to show the
-account's library. Authentication and settings are not universally offline.
+account's library. Pull pages target 200 changed book aggregates. Books sharing
+the boundary timestamp stay together, so a page can exceed that target.
+Authentication and settings are not universally offline.
 
 ## Imports and rendition identity
 
@@ -96,17 +98,39 @@ have a three-second network budget before an applicable offline fallback.
 The library joins the account's mirror snapshot with device media availability.
 Search, sorting, facets, and the continue card reuse this snapshot. Warm-launch
 revalidation waits for the real-content readiness marker, a quiet interval, and
-idle scheduling. The first sync is an explicit loading/recovery state.
+idle scheduling. The first sync stays in loading/recovery until its applied mirror is re-read.
+Only then can an account with no books show the empty state.
+
+Cards visible on the first screen use their final layout. For viewports at least
+20 rem wide and at most 64 rem tall, cards after the first 24 can skip layout.
+At widths up to 560 px, that starts after six grid cards or twelve list cards.
+Other viewport sizes render without an intrinsic estimate.
 
 Build output includes the dependency closure for lazy import, workers, encoding,
 and ONNX. Shell updates stage complete immutable cache generations before
-promotion. Leases retain chunks needed by open windows. Account purge preserves
+promotion. After launch paint, the client warms deferred MP3 parsing and hashing
+chunks. The runtime precache manifest includes their dependency closures for
+offline import. Model-only code waits until the verified model bundle exists.
+Leases retain chunks needed by open windows. Account purge preserves
 only safe shell/static assets and removes account media and private page caches.
 
 The [launch gate](../tests/perf/BASELINE.md) measures this path with real content,
 request counters, and a calibrated browser. It is not a physical-iPhone latency
 claim. Resume under real iOS suspension requires the
 [device check](resume-durability-device-check.md).
+
+## Account deletion and export
+
+Deletion commit takes the same per-account advisory lock as sync writers before
+claiming its intent and deleting the user. It waits for an admitted writer;
+subsequent writers cannot recreate a deleted account. This commit does not use
+the writer admission timeout. The deletion token, cookie, and local journal
+protocols remain unchanged.
+
+Metadata export streams a read-only, repeatable-read snapshot. Books use batches
+of 100; other rows use batches of 500. Playback history filters by account and
+cursor in a subquery before sorting and limiting. This allows the existing user
+index to avoid scanning unrelated accounts. JSON shape and row order stay fixed.
 
 ## Source map
 

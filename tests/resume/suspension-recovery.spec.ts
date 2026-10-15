@@ -6,6 +6,7 @@ import {
   closeResumeFixture,
   measureSuspensionRecovery,
   recordRow,
+  resetResumeDevice,
   resumeFixture,
   type RecoveryRow,
 } from "./harness/resume-oracle";
@@ -88,6 +89,10 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await closeResumeFixture();
+});
+
+test.beforeEach(async () => {
+  await resetResumeDevice();
 });
 
 /** Refuses to grade a row whose session never happened. */

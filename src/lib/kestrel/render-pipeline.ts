@@ -12,7 +12,7 @@ type RenderWorker = Pick<Worker, "postMessage" | "terminate"> & {
 export const RENDER_AHEAD = 2;
 
 /** How long a new renderer may take to load before chunks render inline instead. */
-export const RENDERER_START_TIMEOUT_MS = 5_000;
+const RENDERER_START_TIMEOUT_MS = 5_000;
 
 /**
  * Renders audio in a second worker so it overlaps the next chunk's inference.

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The library paints once, without a card-size jump or a false “Bring your first
+  audiobook” message while a new device finishes syncing.
+- Account deletion no longer fails when an account write is still in flight.
+- Metadata export no longer stalls on large databases while reading playback history.
+- The player's lock-screen artwork stays available offline after an app update.
+
 - Document narration uses Kestrel Fast on the device. Progress and cancellation
   remain available; a narrated book becomes playable only when its completed
   audio is saved. Removed Lemonade connection detection, client, and settings,

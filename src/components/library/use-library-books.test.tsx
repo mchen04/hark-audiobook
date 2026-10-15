@@ -1,17 +1,24 @@
 // @vitest-environment jsdom
-import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, expect, it, vi } from "vitest";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { LibraryBook } from "@/domain/library";
 import { notifyLibraryChanged } from "@/lib/offline/library-revision";
 
 const reader = vi.hoisted(() => vi.fn());
 const heal = vi.hoisted(() => vi.fn());
+const syncMeta = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/offline/mirror", () => ({
   readMirrorLibrary: reader,
   healMirrorPlaybackFromLocal: heal,
-  getSyncMeta: async () => ({ cursor: "2026-09-21T00:00:00.000Z" }),
+  getSyncMeta: syncMeta,
+  localLiveBooks: async () => null,
+  applyPullBatch: async () => {},
 }));
-vi.mock("@/lib/offline/library", () => ({ listVisibleStoredOfflineBooks: async () => [] }));
+vi.mock("@/lib/offline/library", () => ({
+  listVisibleStoredOfflineBooks: async () => [],
+  listOfflineBooks: async () => [],
+}));
+vi.mock("@/lib/offline/sync-protocol", () => ({ isPullBatch: () => true }));
 vi.mock("@/lib/launch-revalidation", () => ({ afterLaunchPaint: () => () => {} }));
 import { useLibraryBooks, type LibraryFilters } from "./use-library-books";
 
@@ -38,11 +45,42 @@ const filters: LibraryFilters = {
   sort: "title",
   onDevice: false,
 };
+afterEach(cleanup);
 beforeEach(() => {
+  vi.unstubAllGlobals();
+  syncMeta.mockReset().mockResolvedValue({ cursor: "2026-09-21T00:00:00.000Z" });
   heal.mockReset().mockResolvedValue(0);
   reader.mockReset();
   reader.mockResolvedValue({ books: [book], tags: ["Calm"], continueBook: null });
 });
+
+it.each([true, false])(
+  "keeps the first-sync gate until the mirror re-read, books=%s",
+  async (hasBooks) => {
+    syncMeta.mockResolvedValue(null);
+    let completePull!: (response: Response) => void;
+    vi.stubGlobal("fetch", () => new Promise<Response>((resolve) => (completePull = resolve)));
+    let completeRead!: (snapshot: {
+      books: LibraryBook[];
+      tags: string[];
+      continueBook: null;
+    }) => void;
+    reader.mockResolvedValueOnce({ books: [], tags: [], continueBook: null });
+    reader.mockImplementationOnce(() => new Promise((resolve) => (completeRead = resolve)));
+    const { result } = renderHook(() => useLibraryBooks("a", filters));
+    await waitFor(() => expect(result.current.snapshot?.libraryTotal).toBe(0));
+    expect(result.current.preparing).toBe(true);
+    await act(async () => completePull(Response.json({ complete: true })));
+    await waitFor(() => expect(reader).toHaveBeenCalledTimes(2));
+    expect(result.current.snapshot?.libraryTotal).toBe(0);
+    expect(result.current.preparing).toBe(true);
+    await act(async () =>
+      completeRead({ books: hasBooks ? [book] : [], tags: [], continueBook: null }),
+    );
+    await waitFor(() => expect(result.current.preparing).toBe(false));
+    expect(result.current.snapshot?.libraryTotal).toBe(hasBooks ? 1 : 0);
+  },
+);
 
 it("a rejected account-fenced heal still allows safe reads on mount, focus and route return", async () => {
   heal.mockRejectedValue(new Error("Account deletion is in progress"));

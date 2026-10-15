@@ -8,6 +8,7 @@ import {
   measureCrossBookAbsence,
   measureCumulative,
   recordRow,
+  resetResumeDevice,
   resumeFixture,
   type CumulativeRow,
   type Row,
@@ -177,19 +178,6 @@ const CUMULATIVE = [
 /** One book per scenario, plus the two X1 needs. See `SCENARIOS`. */
 const BOOK_COUNT = 14;
 
-/**
- * Sequential, but NOT `mode: "serial"`.
- *
- * The scenarios share one profile and one set of books, so they must run in
- * order and in one worker — which `playwright.config.ts` already guarantees
- * (`fullyParallel: false`, `workers: 1`). `mode: "serial"` would add one more
- * thing on top: the moment any scenario fails, every scenario after it is
- * SKIPPED. This is a measurement matrix. The first red cell is the least
- * interesting thing in it, and a matrix that stops at the first failure reports
- * eight unmeasured cells as silence — which is the one outcome this ledger
- * refuses to allow.
- */
-
 test.beforeAll(async () => {
   test.setTimeout(900_000);
   await resumeFixture(BOOK_COUNT, {
@@ -207,6 +195,10 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await closeResumeFixture();
+});
+
+test.beforeEach(async () => {
+  await resetResumeDevice();
 });
 
 /** Liveness: a row that measured nothing must never read as a clean zero. */

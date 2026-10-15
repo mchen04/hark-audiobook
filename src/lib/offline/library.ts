@@ -389,7 +389,7 @@ type OfflineProgressProjection = {
   stateOccurredAt: string | null;
 };
 
-export function projectOfflineProgress(
+function projectOfflineProgress(
   userId: string,
   bookId: string,
   state: OfflineProgressProjection,

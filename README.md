@@ -42,15 +42,17 @@ the exact account and recovery boundaries.
 
 ## Run locally
 
-Use Node 22 (the CI runtime), pnpm 9.6.0, and Docker Compose for disposable local
-Postgres. FFmpeg is needed for browser test fixtures.
+CI uses Node 22 and pnpm 9.6.0. The commands below are verified on Node 26.
+Use Docker Compose for disposable local Postgres and FFmpeg for browser fixtures.
 
 ```sh
 pnpm install --frozen-lockfile
 test -f .env.test || cp .env.test.example .env.test
 pnpm db:test:up
-pnpm prepare:browser-assets
-node --env-file=.env.test --run dev
+set -a
+. ./.env.test
+set +a
+pnpm dev
 ```
 
 Open [localhost:3000](http://localhost:3000). The bootstrap fills blank test
@@ -61,15 +63,22 @@ and [operations guide](docs/operations.md).
 
 ## Checks
 
-After local setup, on Node 22:
+After local setup, export the same test environment before running checks:
 
 ```sh
-node --env-file=.env.test --run verify:quick
+set -a
+. ./.env.test
+set +a
+pnpm verify:quick
 pnpm exec playwright install webkit chromium
 pnpm verify:browser
 ```
 
-On Node 26, unit tests need `NODE_OPTIONS=--no-experimental-webstorage`. Browser checks build and run the
+On Node 26, replace the quick command with
+`NODE_OPTIONS=--no-experimental-webstorage pnpm verify:quick`.
+Exporting the environment lets child commands receive the database and auth settings.
+`node --env-file=.env.test --run verify:quick` does not do that on this Node 26 host.
+Browser checks build and run the
 production PWA against disposable local data; they do not prove physical iOS
 background behavior. See [iPhone testing](docs/ios-pwa-testing.md) and the
 [device resume check](docs/resume-durability-device-check.md).

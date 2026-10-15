@@ -4,7 +4,7 @@ import { getDeviceId } from "@/lib/playback-core";
 
 const MIN_SESSION_MS = 5_000;
 
-export type ListeningStretch = {
+type ListeningStretch = {
   startedAt: string;
   endedAt: string;
   startPositionMs: number;

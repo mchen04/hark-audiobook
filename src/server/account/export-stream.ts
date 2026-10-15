@@ -92,7 +92,7 @@ async function* generateAccountSnapshot(account: ExportAccount, database: Export
   });
   yield encode(',"playbackHistory":');
   yield* jsonArray(async (cursor: string | null) => {
-    const rows = await database
+    const accountActions = database
       .select()
       .from(playbackActions)
       .where(
@@ -101,8 +101,14 @@ async function* generateAccountSnapshot(account: ExportAccount, database: Export
           ...(cursor ? [gt(playbackActions.id, cursor)] : []),
         ),
       )
-      .orderBy(asc(playbackActions.id))
-      .limit(ROW_BATCH_SIZE);
+      .offset(sql.placeholder("offset"))
+      .as("account_actions");
+    const rows = await database
+      .select()
+      .from(accountActions)
+      .orderBy(asc(accountActions.id))
+      .limit(ROW_BATCH_SIZE)
+      .execute({ offset: 0 });
     return keysetPage(rows, (row) => row.id);
   });
   yield encode(',"legacyBookmarks":');

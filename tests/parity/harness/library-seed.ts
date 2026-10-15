@@ -184,7 +184,19 @@ export async function seedLibrary(
         bookBuffer(book, SEED_BOOKS.indexOf(book)),
       );
       await expect(bookLink(remote.page, book.title)).toBeVisible({ timeout: 60_000 });
+      await expect(remote.page.getByRole("button", { name: "Add book", exact: true })).toBeEnabled({
+        timeout: 60_000,
+      });
     }
+    await expect
+      .poll(
+        async () => {
+          const ids = await bookIdsByTitle(remote.page);
+          return remoteBooks.filter((book) => !ids.has(book.title)).map((book) => book.title);
+        },
+        { timeout: 60_000, message: "Remote seed books were never registered" },
+      )
+      .toEqual([]);
   } finally {
     await remote.context.close();
   }
@@ -193,7 +205,20 @@ export async function seedLibrary(
   for (const book of SEED_BOOKS.filter((entry) => entry.onDevice)) {
     await importThroughUi(page, `${book.title}.mp3`, bookBuffer(book, SEED_BOOKS.indexOf(book)));
     await expect(bookLink(page, book.title)).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByRole("button", { name: "Add book", exact: true })).toBeEnabled({
+      timeout: 60_000,
+    });
   }
+
+  await expect
+    .poll(
+      async () => {
+        const ids = await bookIdsByTitle(page);
+        return SEED_BOOKS.filter((book) => !ids.has(book.title)).map((book) => book.title);
+      },
+      { timeout: 60_000, message: "Seed books were never registered" },
+    )
+    .toEqual([]);
 
   const ids = await bookIdsByTitle(page);
   for (const book of SEED_BOOKS) {

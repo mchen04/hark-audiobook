@@ -57,8 +57,6 @@ export function createNarrationMeter(totalCharacters: number) {
   };
 }
 
-export type NarrationMeter = ReturnType<typeof createNarrationMeter>;
-
 /**
  * The countdown suffix for a narration stage, or null when there is nothing
  * worth saying.

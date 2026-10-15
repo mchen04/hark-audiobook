@@ -1,4 +1,4 @@
-export type SourceFormatId = "mp3" | "pdf" | "epub" | "docx" | "text" | "markdown" | "html";
+type SourceFormatId = "mp3" | "pdf" | "epub" | "docx" | "text" | "markdown" | "html";
 
 export type DocumentKind = Exclude<SourceFormatId, "mp3">;
 
@@ -9,7 +9,7 @@ export type SourceFormat = {
   acceptedMimeTypes: ReadonlySet<string>;
 };
 
-export const SOURCE_FORMATS: readonly SourceFormat[] = [
+const SOURCE_FORMATS: readonly SourceFormat[] = [
   {
     id: "mp3",
     extensions: ["mp3"],

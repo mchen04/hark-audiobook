@@ -88,16 +88,7 @@ function retryDelayFor(attempt: number): number {
   return Math.min(30_000, 2_000 * 2 ** Math.min(attempt, 4));
 }
 
-/**
- * Whether this device has ever completed a pull for the signed-in account.
- *
- * `done` is set from exactly two facts — a sync cursor already in the mirror,
- * or a pull that just applied one — and from nothing else. It used to be set by
- * the gate above and by an `unreachable` pull as well, which meant a device
- * that had never synced and could not reach the server announced that the
- * account owns no books. It does not know that. Nobody has told it anything.
- */
-type FirstSync = "unknown" | "pending" | "done";
+type FirstSync = "unknown" | "pending" | "applied" | "done";
 
 /** What the library may say about a first pull it has not yet completed. */
 export type FirstSyncStatus = "done" | "waiting" | "slow" | "unreachable";
@@ -131,6 +122,7 @@ export function useLibraryBooks(
   } | null>(null);
   const [reconnects, setReconnects] = useState(0);
   const [firstSync, setFirstSync] = useState<FirstSync>("unknown");
+  const firstSyncApplied = firstSync === "applied";
   /**
    * Which pull attempt ran past the gate, and which one could not reach the
    * server at all. Both are recorded as the attempt number rather than as a
@@ -159,6 +151,7 @@ export function useLibraryBooks(
           loaded.current = { userId, nonce, routeBookId, revision };
           setSource({ ...next, userId });
           setUnavailable(false);
+          if (firstSyncApplied) setFirstSync("done");
         }
       })
       .catch(() => {
@@ -167,7 +160,7 @@ export function useLibraryBooks(
     return () => {
       active = false;
     };
-  }, [userId, nonce, routeBookId, query, status, tag, sort, onDevice]);
+  }, [userId, nonce, routeBookId, query, status, tag, sort, onDevice, firstSyncApplied]);
 
   const snapshot = useMemo(() => {
     if (!source || source.userId !== userId) return null;
@@ -213,9 +206,8 @@ export function useLibraryBooks(
           return;
         }
         window.clearTimeout(gate);
-        // Only a pull that actually applied proves this device now knows what
-        // the account holds. `unreachable` proves the opposite.
-        if (outcome === "applied") setFirstSync("done");
+        if (outcome === "applied")
+          setFirstSync((current) => (current === "done" ? "done" : "applied"));
         else {
           setUnreachedAttempt(attempt);
           // A device with no mirror cannot show a library at all, so its first

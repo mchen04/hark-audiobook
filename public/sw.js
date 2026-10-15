@@ -73,7 +73,7 @@ const KESTREL_BUNDLE_CACHE = "hark-kestrel-bundle-ebfe37d8a8771780";
 const KESTREL_VERIFIED_URL =
   "/__hark/kestrel-bundle/ebfe37d8a87717801af2619f5dbb22901557028821aa22809ffdf20f4aae7ac4/verified";
 const BUILD_RUNTIME_MANIFEST_URL = "/chapterline-runtime-assets.json";
-const PRECACHE = [OFFLINE_URL, "/icons/icon-192.png", ...RUNTIME_ASSETS];
+const PRECACHE = [OFFLINE_URL, "/icons/icon-192.png", "/icons/icon-512.png", ...RUNTIME_ASSETS];
 /**
  * How long a navigation the shell cannot answer may wait on the network.
  *

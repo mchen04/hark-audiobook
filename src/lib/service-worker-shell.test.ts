@@ -150,6 +150,7 @@ describe("service-worker shell generations", () => {
     expect(storage.has(stageName, "/_next/static/chunks/install.js")).toBe(true);
     expect(storage.has(stageName, "/_next/static/chunks/document-runtime.js")).toBe(true);
     expect(storage.has(stageName, "/icons/icon-192.png")).toBe(true);
+    expect(storage.has(stageName, "/icons/icon-512.png")).toBe(true);
     expect(await storage.text(SHELL_METADATA_CACHE, INSTALL_READY_URL)).toBe(stageName);
   });
 

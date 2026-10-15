@@ -1,6 +1,5 @@
 import { throwIfAborted } from "@/lib/abort";
 import {
-  DOCUMENT_FILE_ACCEPT,
   DOCUMENT_FORMAT_LABEL,
   isDocumentFormat,
   sourceFormatForFilename,
@@ -10,8 +9,7 @@ import { cleanDocumentText, cleanMetadata, cleanTitle, fallbackTitle } from "./d
 import type { ExtractedDocument } from "./types";
 import { readFileText } from "./file-read";
 
-export type { DocumentKind } from "@/lib/source-formats";
-export type { ExtractedDocument, ExtractedDocumentChapter } from "./types";
+export type { ExtractedDocument } from "./types";
 
 const MAX_SOURCE_BYTES = {
   pdf: 96 * 1024 * 1024,
@@ -24,8 +22,6 @@ const MAX_SOURCE_BYTES = {
 const MAX_EXTRACTED_CHARACTERS = 2_000_000;
 const MAX_DECODED_TEXT_CHARACTERS = MAX_EXTRACTED_CHARACTERS + 100_000;
 const MAX_CHAPTERS = 10_000;
-
-export { DOCUMENT_FILE_ACCEPT, DOCUMENT_FORMAT_LABEL };
 
 export function detectDocument(file: Pick<File, "name" | "size">) {
   if (file.size <= 0) throw new Error("The selected document is empty.");

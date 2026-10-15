@@ -7,7 +7,9 @@
 - [Operations](operations.md): production configuration, migrations, backups, and recovery.
 - [iPhone PWA testing](ios-pwa-testing.md): automated coverage and installation checks.
 - [Physical-device resume check](resume-durability-device-check.md): background playback limits.
-- [Launch benchmark](../tests/perf/BASELINE.md): reproducible performance gate and its limits.
+- [Benchmark protocol](../tests/perf/BASELINE.md): metric definitions, flicker rules, and the launch gate.
+- [Benchmark commands](development.md#benchmark): build preparation, comparisons, and recordings.
+- [Update and playback checks](development.md#update-and-playback-checks): build rollover, Media Session, and exact resume.
 - [Changelog](../CHANGELOG.md): user-visible changes awaiting release.
 
 These are maintained docs. Generated review reports, command receipts, screenshots,
