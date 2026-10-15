@@ -4,21 +4,48 @@ import postgres from "postgres";
 import { testEnvironment } from "../../scripts/bench/build.mjs";
 import { failureMessage, sha256, storedAudioReady, until } from "../../scripts/bench/runtime.mjs";
 
+import { classifyStaticFailures } from "./static-handoff.mjs";
+
 export { until } from "../../scripts/bench/runtime.mjs";
 
-export function observe(page) {
+export function observe(page, builds) {
   const evidence = {
     errors: [],
     failedStatic: [],
     staticResponses: [],
     mediaResponses: [],
+    documents: [],
+    navigations: [],
+    acceptedCancellations: [],
   };
   const pending = new Set();
   const streamingRsc = new Set();
   const bodies = [];
   let changedAt = Date.now();
+  let sequence = 0;
+  let step = null;
+  let document = null;
+  const requests = new Map();
+  const responses = new Map();
   page.on("pageerror", (error) => evidence.errors.push(error.message));
   page.on("request", (request) => {
+    const mainFrame = !request.serviceWorker() && request.frame() === page.mainFrame();
+    const metadata = {
+      requestId: ++sequence,
+      requestedAt: sequence,
+      documentId: mainFrame ? (document?.id ?? null) : null,
+      step,
+    };
+    requests.set(request, metadata);
+    if (builds && request.isNavigationRequest() && mainFrame)
+      evidence.navigations.push({
+        id: metadata.requestId,
+        mainFrame: true,
+        url: request.url(),
+        requestedAt: metadata.requestedAt,
+        fromDocumentId: metadata.documentId,
+        step,
+      });
     pending.delete(request.redirectedFrom());
     if (new URL(request.url()).pathname.startsWith("/offline-media/")) return;
     pending.add(request);
@@ -26,14 +53,53 @@ export function observe(page) {
   });
   for (const event of ["requestfinished", "requestfailed"])
     page.on(event, (request) => {
+      const observedAt = ++sequence;
+      if (event === "requestfinished" && responses.has(request))
+        responses.get(request).finishedAt = observedAt;
       if (streamingRsc.delete(request)) return;
       if (new URL(request.url()).pathname.startsWith("/offline-media/")) return;
       pending.delete(request);
       changedAt = Date.now();
       if (event === "requestfailed" && new URL(request.url()).pathname.startsWith("/_next/static/"))
-        evidence.failedStatic.push({ url: request.url(), failure: request.failure() });
+        evidence.failedStatic.push({
+          url: request.url(),
+          failure: request.failure(),
+          ...requests.get(request),
+          failedAt: observedAt,
+          failedStep: step,
+        });
     });
   page.on("response", (response) => {
+    if (
+      builds &&
+      response.status() === 200 &&
+      response.headers()["content-type"]?.startsWith("text/html") &&
+      response.request().isNavigationRequest() &&
+      response.frame() === page.mainFrame()
+    ) {
+      const entry = {
+        id: requests.get(response.request()).requestId,
+        url: response.url(),
+        buildId: null,
+        htmlSha256: null,
+      };
+      document = entry;
+      evidence.documents.push(entry);
+      bodies.push(
+        response
+          .text()
+          .then((html) => {
+            const ids = [builds.previous.buildId, builds.next.buildId].filter((id) =>
+              html.includes(id),
+            );
+            entry.buildId = ids.length === 1 ? ids[0] : null;
+            entry.htmlSha256 = sha256(html);
+          })
+          .catch((error) => {
+            entry.bodyFailure = failureMessage(error);
+          }),
+      );
+    }
     if (
       new URL(response.url()).searchParams.has("_rsc") &&
       response.headers()["content-type"]?.startsWith("text/x-component") &&
@@ -63,7 +129,10 @@ export function observe(page) {
       status: response.status(),
       sha256: null,
       fromServiceWorker: response.fromServiceWorker(),
+      ...requests.get(response.request()),
+      finishedAt: null,
     };
+    responses.set(response.request(), entry);
     evidence.staticResponses.push(entry);
     const body = response
       .body()
@@ -77,6 +146,9 @@ export function observe(page) {
   });
   return {
     evidence,
+    setStep(value) {
+      step = value;
+    },
     async quiet() {
       await until(
         () => pending.size === 0 && Date.now() - changedAt >= 3000,
@@ -99,7 +171,11 @@ export function observe(page) {
     async clean() {
       await Promise.all(bodies);
       assert.deepEqual(evidence.errors, [], "Page errors");
-      assert.deepEqual(evidence.failedStatic, [], "Failed /_next/static requests");
+      const classification = builds
+        ? classifyStaticFailures(evidence, builds.previous, builds.next)
+        : { accepted: [], rejected: evidence.failedStatic };
+      evidence.acceptedCancellations = classification.accepted;
+      assert.deepEqual(classification.rejected, [], "Failed /_next/static requests");
       assert.equal(
         evidence.staticResponses.filter((response) => response.status >= 400 || !response.sha256)
           .length,

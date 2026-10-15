@@ -113,6 +113,7 @@ async function scenario(engine, previous, next, report, save) {
   let saved;
   let oldGeneration;
   let closedBrowser;
+  let activeStep = null;
   const profile = engine === "Chromium" ? freshProfile() : null;
   result.profile = profile;
   const open = async () => {
@@ -120,7 +121,8 @@ async function scenario(engine, previous, next, report, save) {
     result.version = handle.version;
     page = engine === "WebKit" ? await handle.newPage() : handle.context.pages()[0];
     page.setDefaultTimeout(15000);
-    witness = observe(page);
+    witness = observe(page, { previous, next });
+    witness.setStep(activeStep);
     result.networks.push(witness.evidence);
     if (engine === "WebKit") webContentPid = handle.pageProcess(page).pid;
   };
@@ -192,6 +194,8 @@ async function scenario(engine, previous, next, report, save) {
   const step = async (name, action) => {
     const entry = { name, ok: false, evidence: {}, failure: null };
     result.steps.push(entry);
+    activeStep = name;
+    witness.setStep(name);
     save();
     try {
       await handle.capture(() => action(entry.evidence));
@@ -202,6 +206,8 @@ async function scenario(engine, previous, next, report, save) {
       entry.failure = failureMessage(error);
       throw error;
     } finally {
+      activeStep = null;
+      witness.setStep(null);
       save();
       console.log(`${engine} ${name}: ${entry.ok ? "PASS" : entry.failure}`);
     }
@@ -433,6 +439,10 @@ async function scenario(engine, previous, next, report, save) {
   } finally {
     await handle?.close();
     await server?.close();
+    result.acceptedCancellationCount = result.networks.reduce(
+      (count, network) => count + network.acceptedCancellations.length,
+      0,
+    );
     save();
   }
   return result;
@@ -486,12 +496,15 @@ try {
       {
         output,
         ok: report.ok,
-        engines: report.engines.map(({ engine, ok, failure, previousBuildLaunches }) => ({
-          engine,
-          ok,
-          failure,
-          previousBuildLaunches,
-        })),
+        engines: report.engines.map(
+          ({ engine, ok, failure, previousBuildLaunches, acceptedCancellationCount }) => ({
+            engine,
+            ok,
+            failure,
+            previousBuildLaunches,
+            acceptedCancellationCount,
+          }),
+        ),
       },
       null,
       2,
