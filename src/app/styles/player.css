@@ -846,7 +846,6 @@
     width: auto;
   }
 
-  .mini-controls button:first-child,
   .mini-controls button:last-child {
     display: none;
   }

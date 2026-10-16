@@ -79,6 +79,8 @@ test("library buttons play in place, preserve saved position and keep a syntheti
   await expect(page).toHaveURL(/\/library$/);
   const mini = page.getByRole("complementary", { name: "Now playing" });
   await expect(mini.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+  await expect(mini.getByRole("button", { name: "Back 15 seconds", exact: true })).toBeVisible();
+  await expect(mini.getByRole("button", { name: "Forward 30 seconds", exact: true })).toBeHidden();
   await page.screenshot({ path: info.outputPath("iphone-mini.png"), fullPage: true });
   const calls = await page.evaluate(
     () =>
