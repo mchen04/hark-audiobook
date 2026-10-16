@@ -62,6 +62,7 @@ export default defineConfig({
         "**/standalone-playback.spec.ts",
         "**/iphone-pwa.spec.ts",
         "**/playback-interruption.spec.ts",
+        "**/retained-workflows.spec.ts",
       ],
       use: {
         ...devices["Desktop Safari"],

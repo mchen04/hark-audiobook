@@ -1,6 +1,7 @@
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
 
 import { startControllableNetwork } from "../parity/harness/network";
+import { test } from "./media-timeline";
 import { closeSql, waitForServiceWorker } from "../sync/harness/app";
 import {
   captureMediaActions,

@@ -1,5 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
 
+import { test } from "./media-timeline";
 import { closeSql } from "../sync/harness/app";
 import { captureMediaActions, mediaAction, prepareLocalPlayback } from "./playback-fixture";
 

@@ -1,6 +1,7 @@
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 
+import { test } from "./media-timeline";
 import { closeSql, resetAccount, sharedSession } from "../sync/harness/app";
 
 test.afterAll(closeSql);

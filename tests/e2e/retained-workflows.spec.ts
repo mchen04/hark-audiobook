@@ -1,4 +1,5 @@
-import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { test } from "./media-timeline";
+import { expect, type Page, type TestInfo } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { zipSync, strToU8 } from "fflate";
