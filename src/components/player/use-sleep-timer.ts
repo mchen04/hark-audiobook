@@ -5,7 +5,8 @@ import { RefObject, useCallback, useEffect, useRef, useState } from "react";
 import type { PlayerChapter } from "@/domain/player";
 import { CHAPTER_END_EPSILON_MS, selectCurrentChapter } from "@/lib/playback-core";
 
-export type SleepMode = { kind: "time"; endsAt: number } | { kind: "chapter" } | null;
+export type SleepMode =
+  { kind: "time"; endsAt: number; minutes?: number } | { kind: "chapter" } | null;
 
 /** Sleep timer state machine: fixed durations plus stop-at-chapter-end. */
 export function useSleepTimer(audioRef: RefObject<HTMLAudioElement | null>) {
@@ -25,7 +26,7 @@ export function useSleepTimer(audioRef: RefObject<HTMLAudioElement | null>) {
   const setSleepMinutes = useCallback(
     (minutes: number) => {
       clearSleep();
-      const mode = { kind: "time" as const, endsAt: Date.now() + minutes * 60_000 };
+      const mode = { kind: "time" as const, endsAt: Date.now() + minutes * 60_000, minutes };
       sleepModeRef.current = mode;
       setSleepMode(mode);
       timeoutRef.current = window.setTimeout(() => {

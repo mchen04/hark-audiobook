@@ -356,7 +356,7 @@ export function FullPlayer({
               >
                 {[0.5, 0.75, 1, 1.15, 1.25, 1.5, 1.75, 2, 2.5, 3].map((rate) => (
                   <option value={rate} key={rate}>
-                    {rate}x
+                    {rate}×
                   </option>
                 ))}
               </select>
@@ -624,7 +624,7 @@ function SleepMenu() {
 
   return (
     <details
-      className="sleep-menu"
+      className={`sleep-menu${playback.sleepMode ? " sleep-active" : ""}`}
       ref={detailsRef}
       onKeyDown={(event) => {
         if (event.key === "Escape" && detailsRef.current?.open) {
@@ -633,24 +633,38 @@ function SleepMenu() {
         }
       }}
     >
-      <summary>
-        <Clock size={19} />
-        <SleepLabel mode={playback.sleepMode} />
-      </summary>
+      <SleepLabel mode={playback.sleepMode} />
       <div>
-        {[15, 30, 45, 60].map((minutes) => (
-          <button
-            type="button"
-            key={minutes}
-            onClick={() => choose(() => playback.setSleepMinutes(minutes))}
-          >
-            {minutes} min
-          </button>
-        ))}
-        <button type="button" onClick={() => choose(playback.setSleepAtChapterEnd)}>
+        <div className="sleep-presets">
+          {[15, 30, 45, 60].map((minutes) => (
+            <button
+              type="button"
+              key={minutes}
+              aria-pressed={
+                playback.sleepMode?.kind === "time" && playback.sleepMode.minutes === minutes
+              }
+              onClick={() => choose(() => playback.setSleepMinutes(minutes))}
+            >
+              {minutes}m
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          aria-pressed={playback.sleepMode?.kind === "chapter"}
+          onClick={() => choose(playback.setSleepAtChapterEnd)}
+        >
           End of chapter
         </button>
-        <form className="sleep-custom" onSubmit={submitCustom}>
+        <form
+          className="sleep-custom"
+          data-active={
+            playback.sleepMode?.kind === "time" &&
+            !!playback.sleepMode.minutes &&
+            ![15, 30, 45, 60].includes(playback.sleepMode.minutes)
+          }
+          onSubmit={submitCustom}
+        >
           <input
             type="number"
             name="minutes"
@@ -674,11 +688,21 @@ function SleepMenu() {
 function SleepLabel({ mode }: { mode: SleepMode }) {
   // Recomputed each playback tick, but only a label change re-renders.
   const label = usePlaybackDerived(() => sleepLabel(mode));
-  return <span aria-live="polite">{label}</span>;
+  const accessibleLabel = !mode
+    ? "Sleep timer"
+    : mode.kind === "chapter"
+      ? "Sleep timer, chapter end"
+      : `Sleep timer, ${label.slice(0, -1)} minutes left`;
+  return (
+    <summary aria-label={accessibleLabel}>
+      <Clock size={19} aria-hidden="true" />
+      <span aria-live="polite">{label}</span>
+    </summary>
+  );
 }
 
 function sleepLabel(mode: SleepMode): string {
-  if (!mode) return "Sleep timer";
-  if (mode.kind === "chapter") return "End of chapter";
-  return `${Math.max(1, Math.ceil((mode.endsAt - Date.now()) / 60_000))} min left`;
+  if (!mode) return "Sleep";
+  if (mode.kind === "chapter") return "Chapter end";
+  return `${Math.max(1, Math.ceil((mode.endsAt - Date.now()) / 60_000))}m`;
 }

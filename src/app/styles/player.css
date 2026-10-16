@@ -275,7 +275,11 @@
 }
 
 .player-options select {
+  appearance: none;
+  -webkit-appearance: none;
   min-height: 2.3rem;
+  min-width: 2.5rem;
+  text-align: center;
   border: 0;
   outline: 0;
   background: transparent;
@@ -345,7 +349,7 @@
   bottom: calc(100% + 0.55rem);
   right: 0;
   display: grid;
-  width: 12rem;
+  width: min(17rem, calc(100vw - 2rem));
   max-height: min(60dvh, 22rem);
   overflow: hidden auto;
   border: 1px solid var(--border);
@@ -1279,4 +1283,37 @@
     line-height: 1.66;
     padding: 0.36rem 0.7rem;
   }
+}
+
+.sleep-active > summary {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  color: var(--accent);
+}
+
+.sleep-presets {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.25rem;
+}
+
+.sleep-menu > div {
+  gap: 0.35rem;
+  padding: 0.6rem;
+}
+
+.sleep-menu > div button {
+  border: 1px solid var(--border);
+  text-align: center;
+  padding: 0.4rem;
+}
+
+.sleep-menu > div button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.sleep-custom[data-active="true"] input {
+  border-color: var(--accent);
 }
