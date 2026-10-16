@@ -42,6 +42,8 @@ jobs:
     name: Browser (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    env:
+      ALLOW_LOCAL_MAIL_CAPTURE: "true"
     strategy:
       fail-fast: false
       matrix:
