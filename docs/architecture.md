@@ -81,6 +81,40 @@ progress persistence, playback history, sleep timer, Media Session, tab
 arbitration, and transport. Playback time uses an external store so time updates
 do not rerender the whole player; chapter selection uses binary search.
 
+The element uses metadata preload. Playback does not use Web Audio. When the
+Audio Session API exists, explicit playback selects type `playback`. This requests
+a category; it does not grant background execution. The HTML `playsinline` video
+attribute supplies no audio entitlement.
+
+Every app pause marks intent: transport buttons, remote pause/stop, sleep, tab
+ownership, book changes, unload, completion, and error handling. An unmarked,
+non-ended pause becomes a system-style interruption. Its native cause is unknown.
+The optional Audio Session interrupted event uses the same persistence path.
+Both preserve exact position and publish paused Media Session state. The app
+never calls play merely because an interruption ends or a page becomes visible.
+
+An actual later play consumes the in-memory interruption marker. Existing enabled
+smart rewind applies once: five seconds after one minute, fifteen after ten
+minutes, and thirty after one hour. Explicit app pause or seek cancels that
+marker. It adds no preference or stored record field.
+
+Media Session metadata, position, rate, state, and actions follow the current
+book. Unload clears them. Track actions stay unregistered; play/pause, stop, and
+seek handlers remain. Browser tests invoke handlers, which does not prove native
+lock-screen or accessory dispatch. Cached artwork and fallback icons remain
+available through the service worker.
+
+Cadence and media-tick writes preserve progress alongside hide/pagehide flushes.
+Foreground and persisted-pageshow reconciliation read the element without
+seeking, writing progress, or starting playback. An explicit retry after a media
+error reloads at the retained position/rate. Waiting/stalled events leave native
+buffering in control. A process can terminate before a final callback.
+
+Minute sleep uses a wall-clock deadline checked by timer, media tick, and lifecycle
+return. It remains session-scoped across book changes. Chapter sleep follows
+the chapter selected by a seek and clears on book switch. Sleep state remains
+in memory. No callback can enforce its deadline while JavaScript is suspended.
+
 A book route resolves account and media identity before mounting a player.
 Browsing or deleting a different book without local audio preserves the active
 book's playback and controls. Switching account revokes the old player. Chapters,
@@ -103,7 +137,8 @@ Only then can an account with no books show the empty state.
 
 Cards visible on the first screen use their final layout. For viewports at least
 20 rem wide and at most 64 rem tall, cards after the first 24 can skip layout.
-At widths up to 560 px, that starts after six grid cards or twelve list cards.
+At widths up to 560 px, the grid has three columns. Layout skipping starts
+after twenty-four grid cards or twelve list cards.
 Other viewport sizes render without an intrinsic estimate.
 
 Build output includes the dependency closure for lazy import, workers, encoding,
@@ -116,8 +151,10 @@ only safe shell/static assets and removes account media and private page caches.
 
 The [launch gate](../tests/perf/BASELINE.md) measures this path with real content,
 request counters, and a calibrated browser. It is not a physical-iPhone latency
-claim. Resume under real iOS suspension requires the
-[device check](resume-durability-device-check.md).
+claim. Automated acceptance also uses desktop WebKit and standalone flags. Those flags
+do not create an installed Home Screen host. Native interruption and suspension
+limits remain platform knowledge; [field observations](resume-durability-device-check.md)
+are optional and are not an acceptance gate.
 
 ## Account deletion and export
 

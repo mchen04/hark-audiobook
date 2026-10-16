@@ -5,8 +5,8 @@
 - [Architecture](architecture.md): runtime boundaries, import, playback, and source map.
 - [Storage and sync](local-first.md): persistence, receipt ordering, conflicts, and account lifecycle.
 - [Operations](operations.md): production configuration, migrations, backups, and recovery.
-- [iPhone PWA testing](ios-pwa-testing.md): automated coverage and installation checks.
-- [Physical-device resume check](resume-durability-device-check.md): background playback limits.
+- [WebKit PWA testing](ios-pwa-testing.md): browser proof, standalone emulation, and evidence limits.
+- [Resume limits and optional observations](resume-durability-device-check.md): automated proof and optional background material.
 - [Benchmark protocol](../tests/perf/BASELINE.md): metric definitions, flicker rules, and the launch gate.
 - [Benchmark commands](development.md#benchmark): build preparation, comparisons, and recordings.
 - [Update and playback checks](development.md#update-and-playback-checks): build rollover, Media Session, and exact resume.
