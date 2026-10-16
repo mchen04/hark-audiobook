@@ -136,6 +136,7 @@ beforeEach(() => {
   );
   Object.defineProperty(navigator, "mediaSession", { configurable: true, value: session });
   vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockImplementation(() => paused);
+  vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(4);
   vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function (
     this: HTMLMediaElement,
   ) {
@@ -660,4 +661,59 @@ it("does not carry an old interruption across a read-only reconciliation of a mi
   paused = false;
   act(() => audio.dispatchEvent(new Event("play")));
   expect(audio.currentTime).toBe(55);
+});
+
+describe("synthetic cold resume ordering", () => {
+  it("requests play in the click task but holds audible output until the saved seek settles after preroll", () => {
+    const hook = renderHook(() => usePlayback(), {
+      wrapper: ({ children }) => <PlaybackProvider userId="user-1">{children}</PlaybackProvider>,
+    });
+    const audio = document.querySelector("audio")!;
+    let ready = 0;
+    Object.defineProperty(audio, "readyState", { get: () => ready });
+    act(() => hook.result.current.loadBook(book, true));
+    expect(audio.play).toHaveBeenCalledTimes(1);
+    expect(audio.currentTime).toBe(0);
+    expect(audio.muted).toBe(true);
+    ready = 1;
+    act(() => audio.dispatchEvent(new Event("loadedmetadata")));
+    expect(audio.currentTime).toBe(0);
+    ready = 2;
+    act(() => audio.dispatchEvent(new Event("loadeddata")));
+    expect(audio.currentTime).toBe(0);
+    ready = 3;
+    act(() => audio.dispatchEvent(new Event("canplay")));
+    expect(audio.currentTime).toBe(12);
+    expect(audio.muted).toBe(true);
+    act(() => audio.dispatchEvent(new Event("seeked")));
+    expect(audio.muted).toBe(false);
+    expect(audio.play).toHaveBeenCalledTimes(1);
+    expect(persistence.persistProgress).not.toHaveBeenCalled();
+    expect(persistence.saveDurableState).not.toHaveBeenCalled();
+  });
+
+  it("retains the pending saved position through pause, rate change and unload without another play", () => {
+    const hook = renderHook(() => ({ playback: usePlayback(), time: usePlaybackTime() }), {
+      wrapper: ({ children }) => <PlaybackProvider userId="user-1">{children}</PlaybackProvider>,
+    });
+    const audio = document.querySelector("audio")!;
+    Object.defineProperty(audio, "readyState", { get: () => 0 });
+    act(() => hook.result.current.playback.loadBook(book, true));
+    expect(hook.result.current.time).toBe(12_000);
+    expect(session.setPositionState).toHaveBeenLastCalledWith({
+      duration: 120,
+      playbackRate: 1,
+      position: 12,
+    });
+    act(() => hook.result.current.playback.toggle());
+    expect(persistence.persistProgress).toHaveBeenLastCalledWith("pause", 12_000);
+    act(() => hook.result.current.playback.setPlaybackRate(1.5));
+    expect(persistence.persistProgress).toHaveBeenLastCalledWith("rate-change", 12_000);
+    act(() => hook.result.current.playback.unloadBook());
+    expect(persistence.saveDurableState).toHaveBeenLastCalledWith("book-unload", 12_000);
+    act(() => audio.dispatchEvent(new Event("loadeddata")));
+    expect(audio.currentTime).toBe(0);
+    expect(audio.muted).toBe(false);
+    expect(audio.play).toHaveBeenCalledTimes(1);
+  });
 });

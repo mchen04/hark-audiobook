@@ -59,6 +59,7 @@ export default defineConfig({
         "**/library-playback.spec.ts",
         "**/media-session-resume.spec.ts",
         "**/session-bootstrap.spec.ts",
+        "**/standalone-playback.spec.ts",
         "**/iphone-pwa.spec.ts",
         "**/playback-interruption.spec.ts",
       ],

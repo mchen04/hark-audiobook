@@ -1,5 +1,7 @@
 "use client";
 
+import { mediaTime } from "./media-source";
+
 import { RefObject, useCallback, useEffect, useState } from "react";
 
 import {
@@ -43,7 +45,7 @@ export function usePlaybackHistoryLog(
       const entry: PlaybackHistoryEntry = {
         id: crypto.randomUUID(),
         action,
-        positionMs: Math.round(positionMs ?? audio.currentTime * 1000),
+        positionMs: Math.round(positionMs ?? mediaTime(audio) * 1000),
         previousPositionMs: previousPositionMs === null ? null : Math.round(previousPositionMs),
         playbackRate: audio.playbackRate || 1,
         description,

@@ -1,5 +1,7 @@
 "use client";
 
+import { mediaTime, setMediaTime, loadMediaSource } from "./media-source";
+
 import { RefObject, useMemo, useRef } from "react";
 
 import type { PlaybackAction } from "@/domain/playback-history";
@@ -68,7 +70,7 @@ export function useTransportActions({
       seekPersistTimerRef.current = window.setTimeout(() => {
         seekPersistTimerRef.current = null;
         const audio = audioRef.current;
-        if (audio && activeBookRef.current) void persistProgress("seek", audio.currentTime * 1000);
+        if (audio && activeBookRef.current) void persistProgress("seek", mediaTime(audio) * 1000);
       }, 800);
     };
     const seekWithAction = (
@@ -81,8 +83,8 @@ export function useTransportActions({
       if (!audio || !activeBook) return;
       audio.dispatchEvent(new Event(APP_POSITION_EVENT));
       const bounded = Math.min(Math.max(positionMs, 0), activeBook.durationMs);
-      const previousPositionMs = audio.currentTime * 1000;
-      audio.currentTime = bounded / 1000;
+      const previousPositionMs = mediaTime(audio) * 1000;
+      setMediaTime(audio, bounded / 1000);
       // What the element ACCEPTED, not what it was asked for. `bounded` is
       // clamped to `activeBook.durationMs`, which is metadata computed at import
       // from the file's frame headers; the element clamps to the media it
@@ -137,7 +139,7 @@ export function useTransportActions({
         },
         skip(deltaMs: number) {
           seekWithAction(
-            (audioRef.current?.currentTime || 0) * 1000 + deltaMs,
+            mediaTime(audioRef.current) * 1000 + deltaMs,
             deltaMs < 0 ? "skip_back" : "skip_forward",
             `${Math.round(Math.abs(deltaMs) / 1000)} seconds`,
           );
@@ -149,7 +151,7 @@ export function useTransportActions({
           cancelSeekPersist();
           if (!audio.paused) suppressNextPauseRef.current = true;
           pauseWithIntent(audio);
-          audio.currentTime = activeBook.durationMs / 1000;
+          setMediaTime(audio, activeBook.durationMs / 1000);
           timeStore.write(activeBook.durationMs);
           markPositionChanged();
           void persistProgress("ended", activeBook.durationMs, true);
@@ -159,9 +161,9 @@ export function useTransportActions({
           const audio = audioRef.current;
           if (!audio || !activeBookRef.current) return;
           cancelSeekPersist();
-          const previousPositionMs = audio.currentTime * 1000;
+          const previousPositionMs = mediaTime(audio) * 1000;
           audio.dispatchEvent(new Event(APP_POSITION_EVENT));
-          audio.currentTime = 0;
+          setMediaTime(audio, 0);
           timeStore.write(0);
           markPositionChanged();
           void persistProgress("seek", 0, false);
@@ -193,7 +195,7 @@ export function useTransportActions({
  */
 function settledPositionMs(audio: HTMLAudioElement, requestedMs: number): number {
   if (audio.readyState < audio.HAVE_METADATA) return requestedMs;
-  const settled = audio.currentTime * 1000;
+  const settled = mediaTime(audio) * 1000;
   return Number.isFinite(settled) && settled >= 0 ? settled : requestedMs;
 }
 
@@ -204,14 +206,13 @@ function settledPositionMs(audio: HTMLAudioElement, requestedMs: number): number
 export function safePlay(audio: HTMLAudioElement): void {
   configurePlaybackAudioSession();
   if (audio.error && audio.getAttribute("src")) {
-    const position = audio.currentTime;
+    const position = mediaTime(audio);
     const rate = audio.playbackRate;
-    audio.load();
-    audio.currentTime = position;
+    loadMediaSource(audio, audio.src, position);
     audio.playbackRate = rate;
   }
-  if (Number.isFinite(audio.duration) && audio.duration - audio.currentTime < 1) {
-    audio.currentTime = 0;
+  if (Number.isFinite(audio.duration) && audio.duration - mediaTime(audio) < 1) {
+    setMediaTime(audio, 0);
   }
   audio.play().catch(() => undefined);
 }

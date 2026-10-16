@@ -144,6 +144,7 @@ describe("playback action capture", () => {
     persistProgress.mockReset().mockResolvedValue(undefined);
     saveDurableState.mockReset();
     vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockImplementation(() => mediaPaused);
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(4);
     vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function (
       this: HTMLMediaElement,
     ) {

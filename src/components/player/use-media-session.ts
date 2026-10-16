@@ -1,5 +1,7 @@
 "use client";
 
+import { mediaTime } from "./media-source";
+
 import { RefObject, useEffect } from "react";
 
 import type { PlayerBook } from "@/domain/player";
@@ -142,13 +144,13 @@ export function syncMediaSessionPosition(
   if (!("mediaSession" in navigator)) return;
   const duration =
     Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : durationMs / 1000;
-  const syncKey = `${duration}:${Math.floor(audio.currentTime)}:${audio.playbackRate}`;
+  const syncKey = `${duration}:${Math.floor(mediaTime(audio))}:${audio.playbackRate}`;
   if (syncKey === lastSyncKeyRef.current) return;
   try {
     navigator.mediaSession.setPositionState({
       duration: Math.max(duration, 0.001),
       playbackRate: audio.playbackRate,
-      position: Math.max(0, Math.min(audio.currentTime, duration)),
+      position: Math.max(0, Math.min(mediaTime(audio), duration)),
     });
     lastSyncKeyRef.current = syncKey;
   } catch {

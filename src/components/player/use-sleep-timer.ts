@@ -1,5 +1,7 @@
 "use client";
 
+import { mediaTime, setMediaTime } from "./media-source";
+
 import { RefObject, useCallback, useEffect, useRef, useState } from "react";
 
 import type { PlayerChapter } from "@/domain/player";
@@ -72,11 +74,11 @@ export function useSleepTimer(audioRef: RefObject<HTMLAudioElement | null>) {
         pauseWithIntent(audio);
       }
       if (mode?.kind !== "chapter") return;
-      const positionMs = audio.currentTime * 1000;
+      const positionMs = mediaTime(audio) * 1000;
       const targetEndMs = chapterEndRef.current;
       if (targetEndMs !== null && positionMs >= targetEndMs - CHAPTER_END_EPSILON_MS) {
         clearSleep();
-        audio.currentTime = targetEndMs / 1000;
+        setMediaTime(audio, targetEndMs / 1000);
         pauseWithIntent(audio);
       }
     },

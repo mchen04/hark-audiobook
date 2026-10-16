@@ -207,6 +207,11 @@ test("standalone-mode emulation launches from the manifest and resumes from the 
         .getByRole("complementary", { name: "Now playing" })
         .getByRole("button", { name: "Pause", exact: true }),
     ).toBeVisible();
+    await expect
+      .poll(() =>
+        reopened.locator("audio").evaluate((audio: HTMLAudioElement) => audio.currentTime),
+      )
+      .toBeGreaterThan(saved);
     const resumed = await reopened
       .locator("audio")
       .evaluate((audio: HTMLAudioElement) => audio.currentTime);

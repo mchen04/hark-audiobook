@@ -1,5 +1,7 @@
 "use client";
 
+import { mediaTime } from "./media-source";
+
 import { RefObject, useEffect, useRef, useState } from "react";
 
 import type { PlayerBook } from "@/domain/player";
@@ -101,7 +103,7 @@ export function useProgressPersistence(
       // `persistProgress` IS the synchronous-durable-write-then-server-write
       // order this handler needs, and it is the one place that keeps the server
       // half from rejecting onto a page that is already going away.
-      void persister.persistProgress(source, audio.currentTime * 1000);
+      void persister.persistProgress(source, mediaTime(audio) * 1000);
     };
     // The two edges record themselves separately because they answer different
     // questions on a phone: `visibility-flush` says the page was backgrounded
