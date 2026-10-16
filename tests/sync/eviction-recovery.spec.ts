@@ -127,6 +127,10 @@ test("mirror evicted: the library metadata re-pulls from Postgres and comes back
       page.getByRole("link", { name: "Renamed Before Eviction" }),
       "the library did not come back after the mirror was evicted",
     ).toBeVisible({ timeout: 30_000 });
+    const phoneViewport = page.viewportSize()!;
+    await page.setViewportSize({ width: 760, height: 900 });
+    await page.getByRole("button", { name: "List view" }).click();
+    await page.setViewportSize(phoneViewport);
     await expect(
       page.locator(".book-tags", { hasText: "evidence" }),
       "the book came back but without its tags, so the metadata did not re-pull from Postgres " +
@@ -178,7 +182,10 @@ test("audio evicted: the book stays visible, never looks playable, and says to r
     expect(snapshot.books.map((book) => book.title)).toStrictEqual([FIXTURE_TITLE]);
     expect(snapshot.chapters.length, "the chapters were lost with the audio").toBeGreaterThan(0);
 
+    const phoneViewport = page.viewportSize()!;
+    await page.setViewportSize({ width: 760, height: 900 });
     await page.getByRole("button", { name: "List view" }).click();
+    await page.setViewportSize(phoneViewport);
 
     // 3. Honest about what happened, in the words the product uses.
     await expect(

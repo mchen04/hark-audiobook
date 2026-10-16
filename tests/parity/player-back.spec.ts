@@ -306,14 +306,23 @@ test("deleting a missing book does not unload the different book still playing",
     // Pin the former race without a sleep: the real server completes the book
     // response, but our loopback proxy holds delivery below the service worker.
     // A substring "Play" also matches "Remove download of ... playback ...".
+    const phoneViewport = page.viewportSize()!;
+    await page.setViewportSize({ width: 760, height: 900 });
+    await page.getByRole("button", { name: "List view" }).click();
+    await page.setViewportSize(phoneViewport);
     const held = (await network()).holdNextResponse("GET", href!);
     const play = page.getByRole("button", { name: "Play", exact: true });
     try {
       await link.click();
       expect(await held.upstreamStatus).toBe(200);
-      await expect(page.getByRole("button", { name: "Play", exact: false })).toHaveAccessibleName(
-        `Remove download of ${title}`,
-      );
+      const removal = page.getByRole("button", {
+        name: `Remove download of ${title}`,
+        exact: true,
+      });
+      await expect(
+        page.getByRole("button", { name: "Play", exact: false }).and(removal),
+      ).toHaveAccessibleName(`Remove download of ${title}`);
+      await expect(page.getByRole("button", { name: `Play ${title}`, exact: true })).toBeVisible();
       await expect(play).toHaveCount(0);
     } finally {
       held.release();
