@@ -27,10 +27,6 @@ export function LibraryPlayButton({
   const playing = playback.book?.id === book.id && playback.isPlaying;
 
   function activate() {
-    if (playing) {
-      playback.toggle();
-      return;
-    }
     const gap = detectSuspendedSession({
       record: readLocalProgress(playback.userId, book.id),
       durationMs: book.durationMs,
@@ -39,7 +35,8 @@ export function LibraryPlayButton({
       router.push(`/books/${book.id}`);
       return;
     }
-    playback.loadBook(book, true);
+    if (playing) playback.toggle();
+    else playback.loadBook(book, true);
   }
 
   return (

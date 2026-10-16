@@ -301,6 +301,17 @@ describe("in-place library playback", () => {
     expect(gap.value).toEqual({ writtenAt: 123 });
   });
 
+  it("preserves an unanswered gap when the active book is still playing", () => {
+    playback.book = { id: BOOK_ID };
+    playback.isPlaying = true;
+    gap.value = { writtenAt: 123 };
+    showPlayableLibrary();
+    fireEvent.click(screen.getAllByRole("button", { name: "Pause The Hobbit" })[0]!);
+    expect(push).toHaveBeenCalledWith(`/books/${BOOK_ID}`);
+    expect(playback.toggle).not.toHaveBeenCalled();
+    expect(playback.loadBook).not.toHaveBeenCalled();
+  });
+
   it("plays when that suspension gap was already answered", () => {
     gap.value = { writtenAt: 123 };
     dismissed.value = 123;
