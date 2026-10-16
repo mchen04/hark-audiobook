@@ -13,6 +13,8 @@ export function SessionRedirect({ userId }: { userId: string }) {
     if (activeUserId === userId) router.replace("/library");
   }, [activeUserId, router, userId]);
 
+  if (!activeUserId) return null;
+
   return (
     <main className="auth-page">
       <p role="status">Opening your library…</p>
