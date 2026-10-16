@@ -355,7 +355,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
           if (appliedRewindMs > 0) markPausedNow(userId, resolvedBook.id);
           const startRate = resolvedBook.initialPlaybackRate;
 
-          loadMediaSource(audio, resolvedBook.mediaUrl, startAtMs / 1000);
+          loadMediaSource(audio, resolvedBook.mediaUrl, startAtMs / 1000, autoplay);
           audio.playbackRate = startRate;
           activeBookRef.current = resolvedBook;
           // Nothing has happened to this book's position yet on this open, so a
@@ -389,7 +389,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
             pauseWithIntent(audio);
           }
           const refreshedBook = bootstrapPlaybackState(userId, nextBook).book;
-          loadMediaSource(audio, refreshedBook.mediaUrl, positionMs / 1000);
+          loadMediaSource(audio, refreshedBook.mediaUrl, positionMs / 1000, wasPlaying);
           audio.playbackRate = rate;
           activeBookRef.current = refreshedBook;
           setBook(refreshedBook);

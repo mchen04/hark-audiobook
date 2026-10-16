@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { cancelMediaStart, loadMediaSource, mediaTime, setMediaTime } from "./media-source";
+import {
+  cancelMediaStart,
+  loadMediaSource,
+  mediaTime,
+  primeMediaStart,
+  setMediaTime,
+} from "./media-source";
 
 function element(muted = false) {
   return Object.assign(new EventTarget(), {
@@ -132,5 +138,44 @@ describe("saved media start", () => {
     audio.dispatchEvent(new Event("seeked"));
     expect(audio.muted).toBe(false);
     expect(mediaTime(audio)).toBe(40);
+  });
+
+  it("clears a native default start once before early play and retains the chosen rate", () => {
+    const audio = element();
+    Object.assign(audio, {
+      src: "/book",
+      currentTime: 42,
+      playbackRate: 1.75,
+      getAttribute: () => "/book",
+    });
+    vi.mocked(audio.load).mockImplementation(() => {
+      audio.playbackRate = 1;
+    });
+    primeMediaStart(audio);
+    expect(audio.currentTime).toBe(0);
+    expect(mediaTime(audio)).toBe(42);
+    expect(audio.playbackRate).toBe(1.75);
+    expect(audio.muted).toBe(true);
+    expect(audio.load).toHaveBeenCalledTimes(1);
+    primeMediaStart(audio);
+    expect(audio.load).toHaveBeenCalledTimes(1);
+    preroll(audio);
+    audio.dispatchEvent(new Event("seeked"));
+    expect(audio.currentTime).toBe(42);
+    expect(audio.muted).toBe(false);
+  });
+
+  it("leaves a playing element alone while it waits for data", () => {
+    const audio = element();
+    Object.assign(audio, {
+      src: "/book",
+      currentTime: 42,
+      paused: false,
+      getAttribute: () => "/book",
+    });
+    primeMediaStart(audio);
+    expect(audio.load).not.toHaveBeenCalled();
+    expect(audio.currentTime).toBe(42);
+    expect(audio.muted).toBe(false);
   });
 });

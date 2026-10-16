@@ -32,16 +32,32 @@ export function cancelMediaStart(audio: HTMLMediaElement): void {
   pending.cancel();
 }
 
-export function loadMediaSource(audio: HTMLMediaElement, source: string, position: number): void {
+export function primeMediaStart(audio: HTMLMediaElement): void {
+  if (!audio.paused || pendingStarts.has(audio)) return;
+  if (audio.readyState >= audio.HAVE_FUTURE_DATA && !audio.seeking) return;
+  const position = audio.currentTime;
+  if (position <= 0 || !audio.getAttribute("src")) return;
+  const rate = audio.playbackRate;
+  loadMediaSource(audio, audio.src, position);
+  audio.playbackRate = rate;
+}
+
+export function loadMediaSource(
+  audio: HTMLMediaElement,
+  source: string,
+  position: number,
+  prime = true,
+): void {
   cancelMediaStart(audio);
   if (audio.src === source) audio.load();
   else audio.src = source;
-  if (position <= 0 || audio.readyState >= audio.HAVE_FUTURE_DATA) {
+  if (!prime || position <= 0 || audio.readyState >= audio.HAVE_FUTURE_DATA) {
     audio.currentTime = position;
     return;
   }
   const wasMuted = audio.muted;
   audio.muted = true;
+  audio.currentTime = 0;
   const cancel = () => {
     audio.removeEventListener("loadeddata", apply);
     audio.removeEventListener("canplay", apply);

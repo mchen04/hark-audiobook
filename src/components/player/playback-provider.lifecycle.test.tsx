@@ -716,4 +716,28 @@ describe("synthetic cold resume ordering", () => {
     expect(audio.muted).toBe(false);
     expect(audio.play).toHaveBeenCalledTimes(1);
   });
+
+  it("restores a paused native position and primes safely if Play arrives before preroll", () => {
+    const hook = renderHook(() => ({ playback: usePlayback(), time: usePlaybackTime() }), {
+      wrapper: ({ children }) => <PlaybackProvider userId="user-1">{children}</PlaybackProvider>,
+    });
+    const audio = document.querySelector("audio")!;
+    let ready = 0;
+    Object.defineProperty(audio, "readyState", { get: () => ready });
+    act(() => hook.result.current.playback.loadBook(book));
+    expect(audio.currentTime).toBe(12);
+    expect(audio.muted).toBe(false);
+    expect(audio.play).not.toHaveBeenCalled();
+    act(() => hook.result.current.playback.toggle());
+    expect(audio.currentTime).toBe(0);
+    expect(hook.result.current.time).toBe(12_000);
+    expect(audio.muted).toBe(true);
+    expect(audio.play).toHaveBeenCalledTimes(1);
+    ready = 3;
+    act(() => audio.dispatchEvent(new Event("canplay")));
+    expect(audio.currentTime).toBe(12);
+    act(() => audio.dispatchEvent(new Event("seeked")));
+    expect(audio.muted).toBe(false);
+    expect(audio.play).toHaveBeenCalledTimes(1);
+  });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { mediaTime, setMediaTime, loadMediaSource } from "./media-source";
+import { mediaTime, setMediaTime, loadMediaSource, primeMediaStart } from "./media-source";
 
 import { RefObject, useMemo, useRef } from "react";
 
@@ -214,5 +214,6 @@ export function safePlay(audio: HTMLAudioElement): void {
   if (Number.isFinite(audio.duration) && audio.duration - mediaTime(audio) < 1) {
     setMediaTime(audio, 0);
   }
+  primeMediaStart(audio);
   audio.play().catch(() => undefined);
 }
