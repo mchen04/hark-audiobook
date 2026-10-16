@@ -58,6 +58,7 @@ export type ControllableNetwork = {
   blockedCount(): number;
   /** Holds the next matching response below the service worker interception layer. */
   holdNextResponse(method: string, path: string): HeldNetworkResponse;
+  respondNext(method: string, path: string, status: number, body: string): void;
   close(): Promise<void>;
 };
 
@@ -92,6 +93,7 @@ export async function startControllableNetwork(
   let origin = "";
   const openSockets = new Set<Socket>();
   const responseHolds: PendingResponseHold[] = [];
+  const responses: Array<{ method: string; path: string; status: number; body: string }> = [];
 
   const rewriteRequestHeaders = (headers: IncomingHttpHeaders): IncomingHttpHeaders => {
     const next: IncomingHttpHeaders = { ...headers };
@@ -122,6 +124,19 @@ export async function startControllableNetwork(
       path: pathname,
       kind: classify(pathname, req.headers),
     });
+    const responseIndex = responses.findIndex(
+      (candidate) => candidate.method === (req.method ?? "GET") && candidate.path === pathname,
+    );
+    if (responseIndex !== -1) {
+      const response = responses.splice(responseIndex, 1)[0]!;
+      req.resume();
+      res.writeHead(response.status, {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(response.body),
+      });
+      res.end(response.body);
+      return;
+    }
     const holdIndex = responseHolds.findIndex(
       (candidate) => candidate.method === (req.method ?? "GET") && candidate.path === pathname,
     );
@@ -245,6 +260,9 @@ export async function startControllableNetwork(
         rejectUpstream,
       });
       return { upstreamStatus, release };
+    },
+    respondNext: (method, path, status, body) => {
+      responses.push({ method: method.toUpperCase(), path, status, body });
     },
     close: () =>
       new Promise<void>((resolve) => {

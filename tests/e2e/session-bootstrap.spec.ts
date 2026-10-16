@@ -95,6 +95,7 @@ test("a synthetic pending-deletion login exposes retry and a working return path
   browser,
   context,
   page,
+  baseURL,
 }) => {
   const { account, storageState } = await sharedSession(browser);
   await resetAccount(account.userId);
@@ -116,22 +117,25 @@ test("a synthetic pending-deletion login exposes retry and a working return path
     },
     { userId: account.userId, key: PENDING_ACCOUNT_DELETION_KEY },
   );
-  let commits = 0;
-  await page.route("**/api/account/delete", async (route) => {
-    commits++;
-    await route.fulfill({
-      status: commits === 1 ? 503 : 410,
-      contentType: "application/json",
-      body: "{}",
-    });
-  });
-  await page.goto("/login");
-  await expect(page.getByRole("heading", { name: "Deletion needs attention" })).toBeVisible();
-  await expect(page.getByText("Opening your library…")).toHaveCount(0);
-  await page.getByRole("button", { name: "Try again", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Return to sign in", exact: true })).toBeVisible();
-  expect(await page.evaluate((key) => localStorage.getItem(key), ACTIVE_USER_KEY)).toBeNull();
-  await page.getByRole("button", { name: "Return to sign in", exact: true }).click();
-  await expect(page.locator('[data-launch-ready="empty"]')).toBeVisible();
-  expect(commits).toBe(2);
+  const network = await startControllableNetwork(baseURL!);
+  try {
+    network.respondNext("POST", "/api/account/delete", 503, "{}");
+    network.respondNext("POST", "/api/account/delete", 410, "{}");
+    await page.goto(`${network.origin}/login`);
+    await expect(page.getByRole("heading", { name: "Deletion needs attention" })).toBeVisible();
+    await expect(page.getByText("Opening your library…")).toHaveCount(0);
+    await page.waitForFunction(() => navigator.serviceWorker.controller !== null);
+    await page.getByRole("button", { name: "Try again", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Return to sign in", exact: true }),
+    ).toBeVisible();
+    expect(await page.evaluate((key) => localStorage.getItem(key), ACTIVE_USER_KEY)).toBeNull();
+    await page.getByRole("button", { name: "Return to sign in", exact: true }).click();
+    await expect(page.locator('[data-launch-ready="empty"]')).toBeVisible();
+    expect(
+      network.hits().filter((hit) => hit.method === "POST" && hit.path === "/api/account/delete"),
+    ).toHaveLength(2);
+  } finally {
+    await network.close();
+  }
 });
