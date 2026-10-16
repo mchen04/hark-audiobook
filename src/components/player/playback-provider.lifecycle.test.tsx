@@ -631,9 +631,9 @@ it("keeps native waiting and stalled recovery without reloading or starting audi
   expect(result.current.playback.isPlaying).toBe(true);
 });
 
-it("owns one metadata-preloaded native element through book changes and unload", () => {
+it("owns one auto-preloaded native element through book changes and unload", () => {
   const { result, audio } = mount();
-  expect(audio.preload).toBe("metadata");
+  expect(audio.preload).toBe("auto");
   expect(audio.tagName).toBe("AUDIO");
   act(() => result.current.playback.loadBook(nextBook));
   expect(document.querySelectorAll("audio")).toHaveLength(1);
