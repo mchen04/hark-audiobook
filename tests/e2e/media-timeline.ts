@@ -1,4 +1,5 @@
 import { test as base, type Page } from "@playwright/test";
+import { writeFile } from "node:fs/promises";
 
 type MediaEventSample = {
   event: string;
@@ -75,10 +76,9 @@ export const test = base.extend<{ mediaTimeline: void }>({
       try {
         await runTest();
       } finally {
-        await testInfo.attach("media-timeline", {
-          body: Buffer.from(JSON.stringify(samples, null, 2)),
-          contentType: "application/json",
-        });
+        const path = testInfo.outputPath("media-timeline.json");
+        await writeFile(path, JSON.stringify(samples, null, 2));
+        await testInfo.attach("media-timeline", { path, contentType: "application/json" });
       }
     },
     { auto: true },
