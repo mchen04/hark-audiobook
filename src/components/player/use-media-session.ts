@@ -2,9 +2,8 @@
 
 import { RefObject, useEffect } from "react";
 
-import type { PlayerBook, PlayerChapter } from "@/domain/player";
+import type { PlayerBook } from "@/domain/player";
 import type { PlayerPreferences } from "@/domain/preferences";
-import { selectCurrentChapter } from "@/lib/playback-core";
 
 /**
  * System media controls, feature-detected. A missing or partial Media Session
@@ -17,9 +16,8 @@ export function useMediaSession(controls: {
   play: () => void;
   seek: (positionMs: number) => void;
   skip: (deltaMs: number) => void;
-  moveToChapter: (chapter: PlayerChapter, direction: "previous" | "next") => void;
 }) {
-  const { audioRef, book, preferencesRef, play, seek, skip, moveToChapter } = controls;
+  const { audioRef, book, preferencesRef, play, seek, skip } = controls;
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -33,17 +31,10 @@ export function useMediaSession(controls: {
       );
       syncPosition();
     };
-    const moveChapter = (direction: "previous" | "next") => {
-      const current = selectCurrentChapter(book.chapters, audio.currentTime * 1000);
-      const target = book.chapters[(current?.position ?? -1) + (direction === "next" ? 1 : -1)];
-      if (target) moveToChapter(target, direction);
-    };
     const handlers: Array<[MediaSessionAction, MediaSessionActionHandler]> = [
       ["play", play],
       ["pause", () => audioRef.current?.pause()],
       ["stop", () => audioRef.current?.pause()],
-      ["nexttrack", () => moveChapter("next")],
-      ["previoustrack", () => moveChapter("previous")],
       [
         "seekbackward",
         (details) =>
@@ -105,7 +96,7 @@ export function useMediaSession(controls: {
         return;
       }
     };
-  }, [audioRef, book, moveToChapter, play, preferencesRef, seek, skip]);
+  }, [audioRef, book, play, preferencesRef, seek, skip]);
 }
 
 export function setMediaSessionMetadata(book: PlayerBook): void {

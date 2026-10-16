@@ -432,7 +432,6 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
     play: transport.play,
     seek: transport.seek,
     skip: transport.skip,
-    moveToChapter: transport.moveToChapter,
   });
 
   const value = useMemo<PlaybackContextValue>(

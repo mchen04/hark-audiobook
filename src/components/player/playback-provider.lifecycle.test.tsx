@@ -189,16 +189,14 @@ describe("synthetic chapter sleep navigation", () => {
 });
 
 describe("synthetic Media Session lifecycle", () => {
-  it("handles remote stop and chapter commands without losing the current position", () => {
+  it("handles remote stop and leaves track actions unregistered", () => {
     const { result, audio } = mount();
     act(() => result.current.playback.toggle());
     remote("stop");
     expect(audio.paused).toBe(true);
     expect(audio.currentTime).toBe(12);
-    remote("nexttrack");
-    expect(audio.currentTime).toBe(60);
-    remote("previoustrack");
-    expect(audio.currentTime).toBe(0);
+    expect(handlers.has("nexttrack")).toBe(false);
+    expect(handlers.has("previoustrack")).toBe(false);
   });
 
   it("publishes the saved position and rate as soon as a paused book opens", () => {
