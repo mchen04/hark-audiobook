@@ -636,10 +636,6 @@
   animation-delay: 0.4s;
 }
 
-.spin {
-  animation: spin 0.9s linear infinite;
-}
-
 .mini-player {
   position: fixed;
   z-index: 25;
@@ -883,10 +879,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .playing-bars i {
-    animation: none !important;
-  }
-
-  .spin {
     animation: none !important;
   }
 
