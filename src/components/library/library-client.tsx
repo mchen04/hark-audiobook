@@ -5,7 +5,8 @@ import {
   CloudSlash,
   DownloadSimple,
   MagnifyingGlass,
-  Play,
+  Plus,
+  SortAscending,
   Rows,
   SquaresFour,
   TextAlignLeft,
@@ -23,6 +24,8 @@ import { memo, useCallback, useDeferredValue, useEffect, useState } from "react"
 import { FullPlayer } from "@/components/player/full-player";
 import { LocalMediaGate } from "@/components/player/local-media-gate";
 import { useActiveUserId } from "@/components/use-active-user";
+import { titleMonogram } from "@/lib/book-monogram";
+
 import type { LibraryBook } from "@/domain/library";
 import { formatBytes } from "@/lib/format-bytes";
 import { formatDurationRounded } from "@/lib/format-time";
@@ -34,6 +37,7 @@ import { listBookIdsWithTranscripts } from "@/lib/offline/transcript-store";
 
 import { abortImport } from "@/lib/document-import/import-controller";
 
+import { LibraryPlayButton } from "./library-play-button";
 import { UploadBanners, useBookImport, type UploadState } from "./library-upload";
 import { type SortOrder, type StatusFilter } from "./library-view";
 import { useLibraryViewState } from "./library-view-state";
@@ -370,41 +374,41 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
               onClick={chooseFile}
               disabled={!!upload}
             >
-              <UploadSimple size={20} weight="bold" aria-hidden="true" />
+              <Plus size={20} weight="bold" aria-hidden="true" />
               <span>{upload ? "Importing" : "Add book"}</span>
             </button>
           </div>
 
           <div>
             {continueBook && (
-              <Link
-                href={`/books/${continueBook.id}`}
-                className="continue-card"
-                prefetch={false}
-                aria-label={`Continue listening ${continueBook.title}`}
-              >
-                <span className="book-cover continue-cover" aria-hidden="true">
-                  <BookCover book={continueBook} coverUrl={coverUrlFor(continueRecord)} />
-                </span>
-                <span className="continue-copy">
-                  <small>Continue listening</small>
-                  <strong>{continueBook.title}</strong>
-                  <span>
-                    {progressPercent(continueBook)}% · {remainingLabel(continueBook)}
-                    {continueRecord ? "" : " · Not on this device"}
+              <div className="continue-card">
+                <Link
+                  href={`/books/${continueBook.id}`}
+                  className="continue-open"
+                  prefetch={false}
+                  aria-label={`Continue listening ${continueBook.title}`}
+                >
+                  <span className="book-cover continue-cover" aria-hidden="true">
+                    <BookCover book={continueBook} coverUrl={coverUrlFor(continueRecord)} />
                   </span>
-                </span>
+                  <span className="continue-copy">
+                    <small>Continue listening</small>
+                    <strong>{continueBook.title}</strong>
+                    <span>
+                      {progressPercent(continueBook)}% · {remainingLabel(continueBook)}
+                      {continueRecord ? "" : " · Not on this device"}
+                    </span>
+                  </span>
+                </Link>
                 {continueRecord ? (
-                  <span className="continue-play" aria-hidden="true">
-                    <Play size={24} weight="fill" />
-                  </span>
+                  <LibraryPlayButton record={continueRecord} title={continueBook.title} resume />
                 ) : (
                   <span className="continue-play continue-unavailable" title={MISSING_MEDIA_HINT}>
                     <CloudSlash size={22} aria-hidden="true" />
                     <span className="visually-hidden">Not on this device</span>
                   </span>
                 )}
-              </Link>
+              </div>
             )}
 
             <div className="library-tools">
@@ -433,6 +437,7 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
                 )}
               </label>
               <label className="sort-field">
+                <SortAscending size={20} aria-hidden="true" />
                 <span className="visually-hidden">Sort books</span>
                 <select
                   value={sort}
@@ -613,15 +618,9 @@ function BookCover({ book, coverUrl }: { book: LibraryBook; coverUrl?: string })
       />
     );
   }
-  const initials = book.title
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
   return (
     <>
-      <span>{initials || "AB"}</span>
+      <span>{titleMonogram(book.title)}</span>
       <small>MP3</small>
     </>
   );
@@ -644,30 +643,36 @@ const BookItem = memo(function BookItem({
   const percent = progressPercent(book);
 
   return (
-    <article className="book-item">
+    <article
+      className="book-item"
+      title={record ? undefined : "Not on this device — attach its original file to listen"}
+    >
       {/* The title link is the card's accessible entry; the cover stays clickable
           without adding a duplicate tab stop. */}
-      <Link
-        href={`/books/${book.id}`}
-        className="book-cover"
-        prefetch={false}
-        tabIndex={-1}
-        aria-hidden="true"
-      >
-        <BookCover book={book} coverUrl={coverUrlFor(record)} />
-        {hasReadAlong && (
-          <span className="book-readalong">
-            <TextAlignLeft size={12} aria-hidden="true" />
-            Read-along
-          </span>
-        )}
-        {!record && (
+      <div className="book-cover-controls">
+        <Link
+          href={`/books/${book.id}`}
+          className="book-cover"
+          prefetch={false}
+          tabIndex={-1}
+          aria-hidden="true"
+        >
+          <BookCover book={book} coverUrl={coverUrlFor(record)} />
+          {hasReadAlong && (
+            <span className="book-readalong">
+              <TextAlignLeft size={12} aria-hidden="true" />
+              Read-along
+            </span>
+          )}
+        </Link>
+        {!compact && !record && (
           <span className="book-offdevice">
             <CloudSlash size={12} aria-hidden="true" />
-            <span>Not on device</span>
+            <span className="book-offdevice-label">Not on device</span>
           </span>
         )}
-      </Link>
+        {!compact && record && <LibraryPlayButton record={record} title={book.title} />}
+      </div>
       <div className="book-copy">
         <Link href={`/books/${book.id}`} className="book-title" prefetch={false}>
           {book.title}
@@ -680,7 +685,7 @@ const BookItem = memo(function BookItem({
           </p>
         )}
         {book.tags.length > 0 && <p className="book-tags">{book.tags.join(" · ")}</p>}
-        {!record && (
+        {compact && !record && (
           <p className="book-device book-device-missing" title={MISSING_MEDIA_HINT}>
             <CloudSlash size={14} aria-hidden="true" />
             <span>Not on this device — attach its original file to listen</span>
@@ -731,18 +736,14 @@ const BookItem = memo(function BookItem({
       </div>
       {compact &&
         (record ? (
-          <Link
-            href={`/books/${book.id}`}
-            className="book-play-button"
-            prefetch={false}
-            aria-label={`Play ${book.title}`}
-          >
-            <Play size={19} weight="fill" aria-hidden="true" />
-          </Link>
+          <LibraryPlayButton record={record} title={book.title} />
         ) : (
-          <span className="book-play-button book-play-unavailable" title={MISSING_MEDIA_HINT}>
+          <span
+            className="book-play-button book-play-unavailable"
+            title={MISSING_MEDIA_HINT}
+            aria-hidden="true"
+          >
             <CloudSlash size={19} aria-hidden="true" />
-            <span className="visually-hidden">Not on this device</span>
           </span>
         ))}
     </article>

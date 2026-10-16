@@ -4,6 +4,7 @@
  * They are documentation-only addresses and can never name an external host.
  */
 export const TEST_CLIENT_HEADERS = {
+  desktop: { "x-forwarded-for": "198.51.100.106" },
   iphone: { "x-forwarded-for": "198.51.100.101" },
   parity: { "x-forwarded-for": "198.51.100.102" },
   sync: { "x-forwarded-for": "198.51.100.103" },

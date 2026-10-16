@@ -1,3 +1,5 @@
+import { mediaTime } from "./media-source";
+
 import type { PlayerBook } from "@/domain/player";
 import {
   applyPendingProgressNormalizations,
@@ -196,7 +198,7 @@ export function createProgressPersister({
     if (completed !== undefined) completion.set(activeBook.id, completed);
     if (!positionChanged) return null;
     const audio = getAudio();
-    const position = positionMs ?? (audio ? audio.currentTime * 1000 : 0);
+    const position = positionMs ?? (audio ? mediaTime(audio) * 1000 : 0);
     if (!Number.isFinite(position) || position < 0) return null;
     const playbackRate = audio?.playbackRate || 1;
     const durableCompleted = completed ?? completion.get(activeBook.id) ?? activeBook.completed;
@@ -424,7 +426,8 @@ export function createProgressPersister({
         }
         const accepted = reconciled.progress;
         if (accepted) {
-          const livePosition = getAudio()?.currentTime;
+          const liveAudio = getAudio();
+          const livePosition = liveAudio ? mediaTime(liveAudio) : undefined;
           progressBaselines.set(activeBook.id, {
             positionMs:
               typeof livePosition === "number" && Number.isFinite(livePosition)
@@ -587,7 +590,7 @@ export function createProgressPersister({
       timer = window.setTimeout(tick, remaining);
       return;
     }
-    writeDurableIfDue("cadence-timer", element.currentTime * 1000);
+    writeDurableIfDue("cadence-timer", mediaTime(element) * 1000);
     timer = window.setTimeout(tick, DURABLE_SAVE_INTERVAL_MS);
   };
   const startCadence = () => {

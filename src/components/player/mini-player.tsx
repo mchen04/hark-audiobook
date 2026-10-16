@@ -5,6 +5,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { titleMonogram } from "@/lib/book-monogram";
+
 import { usePlayback, usePlaybackTime } from "./playback-provider";
 import { usePreferences } from "./preferences-provider";
 
@@ -35,7 +37,7 @@ export function MiniPlayer() {
               unoptimized
             />
           ) : (
-            book.title.slice(0, 2).toUpperCase()
+            titleMonogram(book.title)
           )}
         </span>
         <span>

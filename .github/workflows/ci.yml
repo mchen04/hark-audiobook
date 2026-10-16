@@ -42,12 +42,16 @@ jobs:
     name: Browser (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    env:
+      ALLOW_LOCAL_MAIL_CAPTURE: "true"
     strategy:
       fail-fast: false
       matrix:
         include:
           - name: iPhone WebKit
             command: pnpm test:e2e:ios
+          - name: Desktop WebKit
+            command: pnpm test:e2e:desktop
           - name: Offline parity
             command: pnpm test:e2e:parity
           - name: Sync integrity

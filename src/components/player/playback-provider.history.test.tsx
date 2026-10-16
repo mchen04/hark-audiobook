@@ -42,6 +42,8 @@ vi.mock("./use-sleep-timer", () => ({
     setSleepMinutes: vi.fn(),
     setSleepAtChapterEnd: vi.fn(),
     clearSleep: vi.fn(),
+    clearChapterSleep: vi.fn(),
+    onSeek: vi.fn(),
     onTimeUpdate: vi.fn(),
   }),
 }));
@@ -142,6 +144,7 @@ describe("playback action capture", () => {
     persistProgress.mockReset().mockResolvedValue(undefined);
     saveDurableState.mockReset();
     vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockImplementation(() => mediaPaused);
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(4);
     vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function (
       this: HTMLMediaElement,
     ) {

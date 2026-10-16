@@ -447,14 +447,6 @@ function fieldWasSkipped(
   );
 }
 
-/** Applies the bounded state returned for a successful progress request. */
-export async function reconcileAcceptedProgress(
-  entry: QueuedProgress,
-  response: Response,
-): Promise<QueuedProgress | null> {
-  return (await reconcileAcceptedProgressWithStatus(entry, response)).progress;
-}
-
 export type AcceptedProgressReconciliation = {
   progress: QueuedProgress | null;
   persisted: boolean;

@@ -37,16 +37,6 @@ import { readLibrary, titlesOf, type LibrarySnapshot } from "./harness/snapshot"
  * cannot connect, and zero requests reaching the app server.
  */
 
-/**
- * The phone the project emulates is 393px wide and `.view-switch` is
- * `display: none` below 560px, so the grid/list toggle is genuinely
- * unreachable there — for the user as much as for the test. Skipping it would
- * leave a shipped control unverified, so the control exercises run at 760x900,
- * a width where it is really on screen, and the phone width is still covered by
- * the parity comparison below (which asserts the toggle is equally hidden with
- * the network on and off).
- */
-const WIDE_VIEWPORT = { width: 760, height: 900 };
 const PHONE_VIEWPORT = { width: 393, height: 852 };
 
 let account: Account;
@@ -150,7 +140,7 @@ function expectSeededLibrary(snapshot: LibrarySnapshot): void {
 for (const [label, url, viewport] of [
   ["/library on the phone", "/library", PHONE_VIEWPORT],
   ["/library?device=1 on the phone", "/library?device=1", PHONE_VIEWPORT],
-  ["/library at a width where every control is reachable", "/library", WIDE_VIEWPORT],
+  ["/library on a small phone", "/library", { width: 320, height: 852 }],
 ] as const) {
   test(`same URL, same controls, same books online and offline — ${label}`, async () => {
     const net = await network();
@@ -185,7 +175,7 @@ test("every library control works with the network gone", async () => {
   await cutNetwork(device.page);
   net.reset();
 
-  const page = await launch(`${device.origin}/library`, WIDE_VIEWPORT);
+  const page = await launch(`${device.origin}/library`, PHONE_VIEWPORT);
   const search = page.getByRole("searchbox", { name: "Search your library" });
   const titles = async () => titlesOf(await readLibrary(page));
 
@@ -285,7 +275,7 @@ test("every library control works with the network gone", async () => {
   const beforeToggle = await readLibrary(page);
   expect(
     beforeToggle.viewSwitch.visible,
-    `the view toggle is not on screen at ${WIDE_VIEWPORT.width}px, so this test would be ` +
+    `the view toggle is not on screen at ${PHONE_VIEWPORT.width}px, so this test would be ` +
       "silently skipping the control it exists to exercise",
   ).toBe(true);
   expect(beforeToggle.listMode).toBe(false);
@@ -323,7 +313,7 @@ test("books not on this device are marked, browsable, searchable and never playa
   await cutNetwork(device.page);
   net.reset();
 
-  const page = await launch(`${device.origin}/library`, WIDE_VIEWPORT);
+  const page = await launch(`${device.origin}/library`, PHONE_VIEWPORT);
   // List view is where a card offers a play control at all, so it is the only
   // view in which "never looks playable" is a claim with content.
   await page.getByRole("button", { name: "List view" }).click();
@@ -340,16 +330,16 @@ test("books not on this device are marked, browsable, searchable and never playa
       expect(card!.deviceSize).toMatch(/^[\d.]+ (B|KB|MB|GB) on this device$/);
       expect(card!.deviceLine, "a downloaded book needs no missing-audio notice").toBe("");
       expect(card!.removeDownloadButton, "a downloaded book must offer removal").toBe(true);
-      expect(card!.playLink, "a downloaded book must be playable offline").toBe(true);
+      expect(card!.playButton, "a downloaded book must be playable offline").toBe(true);
       expect(card!.offDeviceBadge).toBe(false);
       continue;
     }
-    // Visibly marked, in both places the design promises: on the cover and in
-    // the card's own copy.
-    expect(card!.offDeviceBadge, `"${seed.title}" is not marked on its cover`).toBe(true);
+    expect(card!.offDeviceBadge, `"${seed.title}" repeats a missing-audio cover badge`).toBe(false);
     expect(card!.deviceLine).toBe("Not on this device — attach its original file to listen");
     // And never looks playable: no play link, only the inert stand-in.
-    expect(card!.playLink, `"${seed.title}" offers a play affordance it cannot honour`).toBe(false);
+    expect(card!.playButton, `"${seed.title}" offers a play affordance it cannot honour`).toBe(
+      false,
+    );
     expect(card!.playUnavailable).toBe(true);
     expect(card!.removeDownloadButton).toBe(false);
   }
@@ -358,12 +348,14 @@ test("books not on this device are marked, browsable, searchable and never playa
   // names, so a renamed class cannot quietly turn this assertion vacuous.
   for (const seed of VISIBLE_SEED_BOOKS.filter((book) => !book.onDevice)) {
     const card = page.locator("article.book-item", { hasText: seed.title });
-    await expect(card.getByRole("link", { name: `Play ${seed.title}` })).toHaveCount(0);
-    await expect(card.getByText("Not on this device", { exact: false }).first()).toBeVisible();
+    await expect(card.getByRole("button", { name: `Play ${seed.title}` })).toHaveCount(0);
+    await expect(card.getByText("Not on this device", { exact: false })).toHaveCount(1);
+    await expect(card.getByText("Not on this device", { exact: false })).toBeVisible();
+    await expect(card.locator(".book-play-unavailable")).toHaveAttribute("aria-hidden", "true");
   }
   for (const seed of VISIBLE_SEED_BOOKS.filter((book) => book.onDevice)) {
     const card = page.locator("article.book-item", { hasText: seed.title });
-    await expect(card.getByRole("link", { name: `Play ${seed.title}` })).toHaveCount(1);
+    await expect(card.getByRole("button", { name: `Play ${seed.title}` })).toHaveCount(1);
   }
 
   // Still browsable and searchable — the marking is not a way of hiding them.
@@ -376,9 +368,15 @@ test("books not on this device are marked, browsable, searchable and never playa
     })
     .toStrictEqual([offDevice.title]);
   const found = await readLibrary(page);
-  expect(found.books[0]!.offDeviceBadge).toBe(true);
-  expect(found.books[0]!.playLink).toBe(false);
+  expect(found.books[0]!.offDeviceBadge).toBe(false);
+  expect(found.books[0]!.playButton).toBe(false);
 
+  await page.getByRole("button", { name: "Grid view" }).click();
+  await expect.poll(async () => (await readLibrary(page)).listMode).toBe(false);
+  const grid = await readLibrary(page);
+  expect(grid.books[0]!.offDeviceBadge).toBe(true);
+  expect(grid.books[0]!.deviceLine).toBe("");
+  expect(grid.books[0]!.playButton).toBe(false);
   await expectNothingReachedTheServer("browsing not-on-device books offline");
   await page.close();
 });
@@ -389,7 +387,7 @@ test("books not on this device are marked, browsable, searchable and never playa
 
 test("/offline lands in the unified library, online and offline", async () => {
   const net = await network();
-  const reference = await launch(`${device.origin}/library`, WIDE_VIEWPORT);
+  const reference = await launch(`${device.origin}/library`, PHONE_VIEWPORT);
   const referenceSnapshot = await readLibrary(reference);
   await reference.close();
 
@@ -398,7 +396,7 @@ test("/offline lands in the unified library, online and offline", async () => {
       await cutNetwork(device.page);
       net.reset();
     }
-    const page = await launch(`${device.origin}/offline`, WIDE_VIEWPORT);
+    const page = await launch(`${device.origin}/offline`, PHONE_VIEWPORT);
     await expect
       .poll(() => page.url().replace(device.origin, ""), {
         message: `/offline did not land in the unified library (${mode})`,

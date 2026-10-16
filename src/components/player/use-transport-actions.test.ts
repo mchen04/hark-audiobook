@@ -37,6 +37,7 @@ const book: PlayerBook = {
 function clampingAudio(decodedDurationMs = DECODED_DURATION_MS) {
   let seconds = 0;
   return {
+    dispatchEvent: vi.fn(),
     HAVE_METADATA: 1,
     readyState: 1,
     paused: true,
@@ -115,7 +116,12 @@ describe("seeking", () => {
   it("keeps the request when the element has no metadata to clamp against", () => {
     // WebKit answers `currentTime` with 0 before it has a media player object,
     // and writing that back would turn a seek into a jump to the start.
-    const audio = { HAVE_METADATA: 1, readyState: 0, currentTime: 0 } as HTMLAudioElement;
+    const audio = {
+      dispatchEvent: vi.fn(),
+      HAVE_METADATA: 1,
+      readyState: 0,
+      currentTime: 0,
+    } as unknown as HTMLAudioElement;
     const { actions, saveDurableState } = mountTransport(audio);
 
     actions.seek(30_000);

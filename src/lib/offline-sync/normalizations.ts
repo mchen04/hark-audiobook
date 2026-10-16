@@ -159,12 +159,6 @@ export async function applyPendingProgressNormalizationsForUser(userId: string):
   return remaining;
 }
 
-export async function purgeProgressNormalization(userId: string, bookId: string): Promise<void> {
-  const db = await database();
-  await db.delete("normalizations", normalizationKey(userId, bookId));
-  publishNormalization(userId, bookId, null);
-}
-
 export async function purgeProgressNormalizationsForUser(userId: string): Promise<void> {
   const db = await database();
   const transaction = db.transaction("normalizations", "readwrite");

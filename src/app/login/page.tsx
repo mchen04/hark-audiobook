@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
-import { redirect } from "next/navigation";
 
 import { AuthForm } from "@/components/auth/auth-form";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { SignOutNotice } from "@/components/auth/sign-out-notice";
+import { SessionRedirect } from "@/components/auth/session-redirect";
 import { getSession } from "@/server/auth-session";
 
 export const metadata: Metadata = { title: "Sign in" };
 
 export default async function LoginPage() {
-  if (await getSession()) redirect("/library");
+  const session = await getSession();
+  if (session) return <SessionRedirect userId={session.user.id} />;
 
   return (
     <AuthShell

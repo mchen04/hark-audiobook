@@ -51,6 +51,9 @@ test("an evicted document regenerates and plays with the backend transport absen
   });
   const card = page.locator("article.book-item");
   await expect(card).toHaveCount(1, { timeout: 180_000 });
+  const libraryViewport = page.viewportSize()!;
+  await page.getByRole("button", { name: "List view" }).click();
+  await page.setViewportSize(libraryViewport);
   await expect(card.getByText(/on this device$/)).toBeVisible({ timeout: 30_000 });
   const href = await card.locator("a.book-title").getAttribute("href");
   expect(href, "the generated document card has no player route").toMatch(/^\/books\//);

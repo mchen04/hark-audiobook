@@ -370,12 +370,6 @@ img.player-cover {
   }
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(1turn);
-  }
-}
-
 @media (max-width: 820px), (max-height: 620px) {
   .app-header-collapsible {
     display: none;

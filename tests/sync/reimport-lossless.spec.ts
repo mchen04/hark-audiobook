@@ -115,6 +115,9 @@ test("re-importing an evicted book reconnects to the same book and restores ever
     expect(removed.removedCaches.length).toBeGreaterThan(0);
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForSelector("[data-launch-ready]", { state: "attached", timeout: 60_000 });
+    const phoneViewport = page.viewportSize()!;
+    await page.getByRole("button", { name: "List view" }).click();
+    await page.setViewportSize(phoneViewport);
     await expect(
       page.locator(".book-item", { hasText: FIXTURE_TITLE }).getByText(/attach its original file/),
       "the evicted book does not tell the user to re-import it, so nothing here would be " +
@@ -721,6 +724,9 @@ test("an evicted book is recovered by re-import when the app chunks cannot be fe
     expect(removed.removedCaches.length).toBeGreaterThan(0);
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForSelector("[data-launch-ready]", { state: "attached", timeout: 60_000 });
+    const phoneViewport = page.viewportSize()!;
+    await page.getByRole("button", { name: "List view" }).click();
+    await page.setViewportSize(phoneViewport);
     await expect(
       page.locator(".book-item", { hasText: FIXTURE_TITLE }).getByText(/attach its original file/),
       "the evicted book does not tell the user to re-import it, so nothing here would be " +
@@ -849,6 +855,8 @@ test("an evicted book is recovered by re-import when the app chunks cannot be fe
     // Finally, what the user actually sees on the next launch.
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForSelector("[data-launch-ready]", { state: "attached", timeout: 60_000 });
+    await page.getByRole("button", { name: "List view" }).click();
+    await page.setViewportSize(phoneViewport);
     await expect(
       page.locator(".book-item", { hasText: FIXTURE_TITLE }),
       "the library lists the same audiobook more than once",

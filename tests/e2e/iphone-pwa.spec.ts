@@ -19,6 +19,7 @@ function bookLink(page: Page) {
 test("imports from iPhone Downloads, plays, seeks, relaunches, and works offline", async ({
   context,
   page,
+  isMobile,
 }) => {
   const runtimeErrors: string[] = [];
   const offlineMediaResponses: Array<{ status: number; range: string | null }> = [];
@@ -42,7 +43,9 @@ test("imports from iPhone Downloads, plays, seeks, relaunches, and works offline
 
   const unique = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   await page.goto("/register");
-  await expect.poll(() => page.evaluate(() => navigator.userAgent)).toContain("iPhone");
+  await expect
+    .poll(() => page.evaluate(() => navigator.userAgent))
+    .toContain(isMobile ? "iPhone" : "Safari");
   await expect
     .poll(() => page.evaluate(() => (navigator as Navigator & { standalone?: boolean }).standalone))
     .toBe(true);
@@ -110,10 +113,20 @@ test("imports from iPhone Downloads, plays, seeks, relaunches, and works offline
   // Everything the Downloads screen could show, shown on the card: that the
   // book is on this device, what it costs there, and how to remove it.
   const card = page.locator(".book-item", { hasText: "iPhone Downloads Test" });
+  const phoneViewport = page.viewportSize()!;
+  const gridRemoval = card.getByRole("button", {
+    name: "Remove download of iPhone Downloads Test",
+  });
+  if (isMobile) await expect(gridRemoval).toBeHidden();
+  else await expect(gridRemoval).toBeVisible();
+  await page.getByRole("button", { name: "List view" }).click();
   await expect(card.getByText(/^[\d.]+ (KB|MB|GB) on this device$/)).toBeVisible();
   await expect(
     card.getByRole("button", { name: "Remove download of iPhone Downloads Test" }),
   ).toBeVisible();
+
+  await page.getByRole("button", { name: "Grid view" }).click();
+  await page.setViewportSize(phoneViewport);
 
   // The header's Downloads control opens the merged library with its facet
   // already on, rather than a screen of its own.
@@ -170,13 +183,17 @@ test("imports from iPhone Downloads, plays, seeks, relaunches, and works offline
   await context.unroute("**/*");
   await page.goto("/library");
   await expect(bookLink(page)).toBeVisible();
+  await page.getByRole("button", { name: "List view" }).click();
+  await page.setViewportSize(phoneViewport);
   await page
     .locator(".book-item", { hasText: "iPhone Downloads Test" })
     .getByRole("button", { name: "Remove download of iPhone Downloads Test" })
     .click();
 
   const removed = page.locator(".book-item", { hasText: "iPhone Downloads Test" });
-  await expect(removed.getByText(/Not on this device/)).toBeVisible();
+  await expect(
+    removed.getByText("Not on this device — attach its original file to listen", { exact: true }),
+  ).toBeVisible();
   await expect(removed.getByRole("button", { name: /Remove download/ })).toHaveCount(0);
   await expect(bookLink(page)).toBeVisible();
 

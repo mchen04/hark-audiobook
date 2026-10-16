@@ -1,4 +1,5 @@
-import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { test } from "./media-timeline";
+import { expect, type Page, type TestInfo } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { zipSync, strToU8 } from "fflate";
@@ -212,7 +213,11 @@ test("retained player, organization, transcript, settings, export and deletion w
       page
         .locator("audio")
         .evaluate(
-          (audio: HTMLAudioElement) => !audio.paused && !audio.seeking && audio.readyState >= 3,
+          (audio: HTMLAudioElement) =>
+            !audio.paused &&
+            !audio.seeking &&
+            !audio.muted &&
+            audio.readyState >= audio.HAVE_CURRENT_DATA,
         ),
     )
     .toBe(true);
@@ -458,6 +463,9 @@ test("real document formats finish before playback, cancel safely and preserve l
       await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
       await page.getByRole("button", { name: "Pause", exact: true }).click();
       await page.goto(`${net.origin}/library`);
+      const libraryViewport = page.viewportSize()!;
+      await page.getByRole("button", { name: "List view" }).click();
+      await page.setViewportSize(libraryViewport);
       await page
         .getByRole("button", { name: "Remove download of Objective TXT", exact: true })
         .click();
@@ -569,6 +577,9 @@ test("cancelling after a real media commit recognizes the attachment and suppres
   const link = page.getByRole("link", { name: title, exact: true });
   await expect(link).toBeVisible();
   const href = await link.getAttribute("href");
+  const libraryViewport = page.viewportSize()!;
+  await page.getByRole("button", { name: "List view" }).click();
+  await page.setViewportSize(libraryViewport);
   await page.getByRole("button", { name: `Remove download of ${title}`, exact: true }).click();
   await expect(page.locator("article.book-item", { hasText: title })).toContainText(
     "Not on this device",

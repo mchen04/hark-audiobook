@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Node 22 is the GitHub Actions runtime; pnpm is pinned to 9.6.0. The package
-  minimum is Node 20.19. The shell commands below are verified on Node 26.
+  minimum is Node 20.19. Prefer Node 22 for the commands below.
 - Docker with Compose for the disposable test database.
 - FFmpeg on `PATH` for generated browser audio fixtures.
 - Playwright WebKit and Chromium for browser suites.
@@ -35,11 +35,9 @@ Postgres service at `127.0.0.1:54329`, checks `pg_trgm`, applies ordered migrati
 and seeds the account named in `.env.test`. It fills only blank signing secrets
 and test passwords. Keep this ignored env file with its matching retained database.
 
-Exporting the file passes its values to pnpm and child processes. On Node 26,
-`node --env-file=.env.test --run verify:quick` leaves child commands without these
-values. `pnpm dev` and `pnpm build` run their asset preparation hooks.
+Exporting the file passes its values to pnpm and child processes.
+`pnpm dev` and `pnpm build` run their asset preparation hooks.
 CI uses Node 22 and copies the generated test environment to `.env.local`.
-Node 22 was not run locally.
 
 For a separate development database, copy `.env.example` to `.env.local` **only if
 that file does not already exist**, set its database URL and fresh auth secret,
@@ -103,13 +101,15 @@ pnpm verify:browser
 ```
 
 `verify:quick` runs Prettier, ESLint, TypeScript, all Vitest suites, and the
-production build. `verify:browser` runs all five CI browser projects in order.
+production build. `verify:browser` runs all six CI browser projects in order: iPhone WebKit,
+desktop WebKit, parity, sync, resume durability, and launch. Workers stay at one.
 For a focused run:
 
 ```sh
 pnpm test
 pnpm test:idb-migrate
 pnpm test:e2e:ios
+pnpm test:e2e:desktop
 pnpm test:e2e:parity
 pnpm test:sync
 pnpm test:resume:ci
@@ -143,11 +143,6 @@ smart rewind. Suspension recovery covers saved-position recovery and estimates.
 Uncovered axes covers isolated persistence writers, write rate, queued rewind,
 and two-device conflicts. These commands preserve the oracle's assertions.
 Process checks stop when browser ownership is missing or ambiguous.
-
-The latest local runs against an already served build pass all cases:
-12 position checks in 4.8 minutes, three recovery checks in 1.4 minutes,
-and nine uncovered-axis checks in 3.2 minutes. C3 and C4 show no cumulative drift.
-S1 arms its stale queued-write trap and passes.
 
 Each measured journey uses a fresh browser from prepared cookies, localStorage,
 and IndexedDB. Its kill and reopen steps share that context. Tracing stays enabled
@@ -203,14 +198,18 @@ The workflow runs on pull requests, pushes to `main`, and manual dispatches:
 
 - `Verify quick`
 - `Browser (iPhone WebKit)`
+- `Browser (Desktop WebKit)`
 - `Browser (Offline parity)`
 - `Browser (Sync integrity)`
 - `Browser (Resume durability)`
 - `Browser (Launch performance)`
 
 Each job uses Node 22, a frozen pnpm install, and its own local Postgres fixture.
-Browser jobs build the app and retain failure artifacts. Acceptance must inspect
-all six conclusions for the candidate being merged; an earlier branch run is not
+Browser jobs build the app and retain failure artifacts. Local mail capture is
+enabled for password-reset checks. The generated test environment must keep
+`ALLOW_LOCAL_MAIL_CAPTURE=true` for equivalent local browser runs.
+Acceptance must inspect
+all seven conclusions for the candidate being merged; an earlier branch run is not
 proof for a changed head. Repository protection is configured on GitHub, not by
 this document. Recheck it before publication. Also inspect hosting integrations:
 a push or merge can trigger deployment independently of GitHub Actions.
@@ -271,8 +270,9 @@ not performance evidence. JSON retains samples, failures, aggregates, and the
 comparison rule. Without A/A input, the table reports `noise band unknown`.
 Recordings contain one video and frame log per scenario plus `summary.json`.
 
-Persistent Playwright WebKit drops Cache Storage entries on this host; ephemeral
-WebKit loses them when its page process exits. WebKit cold start is unavailable.
+The fixed protocol marks WebKit cold start, cold RSS, and JS heap unavailable.
+Its reports describe the pinned engine's Cache Storage/process failures.
+The resume oracle repairs fixture bytes, which limits native-retention claims.
 Chromium relaunch measurements are labelled Chromium. WebKit playback starts from
 a warm library. See the [protocol](../tests/perf/BASELINE.md#benchmark-protocol-v11)
 for definitions, repetitions, and acceptance.
@@ -282,7 +282,7 @@ for definitions, repetitions, and acceptance.
 ```sh
 pnpm test:update --previous e4525ac70dd5bc3113ce3c8a76b97dcdd2d47858 --out "$TMPDIR/update.json"
 pnpm exec playwright test --project=iphone-webkit tests/e2e/launch-flicker.spec.ts tests/e2e/media-session-resume.spec.ts
-NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run tests/perf/frame-sampler.test.ts
+pnpm exec vitest run tests/perf/frame-sampler.test.ts
 ```
 
 The update command prepares the previous ref and exports the current worktree,
@@ -296,3 +296,19 @@ The flicker spec checks the shared recorder and proves all five event kinds with
 a synthetic control. The Media Session spec invokes the app's native action
 handlers and checks preferences, exact persistence, offline reload, history,
 and Range delivery. Its JSON report is attached to the Playwright result.
+
+### WebKit evidence tiers
+
+`desktop-webkit` uses Playwright's Desktop Safari profile and runs playback,
+library resume, session bootstrap, interruption, and the shared PWA core flow.
+`iphone-webkit` also runs a standalone-emulation flow and manifest/Apple contract.
+The standalone flow stubs web-facing flags; it does not create an installed host.
+Its offline oracle checks a cut socket, failed control request, zero upstream
+hits, and response equality with the cached shell. Emulation does not create
+native safe-area insets; bounds checks cannot prove installed-host layout.
+
+Synthetic pause/lifecycle events and Audio Session stubs prove the app's response,
+not native OS delivery. No physical device, Simulator, Xcode, or manual checklist
+is required. See [WebKit testing](ios-pwa-testing.md) and
+[optional field observations](resume-durability-device-check.md). Record each
+result with its commit, runtime, command, counts, duration, and evidence tier.
