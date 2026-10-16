@@ -15,11 +15,12 @@ export async function prepareLocalPlayback(
   page: Page,
   info: TestInfo,
   title: string,
+  origin = "",
 ) {
   const { account, storageState } = await sharedSession(browser);
   await resetAccount(account.userId);
   await context.addCookies(storageState.cookies);
-  await page.goto("/library");
+  await page.goto(`${origin}/library`);
   await expect(page.locator('[data-launch-ready="empty"]')).toBeVisible();
   const file = info.outputPath("playback.mp3");
   execFileSync("ffmpeg", [
@@ -74,4 +75,22 @@ export async function mediaAction(page: Page, action: MediaSessionAction) {
     if (!handlers[action]) throw new Error(`Missing ${action} handler`);
     handlers[action]!({ action });
   }, action);
+}
+
+export async function waitForLaunchShell(page: Page) {
+  await page.waitForFunction(
+    async () => {
+      if (!navigator.serviceWorker.controller) return false;
+      const response = await caches.match("/library?source=pwa");
+      if (!response?.headers.get("X-Chapterline-Shell-Generation")) return false;
+      const html = await response.text();
+      const assets = [...new Set(html.match(/\/_next\/static\/[^"'\s\\]+/g) || [])];
+      return (
+        assets.length > 0 &&
+        (await Promise.all(assets.map((asset) => caches.match(asset)))).every(Boolean)
+      );
+    },
+    undefined,
+    { timeout: 60000 },
+  );
 }
