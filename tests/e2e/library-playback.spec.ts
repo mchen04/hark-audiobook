@@ -68,19 +68,26 @@ test("library buttons play in place, preserve saved position and keep a syntheti
   await page.reload();
   const resume = page.getByRole("button", { name: "Resume Library Journey", exact: true });
   await expect(resume).toBeVisible();
-  expect(
-    await page
-      .locator(".book-grid")
-      .evaluate((grid) => getComputedStyle(grid).gridTemplateColumns.split(" ").length),
-  ).toBe(3);
-  await expect(page.locator(".book-progress-copy")).toBeHidden();
+  const startsOnPhone = page.viewportSize()!.width <= 560;
+  if (startsOnPhone) {
+    expect(
+      await page
+        .locator(".book-grid")
+        .evaluate((grid) => getComputedStyle(grid).gridTemplateColumns.split(" ").length),
+    ).toBe(3);
+    await expect(page.locator(".book-progress-copy")).toBeHidden();
+  } else {
+    await expect(page.locator(".book-progress-copy")).toBeVisible();
+  }
   await page.screenshot({ path: info.outputPath("iphone-library.png"), fullPage: true });
   await resume.click();
   await expect(page).toHaveURL(/\/library$/);
   const mini = page.getByRole("complementary", { name: "Now playing" });
   await expect(mini.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
   await expect(mini.getByRole("button", { name: "Back 15 seconds", exact: true })).toBeVisible();
-  await expect(mini.getByRole("button", { name: "Forward 30 seconds", exact: true })).toBeHidden();
+  const miniForward = mini.getByRole("button", { name: "Forward 30 seconds", exact: true });
+  if (startsOnPhone) await expect(miniForward).toBeHidden();
+  else await expect(miniForward).toBeVisible();
   await page.screenshot({ path: info.outputPath("iphone-mini.png"), fullPage: true });
   const calls = await page.evaluate(
     () =>

@@ -48,6 +48,8 @@ jobs:
         include:
           - name: iPhone WebKit
             command: pnpm test:e2e:ios
+          - name: Desktop WebKit
+            command: pnpm test:e2e:desktop
           - name: Offline parity
             command: pnpm test:e2e:parity
           - name: Sync integrity

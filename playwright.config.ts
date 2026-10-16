@@ -53,6 +53,21 @@ export default defineConfig({
         extraHTTPHeaders: TEST_CLIENT_HEADERS.iphone,
       },
     },
+    {
+      name: "desktop-webkit",
+      testMatch: [
+        "**/library-playback.spec.ts",
+        "**/media-session-resume.spec.ts",
+        "**/session-bootstrap.spec.ts",
+        "**/iphone-pwa.spec.ts",
+        "**/playback-interruption.spec.ts",
+      ],
+      use: {
+        ...devices["Desktop Safari"],
+        browserName: "webkit",
+        extraHTTPHeaders: TEST_CLIENT_HEADERS.desktop,
+      },
+    },
     // The suites below drive their own launchPersistentContext, because a fresh
     // context would discard the service worker, Cache Storage and IndexedDB that
     // make a warm launch fast — which is exactly what they exist to measure.

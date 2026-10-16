@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { ACTIVE_USER_KEY } from "../../src/lib/app-keys";
+import { PENDING_ACCOUNT_DELETION_KEY, ACTIVE_USER_KEY } from "../../src/lib/app-keys";
 import { startControllableNetwork } from "../parity/harness/network";
 import { closeSql, resetAccount, sharedSession, waitForServiceWorker } from "../sync/harness/app";
 
@@ -89,4 +89,31 @@ test("the cookie-only sign-in harness recovers a service-worker-controlled libra
   expect(await page.evaluate((key) => localStorage.getItem(key), ACTIVE_USER_KEY)).toBeNull();
   await page.goto("/library", { waitUntil: "commit" });
   await expect(page.locator('[data-launch-ready="empty"]')).toBeVisible({ timeout: 10_000 });
+});
+
+
+test("a synthetic pending-deletion login exposes retry and a working return path", async ({ browser, context, page }) => {
+  const { account, storageState } = await sharedSession(browser);
+  await resetAccount(account.userId);
+  await context.addCookies(storageState.cookies);
+  await context.addInitScript(({ userId, key }) => {
+    if (!sessionStorage.getItem("deletion-fixture-installed")) {
+      localStorage.setItem(key, JSON.stringify({ userId, deleteToken: "synthetic-deletion-token", phase: "purged", createdAt: Date.now() }));
+      sessionStorage.setItem("deletion-fixture-installed", "true");
+    }
+  }, { userId: account.userId, key: PENDING_ACCOUNT_DELETION_KEY });
+  let commits = 0;
+  await page.route("**/api/account/delete", async (route) => {
+    commits++;
+    await route.fulfill({ status: commits === 1 ? 503 : 410, contentType: "application/json", body: "{}" });
+  });
+  await page.goto("/login");
+  await expect(page.getByRole("heading", { name: "Deletion needs attention" })).toBeVisible();
+  await expect(page.getByText("Opening your library…")).toHaveCount(0);
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Return to sign in", exact: true })).toBeVisible();
+  expect(await page.evaluate((key) => localStorage.getItem(key), ACTIVE_USER_KEY)).toBeNull();
+  await page.getByRole("button", { name: "Return to sign in", exact: true }).click();
+  await expect(page.locator('[data-launch-ready="empty"]')).toBeVisible();
+  expect(commits).toBe(2);
 });

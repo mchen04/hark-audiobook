@@ -19,6 +19,7 @@ function bookLink(page: Page) {
 test("imports from iPhone Downloads, plays, seeks, relaunches, and works offline", async ({
   context,
   page,
+  isMobile,
 }) => {
   const runtimeErrors: string[] = [];
   const offlineMediaResponses: Array<{ status: number; range: string | null }> = [];
@@ -42,7 +43,9 @@ test("imports from iPhone Downloads, plays, seeks, relaunches, and works offline
 
   const unique = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   await page.goto("/register");
-  await expect.poll(() => page.evaluate(() => navigator.userAgent)).toContain("iPhone");
+  await expect
+    .poll(() => page.evaluate(() => navigator.userAgent))
+    .toContain(isMobile ? "iPhone" : "Safari");
   await expect
     .poll(() => page.evaluate(() => (navigator as Navigator & { standalone?: boolean }).standalone))
     .toBe(true);
@@ -111,9 +114,11 @@ test("imports from iPhone Downloads, plays, seeks, relaunches, and works offline
   // book is on this device, what it costs there, and how to remove it.
   const card = page.locator(".book-item", { hasText: "iPhone Downloads Test" });
   const phoneViewport = page.viewportSize()!;
-  await expect(
-    card.getByRole("button", { name: "Remove download of iPhone Downloads Test" }),
-  ).toBeHidden();
+  const gridRemoval = card.getByRole("button", {
+    name: "Remove download of iPhone Downloads Test",
+  });
+  if (isMobile) await expect(gridRemoval).toBeHidden();
+  else await expect(gridRemoval).toBeVisible();
   await page.getByRole("button", { name: "List view" }).click();
   await expect(card.getByText(/^[\d.]+ (KB|MB|GB) on this device$/)).toBeVisible();
   await expect(
