@@ -664,6 +664,66 @@ it("does not carry an old interruption across a read-only reconciliation of a mi
 });
 
 describe("synthetic cold resume ordering", () => {
+  it.each([false, true])(
+    "does not finish or advance durable position when muted preparation ends with a preceding pause: %s",
+    (pauseBeforeEnd) => {
+      const hook = renderHook(() => ({ playback: usePlayback(), time: usePlaybackTime() }), {
+        wrapper: ({ children }) => <PlaybackProvider userId="user-1">{children}</PlaybackProvider>,
+      });
+      const audio = document.querySelector("audio")!;
+      Object.defineProperty(audio, "readyState", { get: () => 2 });
+      act(() =>
+        hook.result.current.playback.loadBook(
+          { ...book, durationMs: 8000, initialPositionMs: 200 },
+          true,
+        ),
+      );
+      expect(audio.muted).toBe(true);
+      audio.currentTime = 8;
+      paused = true;
+      if (pauseBeforeEnd) {
+        Object.defineProperty(audio, "ended", { configurable: true, value: true });
+        act(() => audio.dispatchEvent(new Event("pause")));
+        Object.defineProperty(audio, "ended", { configurable: true, value: false });
+      }
+      act(() => audio.dispatchEvent(new Event("ended")));
+      expect(persistence.persistProgress).not.toHaveBeenCalledWith(
+        "ended",
+        expect.anything(),
+        true,
+      );
+      expect(persistence.markPositionChanged).not.toHaveBeenCalled();
+      expect(
+        hook.result.current.playback.history.some((entry) => entry.action === "finished"),
+      ).toBe(false);
+      expect(hook.result.current.playback.lastEndedAt).toBe(0);
+      expect(hook.result.current.time).toBe(200);
+      expect(audio.currentTime).toBe(0.2);
+      expect(audio.muted).toBe(false);
+      expect(hook.result.current.playback.isPlaying).toBe(false);
+      expect(audio.play).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(["pause", "error"])(
+    "releases pending mute on synthetic %s without losing its durable position",
+    (event) => {
+      const { result, audio } = mount();
+      Object.defineProperty(audio, "readyState", { get: () => 0 });
+      act(() => result.current.playback.loadBook(nextBook, true));
+      expect(audio.muted).toBe(true);
+      if (event === "pause") paused = true;
+      act(() => audio.dispatchEvent(new Event(event)));
+      expect(audio.muted).toBe(false);
+      expect(audio.currentTime).toBe(12);
+      expect(result.current.time).toBe(12000);
+      expect(result.current.playback.isPlaying).toBe(false);
+      if (event === "pause")
+        expect(persistence.persistProgress).toHaveBeenLastCalledWith("pause", 12000);
+      else expect(persistence.saveDurableState).toHaveBeenLastCalledWith("pause", 12000);
+      expect(audio.play).toHaveBeenCalledTimes(1);
+    },
+  );
   it("requests play in the click task but holds audible output until the saved seek settles after preroll", () => {
     const hook = renderHook(() => usePlayback(), {
       wrapper: ({ children }) => <PlaybackProvider userId="user-1">{children}</PlaybackProvider>,

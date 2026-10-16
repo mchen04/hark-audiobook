@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   cancelMediaStart,
@@ -13,6 +13,7 @@ function element(muted = false) {
     src: "",
     currentTime: 0,
     readyState: 0,
+    HAVE_CURRENT_DATA: 2,
     HAVE_FUTURE_DATA: 3,
     muted,
     paused: true,
@@ -27,7 +28,98 @@ function preroll(audio: HTMLAudioElement) {
   audio.dispatchEvent(new Event("canplay"));
 }
 
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => vi.useRealTimers());
+
 describe("saved media start", () => {
+  it.each(["playing", "timeupdate"])(
+    "applies the saved seek on %s with only current data before releasing mute",
+    (event) => {
+      const audio = element();
+      loadMediaSource(audio, "/book", 42);
+      Object.assign(audio, { readyState: 2, paused: false, currentTime: 0.1 });
+      audio.dispatchEvent(new Event(event));
+      expect(audio.currentTime).toBe(42);
+      expect(audio.muted).toBe(true);
+      audio.dispatchEvent(new Event("seeked"));
+      expect(audio.muted).toBe(false);
+      expect(mediaTime(audio)).toBe(42);
+      expect(audio.load).not.toHaveBeenCalled();
+      cancelMediaStart(audio);
+    },
+  );
+
+  it("accepts advancing current-data playback when playing arrived before preroll", () => {
+    const audio = element();
+    loadMediaSource(audio, "/book", 42);
+    Object.assign(audio, { readyState: 1, paused: false });
+    audio.dispatchEvent(new Event("playing"));
+    expect(audio.currentTime).toBe(0);
+    Object.assign(audio, { readyState: 2, currentTime: 0.2 });
+    audio.dispatchEvent(new Event("timeupdate"));
+    expect(audio.currentTime).toBe(42);
+    audio.dispatchEvent(new Event("timeupdate"));
+    expect(audio.muted).toBe(false);
+    expect(audio.paused).toBe(false);
+  });
+
+  it.each(["pause", "error", "ended"])(
+    "restores the intended position and releases mute on %s during preparation",
+    (event) => {
+      const audio = element();
+      loadMediaSource(audio, "/book", 42);
+      Object.assign(audio, { currentTime: 8, paused: event !== "error" });
+      vi.mocked(audio.pause).mockImplementation(() => {
+        expect(audio.muted).toBe(true);
+        Object.assign(audio, { paused: true });
+        audio.dispatchEvent(new Event("pause"));
+      });
+      audio.dispatchEvent(new Event(event));
+      expect(audio.currentTime).toBe(42);
+      expect(mediaTime(audio)).toBe(42);
+      expect(audio.muted).toBe(false);
+      expect(audio.paused).toBe(true);
+      audio.currentTime = 43;
+      preroll(audio);
+      expect(audio.currentTime).toBe(43);
+      expect(mediaTime(audio)).toBe(43);
+    },
+  );
+
+  it("pauses an unsettled start within ten seconds before restoring position and mute", () => {
+    const audio = element();
+    loadMediaSource(audio, "/book", 42);
+    Object.assign(audio, { paused: false });
+    preroll(audio);
+    Object.assign(audio, { currentTime: 0, seeking: true });
+    vi.mocked(audio.pause).mockImplementation(() => {
+      expect(audio.muted).toBe(true);
+      Object.assign(audio, { paused: true });
+      audio.dispatchEvent(new Event("pause"));
+    });
+    vi.advanceTimersByTime(10000);
+    expect(audio.pause).toHaveBeenCalledTimes(1);
+    expect(audio.currentTime).toBe(42);
+    expect(audio.muted).toBe(false);
+    expect(mediaTime(audio)).toBe(42);
+    audio.currentTime = 43;
+    audio.dispatchEvent(new Event("seeked"));
+    expect(mediaTime(audio)).toBe(43);
+  });
+
+  it("releases a settled seek on advancing playback without a seeked event", () => {
+    const audio = element();
+    loadMediaSource(audio, "/book", 42);
+    Object.assign(audio, { readyState: 2, paused: false });
+    audio.dispatchEvent(new Event("playing"));
+    expect(audio.currentTime).toBe(42);
+    expect(audio.muted).toBe(true);
+    audio.currentTime = 42.1;
+    audio.dispatchEvent(new Event("timeupdate"));
+    expect(audio.muted).toBe(false);
+    vi.advanceTimersByTime(10000);
+    expect(audio.pause).not.toHaveBeenCalled();
+  });
   it("keeps the saved position for progress readers while the native element prerolls silently", () => {
     const audio = element();
     loadMediaSource(audio, "/book", 42);

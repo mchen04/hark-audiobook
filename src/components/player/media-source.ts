@@ -4,8 +4,10 @@ type PendingStart = {
   position: number;
   applied: boolean;
   cancel: () => void;
+  restore: () => void;
 };
 
+const interruptedStartEnds = new WeakSet<HTMLMediaElement>();
 const pendingStarts = new WeakMap<HTMLMediaElement, PendingStart>();
 const sourceReadiness = new WeakMap<HTMLMediaElement, { usable: boolean; clear: () => void }>();
 
@@ -16,8 +18,16 @@ function trackSourceReadiness(audio: HTMLMediaElement): void {
     for (const event of events) audio.removeEventListener(event, observe);
   };
   const state = { usable: false, clear };
-  const observe = () => {
-    if (audio.readyState < audio.HAVE_FUTURE_DATA) return;
+  const observe = (event?: Event) => {
+    if (
+      audio.readyState < audio.HAVE_FUTURE_DATA &&
+      !(
+        audio.readyState >= audio.HAVE_CURRENT_DATA &&
+        !audio.paused &&
+        (event?.type === "playing" || (event?.type === "timeupdate" && audio.currentTime > 0))
+      )
+    )
+      return;
     state.usable = true;
     clear();
   };
@@ -50,6 +60,13 @@ export function cancelMediaStart(audio: HTMLMediaElement): void {
   pending.cancel();
 }
 
+export function recoverMediaStartEnd(audio: HTMLMediaElement): boolean {
+  const pending = pendingStarts.get(audio);
+  if (pending) pending.restore();
+  const interrupted = interruptedStartEnds.delete(audio);
+  return !!pending || interrupted;
+}
+
 export function primeMediaStart(audio: HTMLMediaElement): void {
   if (!audio.paused || pendingStarts.has(audio) || sourceReadiness.get(audio)?.usable) return;
   if (audio.readyState >= audio.HAVE_FUTURE_DATA && !audio.seeking) return;
@@ -67,6 +84,7 @@ export function loadMediaSource(
   prime = true,
 ): void {
   cancelMediaStart(audio);
+  interruptedStartEnds.delete(audio);
   if (audio.src === source) audio.load();
   else audio.src = source;
   trackSourceReadiness(audio);
@@ -77,16 +95,42 @@ export function loadMediaSource(
   const wasMuted = audio.muted;
   audio.muted = true;
   audio.currentTime = 0;
+  let restoring = false;
   const cancel = () => {
+    clearTimeout(deadline);
     audio.removeEventListener("loadeddata", apply);
     audio.removeEventListener("canplay", apply);
+    audio.removeEventListener("playing", onPlayback);
+    audio.removeEventListener("timeupdate", onPlayback);
     audio.removeEventListener("seeked", finish);
+    audio.removeEventListener("pause", onPause, true);
+    audio.removeEventListener("error", restore, true);
+    audio.removeEventListener("ended", restore);
     pendingStarts.delete(audio);
     audio.muted = wasMuted;
   };
-  const pending: PendingStart = { position, applied: false, cancel };
-  const apply = () => {
-    if (pending.applied || audio.readyState < audio.HAVE_FUTURE_DATA) return;
+  const restore = () => {
+    if (restoring) return;
+    restoring = true;
+    if (audio.ended) interruptedStartEnds.add(audio);
+    try {
+      if (!audio.paused) pauseWithIntent(audio);
+      audio.currentTime = pending.position;
+    } finally {
+      cancel();
+    }
+  };
+  const onPause = () => {
+    if (audio.paused) restore();
+  };
+  const pending: PendingStart = { position, applied: false, cancel, restore };
+  const apply = (event: Event) => {
+    if (pending.applied) return;
+    const playingCurrentData =
+      audio.readyState >= audio.HAVE_CURRENT_DATA &&
+      !audio.paused &&
+      (event.type === "playing" || (event.type === "timeupdate" && audio.currentTime > 0));
+    if (audio.readyState < audio.HAVE_FUTURE_DATA && !playingCurrentData) return;
     pending.applied = true;
     if (Number.isFinite(audio.duration))
       pending.position = Math.min(pending.position, audio.duration);
@@ -97,11 +141,28 @@ export function loadMediaSource(
     audio.currentTime = pending.position;
   };
   const finish = () => {
-    if (!pending.applied || audio.seeking || audio.currentTime < pending.position - 0.05) return;
+    if (
+      !pending.applied ||
+      audio.ended ||
+      audio.seeking ||
+      audio.currentTime < pending.position - 0.05
+    )
+      return;
     cancel();
   };
+  const onPlayback = (event: Event) => {
+    if (audio.ended) return;
+    if (pending.applied) finish();
+    else apply(event);
+  };
+  const deadline = setTimeout(restore, 10000);
   pendingStarts.set(audio, pending);
   audio.addEventListener("loadeddata", apply);
   audio.addEventListener("canplay", apply);
+  audio.addEventListener("playing", onPlayback);
+  audio.addEventListener("timeupdate", onPlayback);
   audio.addEventListener("seeked", finish);
+  audio.addEventListener("pause", onPause, true);
+  audio.addEventListener("error", restore, true);
+  audio.addEventListener("ended", restore);
 }

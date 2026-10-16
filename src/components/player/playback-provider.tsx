@@ -1,6 +1,12 @@
 "use client";
 
-import { mediaTime, setMediaTime, loadMediaSource, cancelMediaStart } from "./media-source";
+import {
+  mediaTime,
+  setMediaTime,
+  loadMediaSource,
+  cancelMediaStart,
+  recoverMediaStartEnd,
+} from "./media-source";
 
 import {
   createContext,
@@ -228,6 +234,13 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
       clearInterruption();
       observedPlaying = false;
       setIsPlaying(false);
+      if (recoverMediaStartEnd(audio)) {
+        timeStore.write(mediaTime(audio) * 1000);
+        setMediaSessionPlaybackState("paused");
+        if (activeBookRef.current)
+          syncMediaSessionPosition(audio, activeBookRef.current.durationMs, { current: "" });
+        return;
+      }
       const endPositionMs = activeBookRef.current?.durationMs || mediaTime(audio) * 1000;
       if (activeBookRef.current) trackerRef.current.end(activeBookRef.current.id, endPositionMs);
       markPositionChanged();
