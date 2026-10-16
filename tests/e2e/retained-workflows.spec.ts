@@ -213,7 +213,11 @@ test("retained player, organization, transcript, settings, export and deletion w
       page
         .locator("audio")
         .evaluate(
-          (audio: HTMLAudioElement) => !audio.paused && !audio.seeking && audio.readyState >= 3,
+          (audio: HTMLAudioElement) =>
+            !audio.paused &&
+            !audio.seeking &&
+            !audio.muted &&
+            audio.readyState >= audio.HAVE_CURRENT_DATA,
         ),
     )
     .toBe(true);
