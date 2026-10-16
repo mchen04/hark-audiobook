@@ -145,7 +145,7 @@ test("a book whose audio is not on this device says so, on screen", async () => 
       book.deviceLine,
       `"${book.title}" says nothing about the audio being elsewhere`,
     ).not.toBe("");
-    expect(book.playLink, `"${book.title}" offers a play link for audio this device lacks`).toBe(
+    expect(book.playButton, `"${book.title}" offers a play link for audio this device lacks`).toBe(
       false,
     );
     expect(

@@ -5,6 +5,7 @@ import {
   CloudSlash,
   DownloadSimple,
   MagnifyingGlass,
+  Plus,
   Rows,
   SquaresFour,
   TextAlignLeft,
@@ -370,7 +371,7 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
               onClick={chooseFile}
               disabled={!!upload}
             >
-              <UploadSimple size={20} weight="bold" aria-hidden="true" />
+              <Plus size={20} weight="bold" aria-hidden="true" />
               <span>{upload ? "Importing" : "Add book"}</span>
             </button>
           </div>
@@ -644,7 +645,10 @@ const BookItem = memo(function BookItem({
   const percent = progressPercent(book);
 
   return (
-    <article className="book-item">
+    <article
+      className="book-item"
+      title={record ? undefined : "Not on this device — attach its original file to listen"}
+    >
       {/* The title link is the card's accessible entry; the cover stays clickable
           without adding a duplicate tab stop. */}
       <div className="book-cover-controls">
@@ -662,13 +666,15 @@ const BookItem = memo(function BookItem({
               Read-along
             </span>
           )}
-          {!record && (
-            <span className="book-offdevice">
-              <CloudSlash size={12} aria-hidden="true" />
-              <span>Not on device</span>
-            </span>
-          )}
         </Link>
+        {!record && (
+          <span className="book-offdevice">
+            <CloudSlash size={12} aria-hidden="true" />
+            <span className={compact ? "visually-hidden" : "book-offdevice-label"}>
+              Not on device
+            </span>
+          </span>
+        )}
         {!compact && record && <LibraryPlayButton record={record} title={book.title} />}
       </div>
       <div className="book-copy">
@@ -683,7 +689,7 @@ const BookItem = memo(function BookItem({
           </p>
         )}
         {book.tags.length > 0 && <p className="book-tags">{book.tags.join(" · ")}</p>}
-        {!record && (
+        {compact && !record && (
           <p className="book-device book-device-missing" title={MISSING_MEDIA_HINT}>
             <CloudSlash size={14} aria-hidden="true" />
             <span>Not on this device — attach its original file to listen</span>

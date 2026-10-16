@@ -178,6 +178,8 @@ test("audio evicted: the book stays visible, never looks playable, and says to r
     expect(snapshot.books.map((book) => book.title)).toStrictEqual([FIXTURE_TITLE]);
     expect(snapshot.chapters.length, "the chapters were lost with the audio").toBeGreaterThan(0);
 
+    await page.getByRole("button", { name: "List view" }).click();
+
     // 3. Honest about what happened, in the words the product uses.
     await expect(
       bookCard(page).getByText("Not on this device — attach its original file to listen"),

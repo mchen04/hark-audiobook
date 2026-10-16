@@ -120,6 +120,10 @@ async function seedAccountA(page: Page, origin: string, account: Account): Promi
   await expect(page.getByRole("link", { name: DROPPED_BOOK.title, exact: true })).toBeVisible({
     timeout: 60_000,
   });
+  const libraryViewport = page.viewportSize()!;
+  await page.setViewportSize({ width: 760, height: 900 });
+  await page.getByRole("button", { name: "List view" }).click();
+  await page.setViewportSize(libraryViewport);
   await page
     .locator("article.book-item", { hasText: DROPPED_BOOK.title })
     .getByRole("button", { name: `Remove download of ${DROPPED_BOOK.title}` })
@@ -127,7 +131,7 @@ async function seedAccountA(page: Page, origin: string, account: Account): Promi
   await expect(
     page
       .locator("article.book-item", { hasText: DROPPED_BOOK.title })
-      .getByText("Not on this device", { exact: false }),
+      .getByText("Not on this device — attach its original file to listen", { exact: true }),
   ).toBeVisible({ timeout: 30_000 });
 
   const listed = await apiCall(page, "GET", "/api/books?status=all");

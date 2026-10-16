@@ -1713,7 +1713,7 @@ export async function resumeFixture(
             (node) => (node.querySelector(".book-title")?.textContent ?? "").trim() === bookTitle,
           );
           if (!card) return "no card";
-          return card.querySelector(".book-device-missing") ? "not on this device" : "on device";
+          return card.querySelector(".book-offdevice") ? "not on this device" : "on device";
         }, title);
       await expect
         .poll(readOnDevice, {
@@ -4645,7 +4645,7 @@ export async function measureTwoDeviceResume(spec: {
               (node) => (node.querySelector(".book-title")?.textContent ?? "").trim() === title,
             );
             if (!card) return "no card";
-            return card.querySelector(".book-device-missing") ? "not on this device" : "on device";
+            return card.querySelector(".book-offdevice") ? "not on this device" : "on device";
           }, bookTitle),
         {
           timeout: 120_000,
