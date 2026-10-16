@@ -6,6 +6,7 @@ import {
   DownloadSimple,
   MagnifyingGlass,
   Plus,
+  SortAscending,
   Rows,
   SquaresFour,
   TextAlignLeft,
@@ -434,6 +435,7 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
                 )}
               </label>
               <label className="sort-field">
+                <SortAscending size={20} aria-hidden="true" />
                 <span className="visually-hidden">Sort books</span>
                 <select
                   value={sort}

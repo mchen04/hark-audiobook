@@ -116,7 +116,6 @@ test("re-importing an evicted book reconnects to the same book and restores ever
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForSelector("[data-launch-ready]", { state: "attached", timeout: 60_000 });
     const phoneViewport = page.viewportSize()!;
-    await page.setViewportSize({ width: 760, height: 900 });
     await page.getByRole("button", { name: "List view" }).click();
     await page.setViewportSize(phoneViewport);
     await expect(
@@ -726,7 +725,6 @@ test("an evicted book is recovered by re-import when the app chunks cannot be fe
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForSelector("[data-launch-ready]", { state: "attached", timeout: 60_000 });
     const phoneViewport = page.viewportSize()!;
-    await page.setViewportSize({ width: 760, height: 900 });
     await page.getByRole("button", { name: "List view" }).click();
     await page.setViewportSize(phoneViewport);
     await expect(
@@ -857,7 +855,6 @@ test("an evicted book is recovered by re-import when the app chunks cannot be fe
     // Finally, what the user actually sees on the next launch.
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForSelector("[data-launch-ready]", { state: "attached", timeout: 60_000 });
-    await page.setViewportSize({ width: 760, height: 900 });
     await page.getByRole("button", { name: "List view" }).click();
     await page.setViewportSize(phoneViewport);
     await expect(

@@ -114,7 +114,6 @@ test("imports from iPhone Downloads, plays, seeks, relaunches, and works offline
   await expect(
     card.getByRole("button", { name: "Remove download of iPhone Downloads Test" }),
   ).toBeHidden();
-  await page.setViewportSize({ width: 760, height: 900 });
   await page.getByRole("button", { name: "List view" }).click();
   await expect(card.getByText(/^[\d.]+ (KB|MB|GB) on this device$/)).toBeVisible();
   await expect(
@@ -179,7 +178,6 @@ test("imports from iPhone Downloads, plays, seeks, relaunches, and works offline
   await context.unroute("**/*");
   await page.goto("/library");
   await expect(bookLink(page)).toBeVisible();
-  await page.setViewportSize({ width: 760, height: 900 });
   await page.getByRole("button", { name: "List view" }).click();
   await page.setViewportSize(phoneViewport);
   await page

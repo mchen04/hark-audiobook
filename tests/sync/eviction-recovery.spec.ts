@@ -128,7 +128,6 @@ test("mirror evicted: the library metadata re-pulls from Postgres and comes back
       "the library did not come back after the mirror was evicted",
     ).toBeVisible({ timeout: 30_000 });
     const phoneViewport = page.viewportSize()!;
-    await page.setViewportSize({ width: 760, height: 900 });
     await page.getByRole("button", { name: "List view" }).click();
     await page.setViewportSize(phoneViewport);
     await expect(
@@ -183,7 +182,6 @@ test("audio evicted: the book stays visible, never looks playable, and says to r
     expect(snapshot.chapters.length, "the chapters were lost with the audio").toBeGreaterThan(0);
 
     const phoneViewport = page.viewportSize()!;
-    await page.setViewportSize({ width: 760, height: 900 });
     await page.getByRole("button", { name: "List view" }).click();
     await page.setViewportSize(phoneViewport);
 

@@ -121,7 +121,6 @@ async function seedAccountA(page: Page, origin: string, account: Account): Promi
     timeout: 60_000,
   });
   const libraryViewport = page.viewportSize()!;
-  await page.setViewportSize({ width: 760, height: 900 });
   await page.getByRole("button", { name: "List view" }).click();
   await page.setViewportSize(libraryViewport);
   await page

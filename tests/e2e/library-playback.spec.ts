@@ -178,7 +178,6 @@ test("library buttons play in place, preserve saved position and keep a syntheti
     true,
   );
   await page.getByRole("button", { name: "Library", exact: true }).click();
-  await page.setViewportSize({ width: 760, height: 900 });
   await page.getByRole("button", { name: "List view" }).click();
   await page.getByRole("button", { name: "Remove download of Library Journey" }).click();
   await expect(page.locator(".book-offdevice")).toBeVisible();

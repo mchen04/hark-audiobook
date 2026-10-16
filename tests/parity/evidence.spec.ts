@@ -119,7 +119,7 @@ test("a book whose audio is not on this device says so, on screen", async () => 
   // in list view — and the toggle that reaches list view is display:none below
   // 560px. Photographing the phone grid would document the marking while
   // quietly skipping the part about never looking playable.
-  const page = await launch(`${device.origin}/library`, { width: 760, height: 900 });
+  const page = await launch(`${device.origin}/library`, { width: 393, height: 852 });
   await page.getByRole("button", { name: "List view" }).click();
   await expect.poll(async () => (await readLibrary(page)).listMode).toBe(true);
   const snapshot = await readLibrary(page);

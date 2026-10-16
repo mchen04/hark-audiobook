@@ -171,7 +171,6 @@ test("the Library control keeps playback alive when the connection drops mid-boo
 test("returning from a book restores the library search, facet, sort, and view", async () => {
   const page = await launchLibrary();
   try {
-    await page.setViewportSize({ width: 760, height: 900 });
     const search = page.getByPlaceholder("Search library");
     const sort = page.getByLabel("Sort books");
     const list = page.getByRole("button", { name: "List view" });
@@ -307,7 +306,6 @@ test("deleting a missing book does not unload the different book still playing",
     // response, but our loopback proxy holds delivery below the service worker.
     // A substring "Play" also matches "Remove download of ... playback ...".
     const phoneViewport = page.viewportSize()!;
-    await page.setViewportSize({ width: 760, height: 900 });
     await page.getByRole("button", { name: "List view" }).click();
     await page.setViewportSize(phoneViewport);
     const held = (await network()).holdNextResponse("GET", href!);
