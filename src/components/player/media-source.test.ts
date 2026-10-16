@@ -165,6 +165,30 @@ describe("saved media start", () => {
     expect(audio.muted).toBe(false);
   });
 
+  it("does not reprime a warm source when its paused ready state drops", () => {
+    const audio = element();
+    Object.assign(audio, { getAttribute: () => "/book", playbackRate: 1 });
+    loadMediaSource(audio, "/book", 42, false);
+    Object.defineProperty(audio, "readyState", { value: 4, configurable: true });
+    audio.dispatchEvent(new Event("canplaythrough"));
+    Object.defineProperty(audio, "readyState", { value: 2, configurable: true });
+    const seek = vi.fn();
+    let currentTime = 42;
+    Object.defineProperty(audio, "currentTime", {
+      get: () => currentTime,
+      set: (value) => {
+        currentTime = value;
+        seek(value);
+      },
+      configurable: true,
+    });
+    primeMediaStart(audio);
+    expect(audio.load).not.toHaveBeenCalled();
+    expect(seek).not.toHaveBeenCalled();
+    expect(audio.currentTime).toBe(42);
+    expect(audio.muted).toBe(false);
+  });
+
   it("leaves a playing element alone while it waits for data", () => {
     const audio = element();
     Object.assign(audio, {

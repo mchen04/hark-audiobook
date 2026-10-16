@@ -7,6 +7,24 @@ type PendingStart = {
 };
 
 const pendingStarts = new WeakMap<HTMLMediaElement, PendingStart>();
+const sourceReadiness = new WeakMap<HTMLMediaElement, { usable: boolean; clear: () => void }>();
+
+function trackSourceReadiness(audio: HTMLMediaElement): void {
+  sourceReadiness.get(audio)?.clear();
+  const events = ["loadeddata", "canplay", "canplaythrough", "playing", "timeupdate"];
+  const clear = () => {
+    for (const event of events) audio.removeEventListener(event, observe);
+  };
+  const state = { usable: false, clear };
+  const observe = () => {
+    if (audio.readyState < audio.HAVE_FUTURE_DATA) return;
+    state.usable = true;
+    clear();
+  };
+  sourceReadiness.set(audio, state);
+  for (const event of events) audio.addEventListener(event, observe);
+  observe();
+}
 
 export function mediaTime(audio: HTMLMediaElement | null | undefined): number {
   if (!audio) return 0;
@@ -33,7 +51,7 @@ export function cancelMediaStart(audio: HTMLMediaElement): void {
 }
 
 export function primeMediaStart(audio: HTMLMediaElement): void {
-  if (!audio.paused || pendingStarts.has(audio)) return;
+  if (!audio.paused || pendingStarts.has(audio) || sourceReadiness.get(audio)?.usable) return;
   if (audio.readyState >= audio.HAVE_FUTURE_DATA && !audio.seeking) return;
   const position = audio.currentTime;
   if (position <= 0 || !audio.getAttribute("src")) return;
@@ -51,6 +69,7 @@ export function loadMediaSource(
   cancelMediaStart(audio);
   if (audio.src === source) audio.load();
   else audio.src = source;
+  trackSourceReadiness(audio);
   if (!prime || position <= 0 || audio.readyState >= audio.HAVE_FUTURE_DATA) {
     audio.currentTime = position;
     return;
