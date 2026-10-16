@@ -790,33 +790,25 @@ async function serveOfflineMedia(request, pathname) {
 function streamMediaRange(cache, pathname, manifest, start, end) {
   let index = Math.floor(start / manifest.chunkSize);
   const last = Math.floor(end / manifest.chunkSize);
-  let offset = start - index * manifest.chunkSize;
-  let blob = null;
   return new ReadableStream({
     async pull(controller) {
       if (index > last) {
         controller.close();
         return;
       }
-      if (!blob) {
-        const response = await cache.match(`${pathname}/chunk/${index}`);
-        if (!response) {
-          controller.error(new Error("Download unavailable"));
-          return;
-        }
-        blob = await response.blob();
+      const response = await cache.match(`${pathname}/chunk/${index}`);
+      if (!response) {
+        controller.error(new Error("Download unavailable"));
+        return;
       }
+      const blob = await response.blob();
       const chunkStart = index * manifest.chunkSize;
-      const limit = Math.min(blob.size, end - chunkStart + 1);
-      const nextOffset = Math.min(limit, offset + 256 * 1024);
-      const slice = blob.slice(offset, nextOffset);
+      const slice = blob.slice(
+        Math.max(0, start - chunkStart),
+        Math.min(blob.size, end - chunkStart + 1),
+      );
       controller.enqueue(new Uint8Array(await slice.arrayBuffer()));
-      offset = nextOffset;
-      if (offset >= limit) {
-        index += 1;
-        offset = 0;
-        blob = null;
-      }
+      index += 1;
     },
   });
 }

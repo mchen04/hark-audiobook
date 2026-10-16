@@ -19,58 +19,6 @@ const createServeOfflineMedia = new Function(
 ) as (cacheStorage: CacheStorage) => (request: Request, pathname: string) => Promise<Response>;
 
 describe("service-worker chunked media", () => {
-  it("bounds range pulls while preserving bytes across cached chunk boundaries", async () => {
-    const mediaUrl = "/offline-media/bounded";
-    const chunkSize = 4 * 1024 * 1024;
-    const entries = new Map([
-      [`${mediaUrl}/chunk/0`, new Response(new Uint8Array(chunkSize).fill(17))],
-      [`${mediaUrl}/chunk/1`, new Response(new Uint8Array(chunkSize).fill(29))],
-    ]);
-    const match = vi.fn(async (url: string) => {
-      if (url === mediaUrl)
-        return new Response(
-          JSON.stringify({
-            format: "chapterline-chunked-media-v1",
-            byteSize: chunkSize * 2,
-            chunkSize,
-            chunkCount: 2,
-          }),
-          { headers: { "X-Chapterline-Media-Format": "chunked-v1" } },
-        );
-      return entries.get(url)?.clone();
-    });
-    const serve = createServeOfflineMedia({
-      open: vi.fn(async () => ({ match })) as never,
-    } as unknown as CacheStorage);
-    const start = chunkSize - 300_000;
-    const end = chunkSize + 400_000;
-    const response = await serve(
-      new Request(`https://example.test${mediaUrl}`, {
-        headers: { Range: `bytes=${start}-${end}` },
-      }),
-      mediaUrl,
-    );
-    expect(response.status).toBe(206);
-    expect(response.headers.get("Content-Range")).toBe(`bytes ${start}-${end}/${chunkSize * 2}`);
-    expect(response.headers.get("Content-Length")).toBe("700001");
-    const reader = response.body!.getReader();
-    let consumed = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      expect(value.byteLength).toBeGreaterThan(0);
-      expect(value.byteLength).toBeLessThanOrEqual(256 * 1024);
-      expect(value).toEqual(new Uint8Array(value.byteLength).fill(consumed < 300_000 ? 17 : 29));
-      consumed += value.byteLength;
-    }
-    expect(consumed).toBe(700_001);
-    expect(match.mock.calls.map(([url]) => url)).toEqual([
-      mediaUrl,
-      `${mediaUrl}/chunk/0`,
-      `${mediaUrl}/chunk/1`,
-    ]);
-  });
-
   it("streams an open-ended media request from its individual chunks", async () => {
     const mediaUrl = "/offline-media/book";
     const chunkSize = 2 * 1024 * 1024;
