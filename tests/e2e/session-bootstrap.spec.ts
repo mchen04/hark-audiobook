@@ -1,12 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { PENDING_ACCOUNT_DELETION_KEY, ACTIVE_USER_KEY } from "../../src/lib/app-keys";
+import { awaitSignInBudget } from "../shared/sign-in-budget";
 import { startControllableNetwork } from "../parity/harness/network";
 import { closeSql, resetAccount, sharedSession, waitForServiceWorker } from "../sync/harness/app";
 
 test.afterAll(closeSql);
 
 async function fillSignIn(page: Page, account: { email: string; password: string }) {
+  await awaitSignInBudget(test.info().project.name);
   await page.getByLabel("Email").fill(account.email);
   await page.getByLabel("Password").fill(account.password);
 }
@@ -79,6 +81,7 @@ test("the cookie-only sign-in harness recovers a service-worker-controlled libra
   await resetAccount(account.userId);
   await page.goto("/login");
   await waitForServiceWorker(page);
+  await awaitSignInBudget(test.info().project.name);
   const response = await page.request.post("/api/auth/sign-in/email", {
     data: { email: account.email, password: account.password },
   });
