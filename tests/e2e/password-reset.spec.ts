@@ -75,7 +75,9 @@ test("local captured reset mail redeems once, revokes old sessions and rejects i
     await recovery.getByLabel("Email", { exact: true }).fill(email);
     await recovery.getByLabel("Password", { exact: true }).fill(oldPassword);
     await recovery.getByRole("button", { name: "Sign in", exact: true }).click();
-    await expect(recovery.locator(".auth-form").getByRole("alert")).toContainText(/invalid|password/i);
+    await expect(recovery.locator(".auth-form").getByRole("alert")).toContainText(
+      /invalid|password/i,
+    );
     await recovery.getByLabel("Password", { exact: true }).fill(newPassword);
     await recovery.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(recovery).toHaveURL(/\/library/);
@@ -85,21 +87,29 @@ test("local captured reset mail redeems once, revokes old sessions and rejects i
     expect(await (await page.request.get("/api/auth/get-session")).json()).toBeNull();
     await recoveryContext.clearCookies();
     await recovery.goto(link);
-    await expect(recovery.locator(".auth-form").getByRole("alert")).toContainText("invalid or has expired");
+    await expect(recovery.locator(".auth-form").getByRole("alert")).toContainText(
+      "invalid or has expired",
+    );
     await expect(recovery.getByRole("link", { name: "Request a new link" })).toBeVisible();
     await recovery.goto("/reset-password");
-    await expect(recovery.locator(".auth-form").getByRole("alert")).toContainText("invalid or has expired");
+    await expect(recovery.locator(".auth-form").getByRole("alert")).toContainText(
+      "invalid or has expired",
+    );
     await recovery.goto(`/reset-password?token=invalid-${randomUUID()}`);
     await recovery.getByLabel(/^New password/).fill(newPassword);
     await recovery.getByRole("button", { name: "Set new password", exact: true }).click();
-    await expect(recovery.locator(".auth-form").getByRole("alert")).toContainText(/invalid|expired/i);
+    await expect(recovery.locator(".auth-form").getByRole("alert")).toContainText(
+      /invalid|expired/i,
+    );
     const expiredLink = await requestReset();
     const token = new URL(expiredLink).pathname.split("/").pop()!;
     const expired =
       await sql()`UPDATE verification SET expires_at = now() - interval '1 minute' WHERE identifier = ${`reset-password:${token}`} RETURNING id`;
     expect(expired).toHaveLength(1);
     await recovery.goto(expiredLink);
-    await expect(recovery.locator(".auth-form").getByRole("alert")).toContainText("invalid or has expired");
+    await expect(recovery.locator(".auth-form").getByRole("alert")).toContainText(
+      "invalid or has expired",
+    );
     await recovery.getByRole("link", { name: "Request a new link" }).click();
     await expect(
       recovery.getByRole("button", { name: "Send reset link", exact: true }),

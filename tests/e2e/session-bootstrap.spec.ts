@@ -91,21 +91,39 @@ test("the cookie-only sign-in harness recovers a service-worker-controlled libra
   await expect(page.locator('[data-launch-ready="empty"]')).toBeVisible({ timeout: 10_000 });
 });
 
-
-test("a synthetic pending-deletion login exposes retry and a working return path", async ({ browser, context, page }) => {
+test("a synthetic pending-deletion login exposes retry and a working return path", async ({
+  browser,
+  context,
+  page,
+}) => {
   const { account, storageState } = await sharedSession(browser);
   await resetAccount(account.userId);
   await context.addCookies(storageState.cookies);
-  await context.addInitScript(({ userId, key }) => {
-    if (!sessionStorage.getItem("deletion-fixture-installed")) {
-      localStorage.setItem(key, JSON.stringify({ userId, deleteToken: "synthetic-deletion-token", phase: "purged", createdAt: Date.now() }));
-      sessionStorage.setItem("deletion-fixture-installed", "true");
-    }
-  }, { userId: account.userId, key: PENDING_ACCOUNT_DELETION_KEY });
+  await context.addInitScript(
+    ({ userId, key }) => {
+      if (!sessionStorage.getItem("deletion-fixture-installed")) {
+        localStorage.setItem(
+          key,
+          JSON.stringify({
+            userId,
+            deleteToken: "synthetic-deletion-token",
+            phase: "purged",
+            createdAt: Date.now(),
+          }),
+        );
+        sessionStorage.setItem("deletion-fixture-installed", "true");
+      }
+    },
+    { userId: account.userId, key: PENDING_ACCOUNT_DELETION_KEY },
+  );
   let commits = 0;
   await page.route("**/api/account/delete", async (route) => {
     commits++;
-    await route.fulfill({ status: commits === 1 ? 503 : 410, contentType: "application/json", body: "{}" });
+    await route.fulfill({
+      status: commits === 1 ? 503 : 410,
+      contentType: "application/json",
+      body: "{}",
+    });
   });
   await page.goto("/login");
   await expect(page.getByRole("heading", { name: "Deletion needs attention" })).toBeVisible();
