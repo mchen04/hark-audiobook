@@ -58,10 +58,23 @@ for (const width of [320, 393]) {
     await list.click();
     await expect(list).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: "Remove download of Phone Removal" }).click();
-    await expect(page.locator(".book-offdevice")).toBeVisible();
+    const missingRow = page.locator(".book-item");
+    await expect(missingRow.locator(".book-device-missing")).toHaveText(
+      "Not on this device — attach its original file to listen",
+    );
+    await expect(missingRow.locator(".book-offdevice")).toHaveCount(0);
+    await expect(missingRow.locator(".book-cover")).toContainText("PR");
+    await expect(missingRow.getByText(/Not on this device/)).toHaveCount(1);
+    await expect(missingRow.locator(".book-play-unavailable")).toHaveAttribute(
+      "aria-hidden",
+      "true",
+    );
     await expect(page.getByRole("button", { name: "Play Phone Removal", exact: true })).toHaveCount(
       0,
     );
     await page.screenshot({ path: info.outputPath(`phone-${width}-controls.png`), fullPage: true });
+    await grid.click();
+    await expect(missingRow.locator(".book-offdevice")).toBeVisible();
+    await expect(missingRow.locator(".book-device-missing")).toHaveCount(0);
   });
 }

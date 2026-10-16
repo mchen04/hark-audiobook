@@ -334,9 +334,7 @@ test("books not on this device are marked, browsable, searchable and never playa
       expect(card!.offDeviceBadge).toBe(false);
       continue;
     }
-    // Visibly marked, in both places the design promises: on the cover and in
-    // the card's own copy.
-    expect(card!.offDeviceBadge, `"${seed.title}" is not marked on its cover`).toBe(true);
+    expect(card!.offDeviceBadge, `"${seed.title}" repeats a missing-audio cover badge`).toBe(false);
     expect(card!.deviceLine).toBe("Not on this device — attach its original file to listen");
     // And never looks playable: no play link, only the inert stand-in.
     expect(card!.playButton, `"${seed.title}" offers a play affordance it cannot honour`).toBe(
@@ -351,7 +349,9 @@ test("books not on this device are marked, browsable, searchable and never playa
   for (const seed of VISIBLE_SEED_BOOKS.filter((book) => !book.onDevice)) {
     const card = page.locator("article.book-item", { hasText: seed.title });
     await expect(card.getByRole("button", { name: `Play ${seed.title}` })).toHaveCount(0);
-    await expect(card.getByText("Not on this device", { exact: false }).first()).toBeVisible();
+    await expect(card.getByText("Not on this device", { exact: false })).toHaveCount(1);
+    await expect(card.getByText("Not on this device", { exact: false })).toBeVisible();
+    await expect(card.locator(".book-play-unavailable")).toHaveAttribute("aria-hidden", "true");
   }
   for (const seed of VISIBLE_SEED_BOOKS.filter((book) => book.onDevice)) {
     const card = page.locator("article.book-item", { hasText: seed.title });
@@ -368,9 +368,15 @@ test("books not on this device are marked, browsable, searchable and never playa
     })
     .toStrictEqual([offDevice.title]);
   const found = await readLibrary(page);
-  expect(found.books[0]!.offDeviceBadge).toBe(true);
+  expect(found.books[0]!.offDeviceBadge).toBe(false);
   expect(found.books[0]!.playButton).toBe(false);
 
+  await page.getByRole("button", { name: "Grid view" }).click();
+  await expect.poll(async () => (await readLibrary(page)).listMode).toBe(false);
+  const grid = await readLibrary(page);
+  expect(grid.books[0]!.offDeviceBadge).toBe(true);
+  expect(grid.books[0]!.deviceLine).toBe("");
+  expect(grid.books[0]!.playButton).toBe(false);
   await expectNothingReachedTheServer("browsing not-on-device books offline");
   await page.close();
 });

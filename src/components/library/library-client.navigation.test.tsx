@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -290,6 +290,21 @@ describe("in-place library playback", () => {
       screen.queryByRole("button", { name: /^(Play|Resume) The Hobbit$/ }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "The Hobbit" })).toBeInTheDocument();
+  });
+
+  it("keeps a grid badge and one list explanation without covering missing-book initials", () => {
+    showPlayableLibrary(false);
+    fireEvent.click(screen.getByRole("button", { name: "Grid view" }));
+    const card = screen.getByRole("article");
+    expect(card.querySelector(".book-offdevice")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "List view" }));
+    expect(card.querySelector(".book-offdevice")).not.toBeInTheDocument();
+    expect(card.querySelector(".book-cover")).toHaveTextContent("TH");
+    expect(card.querySelector(".book-play-unavailable")).toHaveAttribute("aria-hidden", "true");
+    expect(within(card).getAllByText(/Not on this device/)).toHaveLength(1);
+    expect(
+      within(card).getByText("Not on this device — attach its original file to listen"),
+    ).toBeVisible();
   });
 
   it("opens an unanswered suspension gap before playback can overwrite it", () => {

@@ -187,7 +187,10 @@ test("library buttons play in place, preserve saved position and keep a syntheti
   await page.getByRole("button", { name: "Library", exact: true }).click();
   await page.getByRole("button", { name: "List view" }).click();
   await page.getByRole("button", { name: "Remove download of Library Journey" }).click();
-  await expect(page.locator(".book-offdevice")).toBeVisible();
+  await expect(page.locator(".book-offdevice")).toHaveCount(0);
+  await expect(page.locator(".book-device-missing")).toHaveText(
+    "Not on this device — attach its original file to listen",
+  );
   await expect(
     page.getByRole("button", { name: /^(Play|Resume|Pause) Library Journey$/ }),
   ).toHaveCount(0);
@@ -195,6 +198,7 @@ test("library buttons play in place, preserve saved position and keep a syntheti
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.screenshot({ path: info.outputPath("desktop-list.png"), fullPage: true });
   await page.getByRole("button", { name: "Grid view" }).click();
+  await expect(page.locator(".book-offdevice")).toBeVisible();
   await expect(page.locator(".book-device-missing")).toHaveCount(0);
   await expect(
     page

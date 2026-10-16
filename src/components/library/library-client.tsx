@@ -665,12 +665,10 @@ const BookItem = memo(function BookItem({
             </span>
           )}
         </Link>
-        {!record && (
+        {!compact && !record && (
           <span className="book-offdevice">
             <CloudSlash size={12} aria-hidden="true" />
-            <span className={compact ? "visually-hidden" : "book-offdevice-label"}>
-              Not on device
-            </span>
+            <span className="book-offdevice-label">Not on device</span>
           </span>
         )}
         {!compact && record && <LibraryPlayButton record={record} title={book.title} />}
@@ -740,9 +738,12 @@ const BookItem = memo(function BookItem({
         (record ? (
           <LibraryPlayButton record={record} title={book.title} />
         ) : (
-          <span className="book-play-button book-play-unavailable" title={MISSING_MEDIA_HINT}>
+          <span
+            className="book-play-button book-play-unavailable"
+            title={MISSING_MEDIA_HINT}
+            aria-hidden="true"
+          >
             <CloudSlash size={19} aria-hidden="true" />
-            <span className="visually-hidden">Not on this device</span>
           </span>
         ))}
     </article>
