@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -84,7 +84,10 @@ const playerBook: PlayerBook = {
 };
 const emptyHistorySnapshot = { entries: [], capturedAt: "2026-07-12T18:30:00.000Z" };
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe("full player history wiring", () => {
   beforeEach(() => {
@@ -169,4 +172,16 @@ describe("compact player options", () => {
     fireEvent.click(screen.getByRole("button", { name: "Turn off" }));
     expect(playback.clearSleep).toHaveBeenCalled();
   });
+});
+
+it("updates the remaining sleep minutes while audio stays paused", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(1_000_000);
+  playback.sleepMode = { kind: "time", endsAt: Date.now() + 15 * 60_000, minutes: 15 };
+  const view = render(<FullPlayer playerBook={playerBook} />);
+  const summary = view.container.querySelector(".sleep-menu summary")!;
+  expect(summary).toHaveAccessibleName("Sleep timer, 15 minutes left");
+  act(() => vi.advanceTimersByTime(60_000));
+  expect(summary).toHaveAccessibleName("Sleep timer, 14 minutes left");
+  expect(summary).toHaveTextContent("14m");
 });

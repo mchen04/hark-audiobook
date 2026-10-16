@@ -19,7 +19,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import type { BookDetails } from "@/components/book/book-details-dialog";
 import { useOpenLocalLibrary } from "@/components/app-navigation";
@@ -31,12 +31,7 @@ import { getChapterTranscript, getTranscriptChapterIndexes } from "@/lib/offline
 import type { SuspendedSession } from "@/lib/playback-core";
 
 import { PlayerSheet, type PlayerSheetView } from "./chapter-sheet";
-import {
-  useCurrentChapter,
-  usePlayback,
-  usePlaybackDerived,
-  usePlaybackTime,
-} from "./playback-provider";
+import { useCurrentChapter, usePlayback, usePlaybackTime } from "./playback-provider";
 import { usePreferences } from "./preferences-provider";
 import { CoverNowReading, TranscriptPane } from "./transcript-pane";
 import type { SleepMode } from "./use-sleep-timer";
@@ -686,8 +681,37 @@ function SleepMenu() {
 }
 
 function SleepLabel({ mode }: { mode: SleepMode }) {
-  // Recomputed each playback tick, but only a label change re-renders.
-  const label = usePlaybackDerived(() => sleepLabel(mode));
+  const endsAt = mode?.kind === "time" ? mode.endsAt : null;
+  const subscribe = useCallback(
+    (notify: () => void) => {
+      if (endsAt === null) return () => undefined;
+      const deadline = endsAt;
+      let timer: number;
+      function schedule() {
+        const remaining = deadline - Date.now();
+        timer = window.setTimeout(refresh, remaining > 0 ? remaining % 60_000 || 60_000 : 60_000);
+      }
+      function refresh() {
+        window.clearTimeout(timer);
+        notify();
+        schedule();
+      }
+      schedule();
+      window.addEventListener("pageshow", refresh);
+      document.addEventListener("visibilitychange", refresh);
+      return () => {
+        window.clearTimeout(timer);
+        window.removeEventListener("pageshow", refresh);
+        document.removeEventListener("visibilitychange", refresh);
+      };
+    },
+    [endsAt],
+  );
+  const label = useSyncExternalStore(
+    subscribe,
+    () => sleepLabel(mode),
+    () => sleepLabel(mode),
+  );
   const accessibleLabel = !mode
     ? "Sleep timer"
     : mode.kind === "chapter"
