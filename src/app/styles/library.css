@@ -451,7 +451,7 @@
   box-shadow: var(--shadow);
 }
 
-.continue-card:hover .continue-play {
+.continue-card:hover button.continue-play {
   background: var(--accent-hover);
 }
 
@@ -797,8 +797,8 @@
   text-decoration: none;
 }
 
-.continue-play,
-.book-play-button {
+button.continue-play,
+button.book-play-button {
   border: 0;
   cursor: pointer;
 }
@@ -822,7 +822,7 @@
   content: "";
 }
 
-.continue-play {
+button.continue-play {
   position: relative;
   z-index: 1;
 }

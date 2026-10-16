@@ -190,7 +190,31 @@ test("library buttons play in place, preserve saved position and keep a syntheti
   await page.screenshot({ path: info.outputPath("desktop-list.png"), fullPage: true });
   await page.getByRole("button", { name: "Grid view" }).click();
   await expect(page.locator(".book-device-missing")).toHaveCount(0);
+  await expect(
+    page
+      .locator(".book-item")
+      .getByRole("button", { name: /^(Play|Resume|Pause) Library Journey$/ }),
+  ).toHaveCount(0);
   await page.screenshot({ path: info.outputPath("desktop-library.png"), fullPage: true });
   await page.setViewportSize(phoneViewport);
   await page.screenshot({ path: info.outputPath("iphone-offdevice.png"), fullPage: true });
+  const unavailable = page.locator(".continue-unavailable");
+  await unavailable.scrollIntoViewIfNeeded();
+  const unavailableBox = (await unavailable.boundingBox())!;
+  await page.mouse.move(
+    unavailableBox.x + unavailableBox.width / 2,
+    unavailableBox.y + unavailableBox.height / 2,
+  );
+  const unavailableStyle = await unavailable.evaluate((element) => ({
+    border: getComputedStyle(element).borderTopStyle,
+    background: getComputedStyle(element).backgroundColor,
+  }));
+  expect.soft(unavailableStyle.border).toBe("dashed");
+  expect.soft(unavailableStyle.background).toBe("rgba(0, 0, 0, 0)");
+  await page.mouse.click(
+    unavailableBox.x + unavailableBox.width / 2,
+    unavailableBox.y + unavailableBox.height / 2,
+  );
+  await expect(page).toHaveURL(new RegExp(`${bookPath}$`));
+  await expect(page.getByRole("button", { name: "Attach MP3", exact: true })).toBeVisible();
 });
