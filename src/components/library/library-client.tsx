@@ -24,6 +24,8 @@ import { memo, useCallback, useDeferredValue, useEffect, useState } from "react"
 import { FullPlayer } from "@/components/player/full-player";
 import { LocalMediaGate } from "@/components/player/local-media-gate";
 import { useActiveUserId } from "@/components/use-active-user";
+import { titleMonogram } from "@/lib/book-monogram";
+
 import type { LibraryBook } from "@/domain/library";
 import { formatBytes } from "@/lib/format-bytes";
 import { formatDurationRounded } from "@/lib/format-time";
@@ -616,15 +618,9 @@ function BookCover({ book, coverUrl }: { book: LibraryBook; coverUrl?: string })
       />
     );
   }
-  const initials = book.title
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase();
   return (
     <>
-      <span>{initials || "AB"}</span>
+      <span>{titleMonogram(book.title)}</span>
       <small>MP3</small>
     </>
   );

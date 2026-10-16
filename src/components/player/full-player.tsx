@@ -21,6 +21,8 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
+import { titleMonogram } from "@/lib/book-monogram";
+
 import type { BookDetails } from "@/components/book/book-details-dialog";
 import { useOpenLocalLibrary } from "@/components/app-navigation";
 import type { PlaybackHistorySnapshot } from "@/domain/playback-history";
@@ -519,18 +521,6 @@ function CoverArt({ playerBook, onFlip }: { playerBook: PlayerBook; onFlip?: () 
     <button type="button" className="player-cover-flip" aria-label="Show text" onClick={onFlip}>
       {art}
     </button>
-  );
-}
-
-/** Word-initial monogram, matching the library's cover placeholders. */
-function titleMonogram(title: string): string {
-  return (
-    title
-      .split(/\s+/)
-      .slice(0, 2)
-      .map((part) => part[0])
-      .join("")
-      .toUpperCase() || "AB"
   );
 }
 
