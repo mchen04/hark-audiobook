@@ -340,7 +340,7 @@ test("books not on this device are marked, browsable, searchable and never playa
       expect(card!.deviceSize).toMatch(/^[\d.]+ (B|KB|MB|GB) on this device$/);
       expect(card!.deviceLine, "a downloaded book needs no missing-audio notice").toBe("");
       expect(card!.removeDownloadButton, "a downloaded book must offer removal").toBe(true);
-      expect(card!.playLink, "a downloaded book must be playable offline").toBe(true);
+      expect(card!.playButton, "a downloaded book must be playable offline").toBe(true);
       expect(card!.offDeviceBadge).toBe(false);
       continue;
     }
@@ -349,7 +349,7 @@ test("books not on this device are marked, browsable, searchable and never playa
     expect(card!.offDeviceBadge, `"${seed.title}" is not marked on its cover`).toBe(true);
     expect(card!.deviceLine).toBe("Not on this device — attach its original file to listen");
     // And never looks playable: no play link, only the inert stand-in.
-    expect(card!.playLink, `"${seed.title}" offers a play affordance it cannot honour`).toBe(false);
+    expect(card!.playButton, `"${seed.title}" offers a play affordance it cannot honour`).toBe(false);
     expect(card!.playUnavailable).toBe(true);
     expect(card!.removeDownloadButton).toBe(false);
   }
@@ -358,12 +358,12 @@ test("books not on this device are marked, browsable, searchable and never playa
   // names, so a renamed class cannot quietly turn this assertion vacuous.
   for (const seed of VISIBLE_SEED_BOOKS.filter((book) => !book.onDevice)) {
     const card = page.locator("article.book-item", { hasText: seed.title });
-    await expect(card.getByRole("link", { name: `Play ${seed.title}` })).toHaveCount(0);
+    await expect(card.getByRole("button", { name: `Play ${seed.title}` })).toHaveCount(0);
     await expect(card.getByText("Not on this device", { exact: false }).first()).toBeVisible();
   }
   for (const seed of VISIBLE_SEED_BOOKS.filter((book) => book.onDevice)) {
     const card = page.locator("article.book-item", { hasText: seed.title });
-    await expect(card.getByRole("link", { name: `Play ${seed.title}` })).toHaveCount(1);
+    await expect(card.getByRole("button", { name: `Play ${seed.title}` })).toHaveCount(1);
   }
 
   // Still browsable and searchable — the marking is not a way of hiding them.
@@ -377,7 +377,7 @@ test("books not on this device are marked, browsable, searchable and never playa
     .toStrictEqual([offDevice.title]);
   const found = await readLibrary(page);
   expect(found.books[0]!.offDeviceBadge).toBe(true);
-  expect(found.books[0]!.playLink).toBe(false);
+  expect(found.books[0]!.playButton).toBe(false);
 
   await expectNothingReachedTheServer("browsing not-on-device books offline");
   await page.close();

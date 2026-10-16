@@ -22,8 +22,7 @@ export type BookCardSnapshot = {
   /** The "Not on device" badge over the cover. */
   offDeviceBadge: boolean;
   removeDownloadButton: boolean;
-  /** A real `<a>` that opens the player — the only play affordance a card has. */
-  playLink: boolean;
+  playButton: boolean;
   /** The inert stand-in shown where a play link would be. */
   playUnavailable: boolean;
   progress: string;
@@ -134,7 +133,7 @@ export function readLibrary(page: Page): Promise<LibrarySnapshot> {
         onDevice: !!card.querySelector(".book-device-size"),
         offDeviceBadge: !!card.querySelector(".book-offdevice"),
         removeDownloadButton: !!card.querySelector(".book-device-remove"),
-        playLink: !!card.querySelector("a.book-play-button"),
+        playButton: !!card.querySelector("button.book-play-button"),
         playUnavailable: !!card.querySelector("span.book-play-unavailable"),
         progress: text(card.querySelector(".book-progress-status")),
       })),

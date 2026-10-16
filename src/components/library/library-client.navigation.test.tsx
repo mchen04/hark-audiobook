@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
-import type { ReactNode } from "react";
+import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LibraryClient } from "./library-client";
@@ -24,6 +24,25 @@ import { LibraryViewProvider } from "./library-view-state";
 const BOOK_ID = "11111111-2222-3333-4444-555555555555";
 
 const device = new Map([[BOOK_ID, { book: { id: BOOK_ID, title: "The Hobbit" } }]]);
+const { playback, push, gap, dismissed } = vi.hoisted(() => ({
+  playback: {
+    userId: "user-1",
+    book: null as { id: string } | null,
+    isPlaying: false,
+    loadBook: vi.fn(),
+    toggle: vi.fn(),
+  },
+  push: vi.fn(),
+  gap: { value: null as { writtenAt: number } | null },
+  dismissed: { value: null as number | null },
+}));
+vi.mock("@/components/player/playback-provider", () => ({ usePlayback: () => playback }));
+vi.mock("@/lib/playback-core", () => ({
+  detectSuspendedSession: () => gap.value,
+  readLocalProgress: vi.fn(),
+  readDismissedSuspensionGap: () => dismissed.value,
+}));
+
 const libraryState = vi.hoisted(() => ({ snapshot: null as unknown }));
 const { getMirrorPlayerBook } = vi.hoisted(() => ({ getMirrorPlayerBook: vi.fn() }));
 
@@ -35,6 +54,7 @@ vi.mock("next/navigation", async () => {
     return () => window.removeEventListener("popstate", notify);
   };
   return {
+    useRouter: () => ({ push }),
     useSearchParams: () => new URLSearchParams(),
     usePathname: () =>
       useSyncExternalStore(
@@ -45,9 +65,13 @@ vi.mock("next/navigation", async () => {
   };
 });
 vi.mock("next/link", () => ({
-  default: ({ children, href }: { children: React.ReactNode; href: string }) => (
-    <a href={href}>{children}</a>
-  ),
+  default: ({
+    prefetch: _prefetch,
+    ...props
+  }: AnchorHTMLAttributes<HTMLAnchorElement> & { prefetch?: boolean }) => {
+    void _prefetch;
+    return <a {...props} />;
+  },
 }));
 vi.mock("next/image", () => ({ default: () => null }));
 vi.mock("@/components/player/full-player", () => ({
@@ -104,6 +128,11 @@ function setReferrer(value: string) {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
+  playback.book = null;
+  playback.isPlaying = false;
+  gap.value = null;
+  dismissed.value = null;
   goTo("/library");
   setReferrer("");
   libraryState.snapshot = {
@@ -203,5 +232,81 @@ describe("LibraryClient URL following", () => {
     expect(window.location.pathname).toBe("/library");
     expect(screen.getByRole("heading", { name: "Library" })).toBeInTheDocument();
     back.mockRestore();
+  });
+});
+
+const localBook = {
+  id: BOOK_ID,
+  title: "The Hobbit",
+  author: "Tolkien",
+  tags: [],
+  durationMs: 600_000,
+  positionMs: 12_000,
+  completed: false,
+};
+
+function showPlayableLibrary(local = true) {
+  libraryState.snapshot = {
+    books: [localBook],
+    device: local ? new Map([[BOOK_ID, { ...localBook, byteSize: 1024 }]]) : new Map(),
+    libraryTotal: 1,
+    tags: [],
+    continueBook: localBook,
+  };
+  return renderLibrary();
+}
+
+describe("in-place library playback", () => {
+  it("resumes directly during the click without opening the player route", () => {
+    showPlayableLibrary();
+    fireEvent.click(screen.getByRole("button", { name: "Resume The Hobbit" }));
+    expect(playback.loadBook).toHaveBeenCalledWith(expect.objectContaining({ id: BOOK_ID }), true);
+    expect(push).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe("/library");
+    expect(screen.getByRole("link", { name: "Continue listening The Hobbit" })).toHaveAttribute(
+      "href",
+      `/books/${BOOK_ID}`,
+    );
+  });
+
+  it("plays grid and list books in place and toggles the active playing book", () => {
+    const view = showPlayableLibrary();
+    fireEvent.click(screen.getByRole("button", { name: "Play The Hobbit" }));
+    expect(playback.loadBook).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "List view" }));
+    fireEvent.click(screen.getByRole("button", { name: "Play The Hobbit" }));
+    expect(playback.loadBook).toHaveBeenCalledTimes(2);
+    playback.book = { id: BOOK_ID };
+    playback.isPlaying = true;
+    view.rerender(<LibraryClient />);
+    fireEvent.click(screen.getAllByRole("button", { name: "Pause The Hobbit" })[0]!);
+    expect(playback.toggle).toHaveBeenCalledOnce();
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("exposes no play or resume control for off-device audio", () => {
+    showPlayableLibrary(false);
+    expect(
+      screen.queryByRole("button", { name: /^(Play|Resume) The Hobbit$/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "The Hobbit" })).toBeInTheDocument();
+  });
+
+  it("opens an unanswered suspension gap before playback can overwrite it", () => {
+    gap.value = { writtenAt: 123 };
+    showPlayableLibrary();
+    fireEvent.click(screen.getByRole("button", { name: "Resume The Hobbit" }));
+    expect(playback.loadBook).not.toHaveBeenCalled();
+    expect(push).toHaveBeenCalledWith(`/books/${BOOK_ID}`);
+    expect(gap.value).toEqual({ writtenAt: 123 });
+  });
+
+  it("plays when that suspension gap was already answered", () => {
+    gap.value = { writtenAt: 123 };
+    dismissed.value = 123;
+    showPlayableLibrary();
+    fireEvent.click(screen.getByRole("button", { name: "Resume The Hobbit" }));
+    expect(playback.loadBook).toHaveBeenCalledOnce();
+    expect(push).not.toHaveBeenCalled();
   });
 });

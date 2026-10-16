@@ -431,8 +431,9 @@
 }
 
 .continue-card {
+  position: relative;
   display: grid;
-  grid-template-columns: 3.6rem minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-sm);
   margin-top: var(--space-md);
@@ -786,4 +787,44 @@
   display: block;
   height: 100%;
   background: var(--accent);
+}
+
+.continue-open {
+  display: grid;
+  grid-template-columns: 3.6rem minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.continue-play,
+.book-play-button {
+  border: 0;
+  cursor: pointer;
+}
+
+.book-cover-controls {
+  position: relative;
+  min-width: 0;
+}
+
+.book-cover-controls > .book-play-button {
+  position: absolute;
+  z-index: 2;
+  right: 0.45rem;
+  bottom: 0.45rem;
+  box-shadow: var(--shadow-soft);
+}
+
+.continue-open::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+}
+
+.continue-play {
+  position: relative;
+  z-index: 1;
 }
