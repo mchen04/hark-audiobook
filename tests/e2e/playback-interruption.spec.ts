@@ -62,7 +62,14 @@ test("synthetic in WebKit: an unmarked element pause preserves position and rewi
       visibility: document.visibilityState,
     };
   });
-  console.log(JSON.stringify({ evidence: "synthetic in WebKit", audioSession: capability }));
+  console.log(
+    JSON.stringify({
+      evidence: "synthetic in WebKit",
+      audioSession: capability,
+      browserVersion: browser.version(),
+      project: info.project.name,
+    }),
+  );
   if (capability.exposed) expect(capability.type).toBe("playback");
   const pausedAt = await page.locator("audio").evaluate((audio: HTMLAudioElement) => {
     audio.pause();
@@ -136,7 +143,7 @@ test("synthetic in WebKit: an unmarked element pause preserves position and rewi
   ).toEqual([]);
 });
 
-test("real WebKit tabs transfer playback ownership without simultaneous playback", async ({
+test("real WebKit tabs transfer playback ownership and pause the prior tab", async ({
   browser,
   context,
   page,

@@ -41,6 +41,8 @@ vi.mock("@/lib/listening-tracker", () => ({
   queueListeningSession: vi.fn(),
 }));
 
+import { hasAppPause } from "./pause-intent";
+
 import { PlaybackProvider, usePlayback, usePlaybackTime } from "./playback-provider";
 
 const book: PlayerBook = {
@@ -496,6 +498,11 @@ describe("synthetic audio session and interruption recovery", () => {
     const { result, audio } = mount();
     act(() => result.current.playback.toggle());
     audio.currentTime = 55;
+    const pause = vi.mocked(audio.pause).getMockImplementation()!;
+    vi.mocked(audio.pause).mockImplementation(function (this: HTMLAudioElement) {
+      expect(hasAppPause(this)).toBe(true);
+      return pause.call(this);
+    });
     if (source === "toggle") act(() => result.current.playback.toggle());
     if (source === "pause") act(() => result.current.playback.pause());
     if (source === "remote-pause") remote("pause");
