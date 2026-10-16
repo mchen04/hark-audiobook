@@ -3,9 +3,19 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { DEFAULT_PREFERENCES } from "@/domain/preferences";
+
 import type { PlayerBook } from "@/domain/player";
 
-const { persistence } = vi.hoisted(() => ({
+const { preferenceRef, persistence } = vi.hoisted(() => ({
+  preferenceRef: {
+    current: {
+      smartRewind: false,
+      skipBackMs: 15000,
+      skipForwardMs: 30000,
+      autoplayNextInCollection: false,
+    },
+  },
   persistence: {
     persistProgress: vi.fn().mockResolvedValue(undefined),
     saveDurableState: vi.fn(),
@@ -16,6 +26,8 @@ const { persistence } = vi.hoisted(() => ({
     reconcileCompletion: vi.fn(),
   },
 }));
+
+vi.mock("./preferences-provider", () => ({ usePreferencesRef: () => preferenceRef }));
 
 vi.mock("./use-progress-persistence", () => ({ useProgressPersistence: () => persistence }));
 vi.mock("@/lib/playback-history", () => ({
@@ -80,9 +92,28 @@ function remote(action: MediaSessionAction, details: Partial<MediaSessionActionD
 }
 
 beforeEach(() => {
+  preferenceRef.current = { ...DEFAULT_PREFERENCES };
   localStorage.clear();
   vi.clearAllMocks();
   paused = true;
+  const channels = new Set<EventTarget & { name: string }>();
+  vi.stubGlobal(
+    "BroadcastChannel",
+    class extends EventTarget {
+      constructor(public name: string) {
+        super();
+        channels.add(this);
+      }
+      postMessage(data: unknown) {
+        for (const channel of channels)
+          if (channel !== this && channel.name === this.name)
+            channel.dispatchEvent(new MessageEvent("message", { data }));
+      }
+      close() {
+        channels.delete(this);
+      }
+    },
+  );
   handlers = new Map();
   session = {
     metadata: null,
@@ -131,6 +162,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   Reflect.deleteProperty(navigator, "mediaSession");
+  Reflect.deleteProperty(navigator, "audioSession");
 });
 
 describe("synthetic chapter sleep navigation", () => {
@@ -344,4 +376,281 @@ describe("synthetic media failures and foreground return", () => {
     remote("play");
     expect(audio.currentTime).toBe(35.5);
   });
+});
+
+describe("synthetic audio session and interruption recovery", () => {
+  it("selects playback audio session before the first explicit play and tolerates an unsupported setter", () => {
+    const audioSession = new EventTarget();
+    let type = "auto";
+    Object.defineProperty(audioSession, "type", {
+      configurable: true,
+      get: () => type,
+      set: (next) => {
+        type = next;
+      },
+    });
+    Object.defineProperty(navigator, "audioSession", { configurable: true, value: audioSession });
+    const { result, audio } = mount();
+    const play = vi.mocked(audio.play).getMockImplementation()!;
+    vi.mocked(audio.play).mockImplementation(function (this: HTMLMediaElement) {
+      expect(type).toBe("playback");
+      return play.call(this);
+    });
+    act(() => result.current.playback.toggle());
+    expect(type).toBe("playback");
+    act(() => result.current.playback.pause());
+    Object.defineProperty(audioSession, "type", {
+      configurable: true,
+      get: () => "auto",
+      set: () => {
+        throw new Error("Unsupported audio session");
+      },
+    });
+    vi.mocked(audio.play).mockImplementation(play);
+    act(() => result.current.playback.toggle());
+    expect(audio.paused).toBe(false);
+  });
+
+  it.each([59000, 60000, 600000, 3600000])(
+    "rewinds once on actual play after a synthetic %ims system pause",
+    (absenceMs) => {
+      vi.useFakeTimers();
+      preferenceRef.current.smartRewind = true;
+      const { result, audio } = mount();
+      act(() => result.current.playback.toggle());
+      audio.currentTime = 55.5;
+      paused = true;
+      act(() => audio.dispatchEvent(new Event("pause")));
+      expect(persistence.persistProgress).toHaveBeenLastCalledWith("pause", 55500);
+      expect(session.playbackState).toBe("paused");
+      expect(session.setPositionState).toHaveBeenLastCalledWith({
+        duration: 120,
+        position: 55.5,
+        playbackRate: 1,
+      });
+      vi.mocked(audio.play).mockClear();
+      vi.setSystemTime(Date.now() + absenceMs);
+      act(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+      expect(audio.play).not.toHaveBeenCalled();
+      expect(audio.currentTime).toBe(55.5);
+      paused = false;
+      act(() => audio.dispatchEvent(new Event("play")));
+      const rewind = absenceMs < 60000 ? 0 : absenceMs < 600000 ? 5 : absenceMs < 3600000 ? 15 : 30;
+      expect(audio.currentTime).toBe(55.5 - rewind);
+      expect(result.current.time).toBe((55.5 - rewind) * 1000);
+      act(() => audio.dispatchEvent(new Event("play")));
+      expect(audio.currentTime).toBe(55.5 - rewind);
+    },
+  );
+
+  it("keeps exact system resume when smart rewind is disabled", () => {
+    vi.useFakeTimers();
+    const { result, audio } = mount();
+    act(() => result.current.playback.toggle());
+    audio.currentTime = 55;
+    paused = true;
+    act(() => audio.dispatchEvent(new Event("pause")));
+    vi.setSystemTime(Date.now() + 90000);
+    remote("play");
+    expect(audio.currentTime).toBe(55);
+  });
+
+  it("observes an audioSession interruption without a pause event and never starts playback on active", () => {
+    vi.useFakeTimers();
+    preferenceRef.current.smartRewind = true;
+    const audioSession = Object.assign(new EventTarget(), { type: "auto", state: "active" });
+    Object.defineProperty(navigator, "audioSession", { configurable: true, value: audioSession });
+    const { result, audio } = mount();
+    act(() => result.current.playback.toggle());
+    audio.currentTime = 55;
+    paused = true;
+    audioSession.state = "interrupted";
+    act(() => audioSession.dispatchEvent(new Event("statechange")));
+    expect(persistence.saveDurableState).toHaveBeenLastCalledWith("pause", 55000);
+    expect(result.current.playback.isPlaying).toBe(false);
+    expect(session.playbackState).toBe("paused");
+    vi.mocked(audio.play).mockClear();
+    vi.setSystemTime(Date.now() + 90000);
+    audioSession.state = "active";
+    act(() => audioSession.dispatchEvent(new Event("statechange")));
+    expect(audio.play).not.toHaveBeenCalled();
+    remote("play");
+    expect(audio.currentTime).toBe(50);
+  });
+
+  it.each([
+    "toggle",
+    "pause",
+    "remote-pause",
+    "remote-stop",
+    "sleep-minutes",
+    "sleep-chapter",
+    "tab",
+    "switch",
+    "unload",
+    "error",
+    "finished",
+  ])("does not classify %s as a system interruption", (source) => {
+    vi.useFakeTimers();
+    preferenceRef.current.smartRewind = true;
+    const { result, audio } = mount();
+    act(() => result.current.playback.toggle());
+    audio.currentTime = 55;
+    if (source === "toggle") act(() => result.current.playback.toggle());
+    if (source === "pause") act(() => result.current.playback.pause());
+    if (source === "remote-pause") remote("pause");
+    if (source === "remote-stop") remote("stop");
+    if (source === "sleep-minutes") {
+      act(() => result.current.playback.setSleepMinutes(1));
+      act(() => vi.advanceTimersByTime(60000));
+    }
+    if (source === "sleep-chapter") {
+      act(() => result.current.playback.setSleepAtChapterEnd());
+      audio.currentTime = 60;
+      act(() => audio.dispatchEvent(new Event("timeupdate")));
+    }
+    if (source === "tab") {
+      const peer = new BroadcastChannel("chapterline-playback");
+      act(() => peer.postMessage({ type: "playing", tabId: "other-tab" }));
+      peer.close();
+    }
+    if (source === "switch") act(() => result.current.playback.loadBook(nextBook));
+    if (source === "unload") {
+      act(() => result.current.playback.unloadBook());
+      act(() => result.current.playback.loadBook(nextBook));
+    }
+    if (source === "error") act(() => audio.dispatchEvent(new Event("error")));
+    if (source === "finished") act(() => result.current.playback.markFinished());
+    expect(audio.paused).toBe(true);
+    const saved = audio.currentTime;
+    vi.setSystemTime(Date.now() + 90000);
+    paused = false;
+    act(() => audio.dispatchEvent(new Event("play")));
+    expect(audio.currentTime).toBe(saved);
+  });
+
+  it("cancels interruption rewind when an explicit pause arrives while already system-paused", () => {
+    vi.useFakeTimers();
+    preferenceRef.current.smartRewind = true;
+    const { result, audio } = mount();
+    act(() => result.current.playback.toggle());
+    paused = true;
+    audio.currentTime = 55;
+    act(() => audio.dispatchEvent(new Event("pause")));
+    vi.setSystemTime(Date.now() + 90000);
+    remote("pause");
+    remote("play");
+    expect(audio.currentTime).toBe(55);
+  });
+
+  it("clamps interruption rewind at zero and preserves rate without restarting an almost-finished book", () => {
+    vi.useFakeTimers();
+    preferenceRef.current.smartRewind = true;
+    const { result, audio } = mount();
+    act(() => result.current.playback.setPlaybackRate(1.5));
+    act(() => result.current.playback.toggle());
+    for (const position of [3, 119.9]) {
+      audio.currentTime = position;
+      paused = true;
+      act(() => audio.dispatchEvent(new Event("pause")));
+      vi.setSystemTime(Date.now() + 90000);
+      paused = false;
+      act(() => audio.dispatchEvent(new Event("play")));
+      expect(audio.currentTime).toBeCloseTo(Math.max(0, position - 5));
+      expect(audio.playbackRate).toBe(1.5);
+    }
+  });
+});
+
+it("clears a canceled book-switch pause mark before a later genuine synthetic system pause", () => {
+  vi.useFakeTimers();
+  preferenceRef.current.smartRewind = true;
+  const { result, audio } = mount();
+  act(() => result.current.playback.toggle());
+  vi.mocked(audio.pause).mockImplementation(() => {
+    paused = true;
+  });
+  act(() => result.current.playback.loadBook(nextBook, true));
+  audio.currentTime = 55;
+  paused = true;
+  act(() => audio.dispatchEvent(new Event("pause")));
+  expect(persistence.persistProgress).toHaveBeenLastCalledWith("pause", 55000);
+  vi.setSystemTime(Date.now() + 90000);
+  paused = false;
+  act(() => audio.dispatchEvent(new Event("play")));
+  expect(audio.currentTime).toBe(50);
+});
+
+it("does not apply interruption rewind to a natural ended pause", () => {
+  vi.useFakeTimers();
+  preferenceRef.current.smartRewind = true;
+  const { result, audio } = mount();
+  act(() => result.current.playback.toggle());
+  audio.currentTime = 120;
+  paused = true;
+  Object.defineProperty(audio, "ended", { configurable: true, value: true });
+  act(() => audio.dispatchEvent(new Event("pause")));
+  vi.setSystemTime(Date.now() + 90000);
+  Object.defineProperty(audio, "ended", { configurable: true, value: false });
+  paused = false;
+  act(() => audio.dispatchEvent(new Event("play")));
+  expect(audio.currentTime).toBe(120);
+});
+
+it("keeps a deliberate seek during a synthetic interruption when playback resumes", () => {
+  vi.useFakeTimers();
+  preferenceRef.current.smartRewind = true;
+  const { result, audio } = mount();
+  act(() => result.current.playback.toggle());
+  audio.currentTime = 55;
+  paused = true;
+  act(() => audio.dispatchEvent(new Event("pause")));
+  vi.setSystemTime(Date.now() + 90000);
+  act(() => result.current.playback.seek(40000));
+  remote("play");
+  expect(audio.currentTime).toBe(40);
+});
+
+it("keeps native waiting and stalled recovery without reloading or starting audio", () => {
+  const { result, audio } = mount();
+  act(() => result.current.playback.toggle());
+  audio.currentTime = 33;
+  vi.mocked(audio.play).mockClear();
+  vi.mocked(audio.load).mockClear();
+  for (const event of ["waiting", "stalled"]) act(() => audio.dispatchEvent(new Event(event)));
+  expect(audio.load).not.toHaveBeenCalled();
+  expect(audio.play).not.toHaveBeenCalled();
+  expect(audio.currentTime).toBe(33);
+  expect(result.current.playback.isPlaying).toBe(true);
+});
+
+it("owns one metadata-preloaded native element through book changes and unload", () => {
+  const { result, audio } = mount();
+  expect(audio.preload).toBe("metadata");
+  expect(audio.tagName).toBe("AUDIO");
+  act(() => result.current.playback.loadBook(nextBook));
+  expect(document.querySelectorAll("audio")).toHaveLength(1);
+  expect(document.querySelector("audio")).toBe(audio);
+  act(() => result.current.playback.unloadBook());
+  expect(document.querySelector("audio")).toBe(audio);
+});
+
+it("does not carry an old interruption across a read-only reconciliation of a missed resume", () => {
+  vi.useFakeTimers();
+  preferenceRef.current.smartRewind = true;
+  const { result, audio } = mount();
+  act(() => result.current.playback.toggle());
+  audio.currentTime = 55;
+  paused = true;
+  act(() => audio.dispatchEvent(new Event("pause")));
+  vi.setSystemTime(Date.now() + 90000);
+  paused = false;
+  act(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+  expect(audio.currentTime).toBe(55);
+  paused = true;
+  act(() => audio.dispatchEvent(new Event("pause")));
+  vi.setSystemTime(Date.now() + 10000);
+  paused = false;
+  act(() => audio.dispatchEvent(new Event("play")));
+  expect(audio.currentTime).toBe(55);
 });

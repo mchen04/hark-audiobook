@@ -21,7 +21,11 @@ describe("synthetic suspended sleep timeout", () => {
   it("enforces an elapsed deadline on a media tick when the timeout never fires", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);
-    const audio = { currentTime: 5, pause: vi.fn() } as unknown as HTMLAudioElement;
+    const audio = {
+      currentTime: 5,
+      pause: vi.fn(),
+      dispatchEvent: vi.fn(),
+    } as unknown as HTMLAudioElement;
     const audioRef = { current: audio };
     const { result } = renderHook(() => useSleepTimer(audioRef));
     act(() => result.current.setSleepMinutes(1));
@@ -36,7 +40,11 @@ describe("synthetic suspended sleep timeout", () => {
   it("enforces an elapsed deadline on pageshow without starting paused audio", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000_000);
-    const audio = { currentTime: 5, pause: vi.fn() } as unknown as HTMLAudioElement;
+    const audio = {
+      currentTime: 5,
+      pause: vi.fn(),
+      dispatchEvent: vi.fn(),
+    } as unknown as HTMLAudioElement;
     const audioRef = { current: audio };
     const { result } = renderHook(() => useSleepTimer(audioRef));
     act(() => result.current.setSleepMinutes(1));
@@ -48,7 +56,11 @@ describe("synthetic suspended sleep timeout", () => {
 
   it("cancels the outstanding timeout when the player unmounts", () => {
     vi.useFakeTimers();
-    const audio = { currentTime: 5, pause: vi.fn() } as unknown as HTMLAudioElement;
+    const audio = {
+      currentTime: 5,
+      pause: vi.fn(),
+      dispatchEvent: vi.fn(),
+    } as unknown as HTMLAudioElement;
     const audioRef = { current: audio };
     const { result, unmount } = renderHook(() => useSleepTimer(audioRef));
     act(() => result.current.setSleepMinutes(1));
@@ -59,7 +71,11 @@ describe("synthetic suspended sleep timeout", () => {
 
   it("still pauses at the deadline when the ordinary timeout fires", () => {
     vi.useFakeTimers();
-    const audio = { currentTime: 5, pause: vi.fn() } as unknown as HTMLAudioElement;
+    const audio = {
+      currentTime: 5,
+      pause: vi.fn(),
+      dispatchEvent: vi.fn(),
+    } as unknown as HTMLAudioElement;
     const audioRef = { current: audio };
     const { result } = renderHook(() => useSleepTimer(audioRef));
     act(() => result.current.setSleepMinutes(1));
@@ -73,7 +89,11 @@ describe("synthetic suspended sleep timeout", () => {
 
 describe("chapter-end sleep", () => {
   it("stops when a throttled tick crosses into the next chapter", () => {
-    const audio = { currentTime: 9.5, pause: vi.fn() } as unknown as HTMLAudioElement;
+    const audio = {
+      currentTime: 9.5,
+      pause: vi.fn(),
+      dispatchEvent: vi.fn(),
+    } as unknown as HTMLAudioElement;
     const audioRef = { current: audio };
     const { result } = renderHook(() => useSleepTimer(audioRef));
 

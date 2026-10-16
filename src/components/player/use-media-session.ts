@@ -5,6 +5,8 @@ import { RefObject, useEffect } from "react";
 import type { PlayerBook } from "@/domain/player";
 import type { PlayerPreferences } from "@/domain/preferences";
 
+import { pauseWithIntent } from "./pause-intent";
+
 /**
  * System media controls, feature-detected. A missing or partial Media Session
  * implementation never affects playback.
@@ -33,8 +35,18 @@ export function useMediaSession(controls: {
     };
     const handlers: Array<[MediaSessionAction, MediaSessionActionHandler]> = [
       ["play", play],
-      ["pause", () => audioRef.current?.pause()],
-      ["stop", () => audioRef.current?.pause()],
+      [
+        "pause",
+        () => {
+          if (audioRef.current) pauseWithIntent(audioRef.current);
+        },
+      ],
+      [
+        "stop",
+        () => {
+          if (audioRef.current) pauseWithIntent(audioRef.current);
+        },
+      ],
       [
         "seekbackward",
         (details) =>

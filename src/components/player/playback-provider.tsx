@@ -25,13 +25,27 @@ import {
   markPausedNow,
   readMsSinceLastPause,
   resolveStartPosition,
+  rewindForAbsence,
   selectCurrentChapter,
 } from "@/lib/playback-core";
+
+import { readAudioSession } from "./audio-session";
+import {
+  APP_PAUSE_EVENT,
+  APP_POSITION_EVENT,
+  consumeAppPause,
+  hasAppPause,
+  pauseWithIntent,
+} from "./pause-intent";
 
 import { createTimeStore, type PlaybackTimeStore } from "./playback-time-store";
 import { usePreferencesRef } from "./preferences-provider";
 import type { ProgressConflictDetail } from "./progress-persister";
-import { setMediaSessionPlaybackState, useMediaSession } from "./use-media-session";
+import {
+  setMediaSessionPlaybackState,
+  syncMediaSessionPosition,
+  useMediaSession,
+} from "./use-media-session";
 import { usePlaybackHistoryLog } from "./use-playback-history-log";
 import { useProgressPersistence } from "./use-progress-persistence";
 import { type SleepMode, useSleepTimer } from "./use-sleep-timer";
@@ -76,6 +90,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
   const activeBookRef = useRef<PlayerBook | null>(null);
   const trackerRef = useRef(createListeningTracker(queueListeningSession(userId)));
   const suppressNextPauseRef = useRef(false);
+  const interruptionRef = useRef<{ bookId: string; startedAt: number } | null>(null);
   const timeStore = useMemo(() => createTimeStore(), []);
   const [book, setBook] = useState<PlayerBook | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -119,6 +134,33 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
     const audio = audioRef.current;
     if (!audio) return;
 
+    let observedPlaying = false;
+    const clearInterruption = () => {
+      interruptionRef.current = null;
+    };
+    const markInterruption = () => {
+      const activeBook = activeBookRef.current;
+      if (!activeBook || audio.ended || interruptionRef.current) return;
+      interruptionRef.current = { bookId: activeBook.id, startedAt: Date.now() };
+    };
+    const audioSession = readAudioSession();
+    const onAudioSessionChange = () => {
+      if (audioSession?.state !== "interrupted" || !observedPlaying || hasAppPause(audio)) return;
+      markInterruption();
+      observedPlaying = false;
+      const positionMs = audio.currentTime * 1000;
+      timeStore.write(positionMs);
+      saveDurableState("pause", positionMs);
+      void persistProgress("pause", positionMs);
+      if (activeBookRef.current) {
+        markPausedNow(userId, activeBookRef.current.id);
+        trackerRef.current.end(activeBookRef.current.id, positionMs);
+      }
+      setIsPlaying(false);
+      setMediaSessionPlaybackState("paused");
+      if (activeBookRef.current)
+        syncMediaSessionPosition(audio, activeBookRef.current.durationMs, { current: "" });
+    };
     const updateTime = () => {
       if (activeBookRef.current) onSleepTick(audio);
       const positionMs = audio.currentTime * 1000;
@@ -132,6 +174,25 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
       if (activeBook) onSleepSeek(audio.currentTime * 1000, activeBook.chapters);
     };
     const markPlaying = () => {
+      consumeAppPause(audio);
+      suppressNextPauseRef.current = false;
+      const interruption = interruptionRef.current;
+      clearInterruption();
+      const activeBook = activeBookRef.current;
+      if (
+        interruption &&
+        activeBook &&
+        interruption.bookId === activeBook.id &&
+        preferencesRef.current.smartRewind
+      ) {
+        const rewindMs = rewindForAbsence(Date.now() - interruption.startedAt);
+        if (rewindMs > 0) {
+          audio.currentTime = Math.max(0, audio.currentTime * 1000 - rewindMs) / 1000;
+          timeStore.write(audio.currentTime * 1000);
+          markPausedNow(userId, interruption.bookId);
+        }
+      }
+      observedPlaying = true;
       markInProgress();
       setIsPlaying(true);
       trackerRef.current.begin(audio.currentTime * 1000);
@@ -140,6 +201,11 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
       recordAction("play");
     };
     const markPaused = () => {
+      const appPaused = consumeAppPause(audio);
+      if (appPaused || audio.ended) clearInterruption();
+      else markInterruption();
+      observedPlaying = false;
+      timeStore.write(audio.currentTime * 1000);
       setIsPlaying(false);
       setMediaSessionPlaybackState("paused");
       if (suppressNextPauseRef.current) {
@@ -157,6 +223,8 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
       recordAction("pause", positionMs);
     };
     const markEnded = () => {
+      clearInterruption();
+      observedPlaying = false;
       setIsPlaying(false);
       const endPositionMs = activeBookRef.current?.durationMs || audio.currentTime * 1000;
       if (activeBookRef.current) trackerRef.current.end(activeBookRef.current.id, endPositionMs);
@@ -169,6 +237,8 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
       if (!activeBookRef.current) return;
       timeStore.write(audio.currentTime * 1000);
       const playing = !audio.paused && !audio.ended && !audio.error;
+      observedPlaying = playing;
+      if (playing) clearInterruption();
       setIsPlaying(playing);
       setMediaSessionPlaybackState(playing ? "playing" : "paused");
     };
@@ -179,12 +249,15 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
       const activeBook = activeBookRef.current;
       if (!activeBook) return;
       const positionMs = audio.currentTime * 1000;
-      audio.pause();
+      pauseWithIntent(audio);
       saveDurableState("pause", positionMs);
       trackerRef.current.end(activeBook.id, positionMs);
       reconcileElement();
     };
 
+    audio.addEventListener(APP_PAUSE_EVENT, clearInterruption);
+    audio.addEventListener(APP_POSITION_EVENT, clearInterruption);
+    audioSession?.addEventListener("statechange", onAudioSessionChange);
     audio.addEventListener("timeupdate", updateTime);
     audio.addEventListener("seeking", updateSleepChapter);
     audio.addEventListener("play", markPlaying);
@@ -194,6 +267,9 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
     window.addEventListener("pageshow", reconcileElement);
     document.addEventListener("visibilitychange", reconcileVisible);
     return () => {
+      audio.removeEventListener(APP_PAUSE_EVENT, clearInterruption);
+      audio.removeEventListener(APP_POSITION_EVENT, clearInterruption);
+      audioSession?.removeEventListener("statechange", onAudioSessionChange);
       audio.removeEventListener("timeupdate", updateTime);
       audio.removeEventListener("seeking", updateSleepChapter);
       audio.removeEventListener("play", markPlaying);
@@ -211,6 +287,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
     onSleepTick,
     onSleepSeek,
     persistProgress,
+    preferencesRef,
     recordAction,
     saveDurableState,
     timeStore,
@@ -255,7 +332,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
             saveDurableState("book-switch", previousPositionMs, undefined, previousBook);
             void persistProgress("book-switch", previousPositionMs, undefined, previousBook);
             cancelSeekPersist();
-            if (!audio.paused) audio.pause();
+            pauseWithIntent(audio);
             trackerRef.current.end(previousBook.id, previousPositionMs);
           } else {
             cancelSeekPersist();
@@ -307,7 +384,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
           const rate = audio.playbackRate;
           if (wasPlaying) {
             suppressNextPauseRef.current = true;
-            audio.pause();
+            pauseWithIntent(audio);
           }
           const refreshedBook = bootstrapPlaybackState(userId, nextBook).book;
           audio.src = refreshedBook.mediaUrl;
@@ -363,7 +440,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
         }
         cancelSeekPersist();
         if (audio) {
-          audio.pause();
+          pauseWithIntent(audio);
           audio.removeAttribute("src");
           audio.load();
         }

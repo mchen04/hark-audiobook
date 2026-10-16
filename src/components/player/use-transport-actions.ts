@@ -8,6 +8,9 @@ import type { PlaybackWriteSource } from "@/lib/playback-core";
 
 import type { PlaybackTimeStore } from "./playback-time-store";
 
+import { pauseWithIntent, APP_POSITION_EVENT } from "./pause-intent";
+import { configurePlaybackAudioSession } from "./audio-session";
+
 /**
  * Transport surface of the player: play/pause/seek/skip/chapter moves and the
  * finish/restart jumps, all recorded to history and persisted. Every
@@ -76,6 +79,7 @@ export function useTransportActions({
       const audio = audioRef.current;
       const activeBook = activeBookRef.current;
       if (!audio || !activeBook) return;
+      audio.dispatchEvent(new Event(APP_POSITION_EVENT));
       const bounded = Math.min(Math.max(positionMs, 0), activeBook.durationMs);
       const previousPositionMs = audio.currentTime * 1000;
       audio.currentTime = bounded / 1000;
@@ -113,10 +117,10 @@ export function useTransportActions({
           const audio = audioRef.current;
           if (!audio) return;
           if (audio.paused) safePlay(audio);
-          else audio.pause();
+          else pauseWithIntent(audio);
         },
         pause() {
-          audioRef.current?.pause();
+          if (audioRef.current) pauseWithIntent(audioRef.current);
         },
         seek(positionMs: number) {
           seekWithAction(positionMs, "seek");
@@ -144,7 +148,7 @@ export function useTransportActions({
           if (!audio || !activeBook) return;
           cancelSeekPersist();
           if (!audio.paused) suppressNextPauseRef.current = true;
-          audio.pause();
+          pauseWithIntent(audio);
           audio.currentTime = activeBook.durationMs / 1000;
           timeStore.write(activeBook.durationMs);
           markPositionChanged();
@@ -156,6 +160,7 @@ export function useTransportActions({
           if (!audio || !activeBookRef.current) return;
           cancelSeekPersist();
           const previousPositionMs = audio.currentTime * 1000;
+          audio.dispatchEvent(new Event(APP_POSITION_EVENT));
           audio.currentTime = 0;
           timeStore.write(0);
           markPositionChanged();
@@ -197,6 +202,7 @@ function settledPositionMs(audio: HTMLAudioElement, requestedMs: number): number
 // Playing from the very end restarts the book, otherwise the press would only
 // play the residual sliver before `ended` pauses it again.
 export function safePlay(audio: HTMLAudioElement): void {
+  configurePlaybackAudioSession();
   if (audio.error && audio.getAttribute("src")) {
     const position = audio.currentTime;
     const rate = audio.playbackRate;

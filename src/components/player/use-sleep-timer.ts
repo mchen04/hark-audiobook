@@ -8,6 +8,8 @@ import { CHAPTER_END_EPSILON_MS, selectCurrentChapter } from "@/lib/playback-cor
 export type SleepMode =
   { kind: "time"; endsAt: number; minutes?: number } | { kind: "chapter" } | null;
 
+import { pauseWithIntent } from "./pause-intent";
+
 /** Sleep timer state machine: fixed durations plus stop-at-chapter-end. */
 export function useSleepTimer(audioRef: RefObject<HTMLAudioElement | null>) {
   const [sleepMode, setSleepMode] = useState<SleepMode>(null);
@@ -31,7 +33,7 @@ export function useSleepTimer(audioRef: RefObject<HTMLAudioElement | null>) {
       setSleepMode(mode);
       timeoutRef.current = window.setTimeout(() => {
         clearSleep();
-        audioRef.current?.pause();
+        if (audioRef.current) pauseWithIntent(audioRef.current);
       }, minutes * 60_000);
     },
     [audioRef, clearSleep],
@@ -67,7 +69,7 @@ export function useSleepTimer(audioRef: RefObject<HTMLAudioElement | null>) {
       const mode = sleepModeRef.current;
       if (mode?.kind === "time" && Date.now() >= mode.endsAt) {
         clearSleep();
-        audio.pause();
+        pauseWithIntent(audio);
       }
       if (mode?.kind !== "chapter") return;
       const positionMs = audio.currentTime * 1000;
@@ -75,7 +77,7 @@ export function useSleepTimer(audioRef: RefObject<HTMLAudioElement | null>) {
       if (targetEndMs !== null && positionMs >= targetEndMs - CHAPTER_END_EPSILON_MS) {
         clearSleep();
         audio.currentTime = targetEndMs / 1000;
-        audio.pause();
+        pauseWithIntent(audio);
       }
     },
     [clearSleep],
