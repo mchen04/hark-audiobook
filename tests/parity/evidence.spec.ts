@@ -138,13 +138,14 @@ test("a book whose audio is not on this device says so, on screen", async () => 
   // The honesty rule, in the picture and in the assertion: marked, still fully
   // browsable, and never offering a way to play something that cannot play.
   for (const book of absent) {
-    expect(book.offDeviceBadge, `"${book.title}" is not on this device but carries no badge`).toBe(
-      true,
+    expect(book.offDeviceBadge, `"${book.title}" repeats a list-cover badge`).toBe(false);
+    expect(book.deviceLine, `"${book.title}" says nothing about the audio being elsewhere`).toBe(
+      "Not on this device — attach its original file to listen",
     );
-    expect(
-      book.deviceLine,
-      `"${book.title}" says nothing about the audio being elsewhere`,
-    ).not.toBe("");
+    const row = page.locator("article.book-item", { hasText: book.title });
+    await expect(row.getByText(/Not on this device/)).toHaveCount(1);
+    await expect(row.getByText(/Not on this device/)).toBeVisible();
+    await expect(row.locator(".book-play-unavailable")).toHaveAttribute("aria-hidden", "true");
     expect(book.playButton, `"${book.title}" offers a play link for audio this device lacks`).toBe(
       false,
     );
@@ -155,6 +156,14 @@ test("a book whose audio is not on this device says so, on screen", async () => 
   }
 
   await page.screenshot({ path: test.info().outputPath("not-on-this-device.png"), fullPage: true });
+  await page.getByRole("button", { name: "Grid view" }).click();
+  await expect.poll(async () => (await readLibrary(page)).listMode).toBe(false);
+  const grid = await readLibrary(page);
+  for (const book of absent) {
+    const card = grid.books.find((candidate) => candidate.title === book.title);
+    expect(card?.offDeviceBadge).toBe(true);
+    expect(card?.playButton).toBe(false);
+  }
   await page.close();
 
   console.log(
