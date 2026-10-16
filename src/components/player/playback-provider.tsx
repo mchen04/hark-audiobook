@@ -542,7 +542,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
     <PlaybackContext.Provider value={value}>
       <PlaybackTimeContext.Provider value={timeStore}>
         {children}
-        <audio ref={audioRef} preload="auto" className="visually-hidden" />
+        <audio ref={audioRef} preload="metadata" className="visually-hidden" />
       </PlaybackTimeContext.Provider>
     </PlaybackContext.Provider>
   );
