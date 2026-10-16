@@ -277,7 +277,8 @@
 .player-options select {
   appearance: none;
   -webkit-appearance: none;
-  min-height: 2.3rem;
+  min-height: 0;
+  height: 1.4rem;
   min-width: 2.5rem;
   text-align: center;
   border: 0;
@@ -1316,4 +1317,20 @@
 
 .sleep-custom[data-active="true"] input {
   border-color: var(--accent);
+}
+
+@media (max-width: 560px) {
+  .player-options {
+    position: relative;
+  }
+
+  .sleep-menu {
+    position: static;
+  }
+
+  .sleep-menu > div {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+  }
 }

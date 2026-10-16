@@ -68,10 +68,18 @@ test("library buttons play in place, preserve saved position and keep a syntheti
   await page.reload();
   const resume = page.getByRole("button", { name: "Resume Library Journey", exact: true });
   await expect(resume).toBeVisible();
+  expect(
+    await page
+      .locator(".book-grid")
+      .evaluate((grid) => getComputedStyle(grid).gridTemplateColumns.split(" ").length),
+  ).toBe(3);
+  await expect(page.locator(".book-progress-copy")).toBeHidden();
+  await page.screenshot({ path: info.outputPath("iphone-library.png"), fullPage: true });
   await resume.click();
   await expect(page).toHaveURL(/\/library$/);
   const mini = page.getByRole("complementary", { name: "Now playing" });
   await expect(mini.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+  await page.screenshot({ path: info.outputPath("iphone-mini.png"), fullPage: true });
   const calls = await page.evaluate(
     () =>
       (
@@ -94,6 +102,44 @@ test("library buttons play in place, preserve saved position and keep a syntheti
   expect(await page.locator("audio").evaluate((audio: HTMLAudioElement) => audio.paused)).toBe(
     true,
   );
+  await expect(page.getByRole("combobox", { name: "Playback speed" })).toHaveValue("1");
+  const speedBox = (await page.locator(".player-options > label").boundingBox())!;
+  const sleepBox = (await page.locator(".sleep-menu summary").boundingBox())!;
+  expect.soft(speedBox.height).toBeLessThanOrEqual(sleepBox.height + 1);
+  await page.screenshot({ path: info.outputPath("iphone-player.png"), fullPage: true });
+  await page.locator(".sleep-menu summary").click();
+  await expect(page.getByRole("button", { name: "15m", exact: true })).toBeVisible();
+  const sleepMenuBox = (await page.locator(".sleep-menu > div").boundingBox())!;
+  expect.soft(sleepMenuBox.x).toBeGreaterThanOrEqual(0);
+  expect.soft(sleepMenuBox.x + sleepMenuBox.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  await page.screenshot({ path: info.outputPath("iphone-sleep.png"), fullPage: true });
+  await page.getByRole("button", { name: "15m", exact: true }).click();
+  await expect(page.locator(".sleep-menu summary")).toHaveAccessibleName(
+    "Sleep timer, 15 minutes left",
+  );
+  await page.locator(".sleep-menu summary").click();
+  await expect(page.getByRole("button", { name: "15m", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await page.getByRole("button", { name: "Turn off", exact: true }).click();
+  const phoneViewport = page.viewportSize()!;
+  for (const width of [320, 393, 560]) {
+    await page.setViewportSize({ width, height: phoneViewport.height });
+    await page.locator(".sleep-menu summary").click();
+    await page.getByRole("button", { name: "End of chapter", exact: true }).click();
+    await expect(page.locator(".sleep-menu summary")).toHaveAccessibleName(
+      "Sleep timer, chapter end",
+    );
+    await page.locator(".sleep-menu summary").click();
+    const menuBox = (await page.locator(".sleep-menu > div").boundingBox())!;
+    expect(menuBox.x).toBeGreaterThanOrEqual(0);
+    expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(width);
+    await page.getByRole("button", { name: "Turn off", exact: true }).click();
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.screenshot({ path: info.outputPath("desktop-player.png"), fullPage: true });
+  await page.setViewportSize(phoneViewport);
   await page.getByRole("button", { name: "Library", exact: true }).click();
   await page.reload();
   await page.locator(".book-item").getByRole("button", { name: "Play Library Journey" }).click();
@@ -138,4 +184,11 @@ test("library buttons play in place, preserve saved position and keep a syntheti
     page.getByRole("button", { name: /^(Play|Resume|Pause) Library Journey$/ }),
   ).toHaveCount(0);
   await expect(title).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.screenshot({ path: info.outputPath("desktop-list.png"), fullPage: true });
+  await page.getByRole("button", { name: "Grid view" }).click();
+  await expect(page.locator(".book-device-missing")).toHaveCount(0);
+  await page.screenshot({ path: info.outputPath("desktop-library.png"), fullPage: true });
+  await page.setViewportSize(phoneViewport);
+  await page.screenshot({ path: info.outputPath("iphone-offdevice.png"), fullPage: true });
 });
