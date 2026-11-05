@@ -1,6 +1,6 @@
 "use client";
 
-import { mediaTime, setMediaTime, loadMediaSource, primeMediaStart } from "./media-source";
+import { mediaTime, setMediaTime, loadMediaSource } from "./media-source";
 
 import { RefObject, useMemo, useRef } from "react";
 
@@ -13,12 +13,6 @@ import type { PlaybackTimeStore } from "./playback-time-store";
 import { pauseWithIntent, APP_POSITION_EVENT } from "./pause-intent";
 import { configurePlaybackAudioSession } from "./audio-session";
 
-/**
- * Transport surface of the player: play/pause/seek/skip/chapter moves and the
- * finish/restart jumps, all recorded to history and persisted. Every
- * dependency is referentially stable, so the returned objects are created
- * once for the provider's lifetime.
- */
 export function useTransportActions({
   audioRef,
   activeBookRef,
@@ -39,7 +33,7 @@ export function useTransportActions({
     completed?: boolean,
     bookOverride?: PlayerBook,
   ) => Promise<void>;
-  /** Synchronous durable write; see `use-progress-persistence`. */
+
   saveDurableState: (
     source: PlaybackWriteSource,
     positionMs?: number,
@@ -63,8 +57,7 @@ export function useTransportActions({
         seekPersistTimerRef.current = null;
       }
     };
-    // Rapid seek taps coalesce into one server write. The position is read at
-    // fire time, so a later pause/finish/restart never loses to a stale value.
+
     const persistSeekSoon = () => {
       cancelSeekPersist();
       seekPersistTimerRef.current = window.setTimeout(() => {
@@ -85,40 +78,60 @@ export function useTransportActions({
       const bounded = Math.min(Math.max(positionMs, 0), activeBook.durationMs);
       const previousPositionMs = mediaTime(audio) * 1000;
       setMediaTime(audio, bounded / 1000);
-      // What the element ACCEPTED, not what it was asked for. `bounded` is
-      // clamped to `activeBook.durationMs`, which is metadata computed at import
-      // from the file's frame headers; the element clamps to the media it
-      // actually decoded. When the first is longer than the second — an
-      // estimated MP3 duration, a truncated download — a seek to the end
-      // durably records a position past the real end of the audio, and nothing
-      // corrects it while the user is paused because the cadence only runs
-      // during playback. `resolveStartPosition` reads that record back, decides
-      // the book is at its very end and restarts it from zero: a seek that
-      // lands the user near the end of a book they have not finished throws
-      // their place away on the next open.
+
       const settledMs = settledPositionMs(audio, bounded);
       timeStore.write(settledMs);
-      // Durable at once, not in 800 ms. The debounce coalesces SERVER writes,
-      // which is all it was ever for; leaving the local position behind it lost
-      // the seek outright whenever the next thing to happen was
-      // `cancelSeekPersist` — seek while paused, then leave the player, and
-      // there was no `pause` event coming to save it either.
+
       markPositionChanged();
       saveDurableState("seek", settledMs);
       persistSeekSoon();
       recordAction(action, settledMs, previousPositionMs, description);
     };
 
+    const play = () => {
+      const audio = audioRef.current;
+      const book = activeBookRef.current;
+      if (!audio || !book) return;
+      configurePlaybackAudioSession();
+      let position = timeStore.read() / 1000;
+      if (Number.isFinite(audio.duration) && audio.duration - position < 1) {
+        position = 0;
+        timeStore.write(0);
+      }
+      const source = audio.getAttribute("src");
+      if (audio.error || audio.networkState === audio.NETWORK_EMPTY || !source) {
+        const rate = audio.playbackRate;
+        loadMediaSource(audio, book.mediaUrl, position);
+        audio.playbackRate = rate;
+      } else if (Math.abs(mediaTime(audio) - position) > 0.25) {
+        setMediaTime(audio, position);
+      }
+      const sourceAtPlay = audio.src;
+      audio
+        .play()
+        .then(() => {
+          if (
+            audioRef.current !== audio ||
+            activeBookRef.current !== book ||
+            audio.src !== sourceAtPlay
+          )
+            return;
+          const intended = timeStore.read() / 1000;
+          if (audio.ended || (audio.currentTime < 0.25 && intended > 0.5)) {
+            setMediaTime(audio, intended);
+          }
+        })
+        .catch(() => undefined);
+    };
+
     return {
       cancelSeekPersist,
       actions: {
-        play() {
-          if (audioRef.current) safePlay(audioRef.current);
-        },
+        play,
         toggle() {
           const audio = audioRef.current;
           if (!audio) return;
-          if (audio.paused) safePlay(audio);
+          if (audio.paused) play();
           else pauseWithIntent(audio);
         },
         pause() {
@@ -183,37 +196,8 @@ export function useTransportActions({
   ]);
 }
 
-/**
- * Where the element ended up after being told to seek.
- *
- * Read back rather than assumed, but only once there is something to read.
- * Before `HAVE_METADATA` the element has no duration to clamp against and, in
- * WebKit, no media player object to ask — `currentTime` answers 0 — so writing
- * the read-back at that point would turn a seek into a jump to the start of the
- * book, which is a far worse failure than the one this exists to prevent. Until
- * then the request is the best information anyone has.
- */
 function settledPositionMs(audio: HTMLAudioElement, requestedMs: number): number {
   if (audio.readyState < audio.HAVE_METADATA) return requestedMs;
   const settled = mediaTime(audio) * 1000;
   return Number.isFinite(settled) && settled >= 0 ? settled : requestedMs;
-}
-
-// Autoplay can be blocked before the first user activation; a rejected play()
-// must stay silent and paused instead of surfacing an uncaught rejection.
-// Playing from the very end restarts the book, otherwise the press would only
-// play the residual sliver before `ended` pauses it again.
-export function safePlay(audio: HTMLAudioElement): void {
-  configurePlaybackAudioSession();
-  if (audio.error && audio.getAttribute("src")) {
-    const position = mediaTime(audio);
-    const rate = audio.playbackRate;
-    loadMediaSource(audio, audio.src, position);
-    audio.playbackRate = rate;
-  }
-  if (Number.isFinite(audio.duration) && audio.duration - mediaTime(audio) < 1) {
-    setMediaTime(audio, 0);
-  }
-  primeMediaStart(audio);
-  audio.play().catch(() => undefined);
 }

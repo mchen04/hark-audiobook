@@ -138,7 +138,7 @@ test("simulated lock-screen resume stays audible with discarded buffers for five
       const immediate = await sample();
       (report.cycles as unknown[]).push({ cycle, before, immediate });
       await page.waitForTimeout(750);
-      Object.assign((report.cycles as object[])[cycle], { afterDecode: await sample() });
+      Object.assign((report.cycles as object[])[cycle]!, { afterDecode: await sample() });
       expect(immediate.muted).toBe(false);
       expect(immediate.volume).toBeGreaterThan(0);
       await expect.poll(async () => (await sample()).paused).toBe(false);
@@ -152,7 +152,7 @@ test("simulated lock-screen resume stays audible with discarded buffers for five
       await expect.poll(async () => (await sample()).decodedEnergy).toBeGreaterThan(0.001);
       if (before.decodedBytes !== null && playing.decodedBytes !== null)
         expect(playing.decodedBytes).toBeGreaterThan(before.decodedBytes);
-      Object.assign((report.cycles as object[])[cycle], { playing });
+      Object.assign((report.cycles as object[])[cycle]!, { playing });
       await mediaAction(page, "pause");
       expect((await sample()).playbackState).toBe("paused");
       await page.evaluate(() => {

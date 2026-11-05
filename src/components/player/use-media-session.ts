@@ -9,10 +9,6 @@ import type { PlayerPreferences } from "@/domain/preferences";
 
 import { pauseWithIntent } from "./pause-intent";
 
-/**
- * System media controls, feature-detected. A missing or partial Media Session
- * implementation never affects playback.
- */
 export function useMediaSession(controls: {
   audioRef: RefObject<HTMLAudioElement | null>;
   book: PlayerBook | null;
@@ -68,9 +64,7 @@ export function useMediaSession(controls: {
     for (const [action, handler] of handlers) {
       try {
         navigator.mediaSession.setActionHandler(action, handler);
-      } catch {
-        // Unsupported actions are optional progressive enhancements.
-      }
+      } catch {}
     }
     const events = [
       "loadedmetadata",
@@ -83,24 +77,23 @@ export function useMediaSession(controls: {
     ];
     for (const event of events) audio.addEventListener(event, refresh);
     audio.addEventListener("timeupdate", syncPosition);
-    const refreshVisible = () => {
-      if (document.visibilityState === "visible") refresh();
-    };
     window.addEventListener("pageshow", refresh);
-    document.addEventListener("visibilitychange", refreshVisible);
+    window.addEventListener("pagehide", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    document.addEventListener("freeze", refresh);
     setMediaSessionMetadata(book);
     refresh();
     return () => {
       for (const event of events) audio.removeEventListener(event, refresh);
       audio.removeEventListener("timeupdate", syncPosition);
       window.removeEventListener("pageshow", refresh);
-      document.removeEventListener("visibilitychange", refreshVisible);
+      window.removeEventListener("pagehide", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+      document.removeEventListener("freeze", refresh);
       for (const [action] of handlers) {
         try {
           navigator.mediaSession.setActionHandler(action, null);
-        } catch {
-          // Ignore unsupported action cleanup.
-        }
+        } catch {}
       }
       navigator.mediaSession.metadata = null;
       setMediaSessionPlaybackState("none");
@@ -132,10 +125,6 @@ export function setMediaSessionPlaybackState(state: MediaSessionPlaybackState): 
   if ("mediaSession" in navigator) navigator.mediaSession.playbackState = state;
 }
 
-// OS media UIs sample position coarsely; syncing once per whole second (or
-// on rate/book change) avoids thousands of redundant calls per listening
-// hour. The dedup key lives in a provider-owned ref so it cannot leak across
-// provider remounts.
 export function syncMediaSessionPosition(
   audio: HTMLAudioElement,
   durationMs: number,
@@ -153,7 +142,5 @@ export function syncMediaSessionPosition(
       position: Math.max(0, Math.min(mediaTime(audio), duration)),
     });
     lastSyncKeyRef.current = syncKey;
-  } catch {
-    // Some browsers expose Media Session without complete position support.
-  }
+  } catch {}
 }
