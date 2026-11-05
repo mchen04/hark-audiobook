@@ -48,7 +48,16 @@ test("simulated lock-screen resume stays audible with discarded buffers for five
     const readiness = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "readyState")!;
     const play = HTMLMediaElement.prototype.play;
     const samples: unknown[] = [];
-    Object.assign(window, { resumeSamples: samples });
+    const muteWrites: boolean[] = [];
+    const muted = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "muted")!;
+    Object.defineProperty(HTMLMediaElement.prototype, "muted", {
+      ...muted,
+      set(value: boolean) {
+        muteWrites.push(value);
+        muted.set!.call(this, value);
+      },
+    });
+    Object.assign(window, { resumeSamples: samples, muteWrites });
     Object.defineProperty(HTMLMediaElement.prototype, "readyState", {
       configurable: true,
       get() {
@@ -70,7 +79,7 @@ test("simulated lock-screen resume stays audible with discarded buffers for five
   });
   const report: Record<string, unknown> = {
     scope:
-      "Simulated standalone WebKit, synthetic visibility/pagehide/freeze and forced low readyState from first load. No physical lock or speaker proof.",
+      "Simulated standalone WebKit with synthetic visibility/pagehide/freeze and forced low readyState. Five native-output cycles precede five Web Audio decoder-observer cycles. The observer can make GStreamer report muted. No physical lock or speaker proof.",
     browser: browser.version(),
     project: info.project.name,
     cycles: [],
@@ -87,83 +96,96 @@ test("simulated lock-screen resume stays audible with discarded buffers for five
       decodedBytes:
         (audio as HTMLAudioElement & { webkitAudioDecodedByteCount?: number })
           .webkitAudioDecodedByteCount ?? null,
-      decodedEnergy: (
-        window as typeof window & { readAudioEnergy: () => number }
-      ).readAudioEnergy(),
+      decodedEnergy:
+        (window as typeof window & { readAudioEnergy?: () => number }).readAudioEnergy?.() ?? null,
       playbackState: navigator.mediaSession.playbackState,
       title: navigator.mediaSession.metadata?.title,
       visibility: document.visibilityState,
     }));
   try {
     await prepareLocalPlayback(browser, context, page, info, "Resume Proof Book");
-    await page.evaluate(() => {
-      document.addEventListener(
-        "click",
-        () => {
-          if ((window as typeof window & { readAudioEnergy?: () => number }).readAudioEnergy)
-            return;
-          const audio = document.querySelector("audio")!;
-          const context = new AudioContext();
-          const source = context.createMediaElementSource(audio);
-          const analyser = context.createAnalyser();
-          source.connect(analyser);
-          analyser.connect(context.destination);
-          void context.resume();
-          const samples = new Float32Array(analyser.fftSize);
-          Object.assign(window, {
-            readAudioEnergy: () => {
-              analyser.getFloatTimeDomainData(samples);
-              return Math.sqrt(
-                samples.reduce((sum, value) => sum + value * value, 0) / samples.length,
-              );
-            },
-          });
-        },
-        { once: true },
-      );
-    });
     await page.getByRole("button", { name: "Play", exact: true }).click();
     await expect.poll(async () => (await sample()).currentTime).toBeGreaterThan(0.5);
     await page.getByRole("button", { name: "Pause", exact: true }).click();
     await page.getByRole("slider", { name: "Audiobook position" }).fill("35000");
-    for (let cycle = 0; cycle < 5; cycle++) {
-      const before = await sample();
-      await page.evaluate(() => {
-        Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
-        document.dispatchEvent(new Event("visibilitychange"));
-        window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true }));
-        document.dispatchEvent(new Event("freeze"));
-      });
-      await mediaAction(page, "play");
-      const immediate = await sample();
-      (report.cycles as unknown[]).push({ cycle, before, immediate });
-      await page.waitForTimeout(750);
-      Object.assign((report.cycles as object[])[cycle]!, { afterDecode: await sample() });
-      expect(immediate.muted).toBe(false);
-      expect(immediate.volume).toBeGreaterThan(0);
-      await expect.poll(async () => (await sample()).paused).toBe(false);
-      await expect
-        .poll(async () => (await sample()).currentTime)
-        .toBeGreaterThan(before.currentTime + 0.5);
-      const playing = await sample();
-      expect(playing.currentTime).toBeLessThan(before.currentTime + 4);
-      expect(playing.playbackState).toBe("playing");
-      expect(playing.ended).toBe(false);
-      await expect.poll(async () => (await sample()).decodedEnergy).toBeGreaterThan(0.001);
-      if (before.decodedBytes !== null && playing.decodedBytes !== null)
-        expect(playing.decodedBytes).toBeGreaterThan(before.decodedBytes);
-      Object.assign((report.cycles as object[])[cycle]!, { playing });
-      await mediaAction(page, "pause");
-      expect((await sample()).playbackState).toBe("paused");
-      await page.evaluate(() => {
-        Object.defineProperty(document, "visibilityState", {
-          configurable: true,
-          value: "visible",
+    for (const observeDecoder of [false, true]) {
+      if (observeDecoder) {
+        await page.evaluate(() => {
+          document.addEventListener(
+            "click",
+            () => {
+              if ((window as typeof window & { readAudioEnergy?: () => number }).readAudioEnergy)
+                return;
+              const audio = document.querySelector("audio")!;
+              const context = new AudioContext();
+              const source = context.createMediaElementSource(audio);
+              const analyser = context.createAnalyser();
+              source.connect(analyser);
+              analyser.connect(context.destination);
+              void context.resume();
+              const samples = new Float32Array(analyser.fftSize);
+              Object.assign(window, {
+                readAudioEnergy: () => {
+                  analyser.getFloatTimeDomainData(samples);
+                  return Math.sqrt(
+                    samples.reduce((sum, value) => sum + value * value, 0) / samples.length,
+                  );
+                },
+              });
+            },
+            { once: true },
+          );
         });
-        document.dispatchEvent(new Event("resume"));
-        window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
-        document.dispatchEvent(new Event("visibilitychange"));
-      });
+        await page.getByRole("button", { name: "Play", exact: true }).click();
+        await page.getByRole("button", { name: "Pause", exact: true }).click();
+      }
+      for (let cycle = 0; cycle < 5; cycle++) {
+        const before = await sample();
+        await page.evaluate(() => {
+          Object.defineProperty(document, "visibilityState", {
+            configurable: true,
+            value: "hidden",
+          });
+          document.dispatchEvent(new Event("visibilitychange"));
+          window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true }));
+          document.dispatchEvent(new Event("freeze"));
+        });
+        await mediaAction(page, "play");
+        const immediate = await sample();
+        (report.cycles as unknown[]).push({ observer: observeDecoder, cycle, before, immediate });
+        await page.waitForTimeout(750);
+        Object.assign((report.cycles as object[]).at(-1)!, { afterDecode: await sample() });
+        if (!observeDecoder) {
+          expect(before.muted).toBe(false);
+          expect(immediate.muted).toBe(false);
+        }
+        expect(immediate.volume).toBeGreaterThan(0);
+        await expect.poll(async () => (await sample()).paused).toBe(false);
+        await expect
+          .poll(async () => (await sample()).currentTime)
+          .toBeGreaterThan(before.currentTime + 0.5);
+        const playing = await sample();
+        expect(playing.currentTime).toBeLessThan(before.currentTime + 4);
+        expect(playing.playbackState).toBe("playing");
+        expect(playing.ended).toBe(false);
+        if (observeDecoder)
+          await expect.poll(async () => (await sample()).decodedEnergy).toBeGreaterThan(0.001);
+        else expect(playing.muted).toBe(false);
+        if (before.decodedBytes !== null && playing.decodedBytes !== null)
+          expect(playing.decodedBytes).toBeGreaterThan(before.decodedBytes);
+        Object.assign((report.cycles as object[]).at(-1)!, { playing });
+        await mediaAction(page, "pause");
+        expect((await sample()).playbackState).toBe("paused");
+        await page.evaluate(() => {
+          Object.defineProperty(document, "visibilityState", {
+            configurable: true,
+            value: "visible",
+          });
+          document.dispatchEvent(new Event("resume"));
+          window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+          document.dispatchEvent(new Event("visibilitychange"));
+        });
+      }
     }
     await page.getByRole("slider", { name: "Audiobook position" }).fill("70000");
     expect((await sample()).currentTime).toBeCloseTo(70, 0);
@@ -171,6 +193,9 @@ test("simulated lock-screen resume stays audible with discarded buffers for five
     await expect.poll(async () => (await sample()).currentTime).toBeGreaterThan(70.5);
     await page.getByRole("button", { name: "Pause", exact: true }).click();
     report.final = await sample();
+    expect(
+      await page.evaluate(() => (window as typeof window & { muteWrites: boolean[] }).muteWrites),
+    ).toEqual([]);
   } finally {
     report.playCalls = await page.evaluate(
       () => (window as typeof window & { resumeSamples: unknown[] }).resumeSamples,
