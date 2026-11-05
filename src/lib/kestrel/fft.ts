@@ -36,7 +36,6 @@ export function configureKestrelFftRuntime(bytes: Uint8Array): void {
   runtimeBytes = bytes;
 }
 
-/** A single fixed-size KISS FFT workspace reused by the worker's serial render queue. */
 export function getKestrelFftWorkspace(size: number): Promise<KestrelFftWorkspace> {
   workspacePromise ??= createWorkspace(size).catch((error) => {
     workspacePromise = null;
@@ -66,8 +65,6 @@ async function createWorkspace(size: number): Promise<KestrelFftWorkspace> {
     throw new Error("Kestrel could not allocate its FFT workspace.");
   }
 
-  // Allocate every buffer before creating views: a later memory.grow would
-  // detach earlier views. Rendering performs no further WASM allocations.
   const time = new Float32Array(memory.buffer, timePointer, size);
   const harmonicSpectrum = new Float32Array(memory.buffer, harmonicPointer, size * 2);
   const noiseSpectrum = new Float32Array(memory.buffer, noisePointer, size * 2);

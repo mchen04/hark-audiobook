@@ -1,5 +1,3 @@
-// An in-memory invalidation hint, never a source of book or account data.
-// Other tabs send only a signal; readers still query their own account indexes.
 let revision = 0;
 let channel: BroadcastChannel | null | undefined;
 
@@ -20,12 +18,9 @@ export function libraryRevision(): number {
   return revision;
 }
 
-/** Call only after the durable mirror transaction has committed. */
 export function notifyLibraryChanged(): void {
   revision++;
   try {
     changesChannel()?.postMessage(null);
-  } catch {
-    // A notification failure cannot undo or reject an already committed write.
-  }
+  } catch {}
 }

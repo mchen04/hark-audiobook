@@ -7,7 +7,6 @@ export const runtime = "nodejs";
 
 export const GET = withQuery(async ({ request, session }) => {
   const url = new URL(request.url);
-  // meta=0 skips the filter-independent overview (pagination, filter changes).
   const withOverview = url.searchParams.get("meta") !== "0";
   let page, overview;
   try {

@@ -137,6 +137,7 @@ beforeEach(() => {
   Object.defineProperty(navigator, "mediaSession", { configurable: true, value: session });
   vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockImplementation(() => paused);
   vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(4);
+  vi.spyOn(HTMLMediaElement.prototype, "networkState", "get").mockReturnValue(1);
   vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function (
     this: HTMLMediaElement,
   ) {
@@ -663,68 +664,52 @@ it("does not carry an old interruption across a read-only reconciliation of a mi
   expect(audio.currentTime).toBe(55);
 });
 
-describe("synthetic cold resume ordering", () => {
-  it.each([false, true])(
-    "does not finish or advance durable position when muted preparation ends with a preceding pause: %s",
-    (pauseBeforeEnd) => {
-      const hook = renderHook(() => ({ playback: usePlayback(), time: usePlaybackTime() }), {
-        wrapper: ({ children }) => <PlaybackProvider userId="user-1">{children}</PlaybackProvider>,
-      });
-      const audio = document.querySelector("audio")!;
-      Object.defineProperty(audio, "readyState", { get: () => 2 });
-      act(() =>
-        hook.result.current.playback.loadBook(
-          { ...book, durationMs: 8000, initialPositionMs: 200 },
-          true,
-        ),
-      );
-      expect(audio.muted).toBe(true);
-      audio.currentTime = 8;
-      paused = true;
-      if (pauseBeforeEnd) {
-        Object.defineProperty(audio, "ended", { configurable: true, value: true });
-        act(() => audio.dispatchEvent(new Event("pause")));
-        Object.defineProperty(audio, "ended", { configurable: true, value: false });
-      }
-      act(() => audio.dispatchEvent(new Event("ended")));
-      expect(persistence.persistProgress).not.toHaveBeenCalledWith(
-        "ended",
-        expect.anything(),
-        true,
-      );
-      expect(persistence.markPositionChanged).not.toHaveBeenCalled();
-      expect(
-        hook.result.current.playback.history.some((entry) => entry.action === "finished"),
-      ).toBe(false);
-      expect(hook.result.current.playback.lastEndedAt).toBe(0);
-      expect(hook.result.current.time).toBe(200);
-      expect(audio.currentTime).toBe(0.2);
+describe("cold resume", () => {
+  it("corrects a native reset after play resolves without reloading", async () => {
+    const { result, audio } = mount();
+    act(() => result.current.playback.seek(35000));
+    vi.mocked(audio.load).mockClear();
+    vi.mocked(audio.play).mockImplementationOnce(function () {
+      paused = false;
+      audio.dispatchEvent(new Event("play"));
+      audio.currentTime = 0;
+      return Promise.resolve();
+    });
+    await act(async () => result.current.playback.toggle());
+    expect(audio.currentTime).toBe(35);
+    expect(audio.muted).toBe(false);
+    expect(audio.load).not.toHaveBeenCalled();
+  });
+
+  it("reattaches a missing source at the stored position", () => {
+    const { result, audio } = mount();
+    act(() => result.current.playback.seek(35000));
+    audio.removeAttribute("src");
+    audio.currentTime = 0;
+    remote("play");
+    expect(audio.getAttribute("src")).toBe(book.mediaUrl);
+    expect(audio.currentTime).toBe(35);
+    expect(audio.muted).toBe(false);
+  });
+
+  it.each(["button", "media-session"])(
+    "restores the stored position after native reset through %s",
+    (control) => {
+      const { result, audio } = mount();
+      act(() => result.current.playback.seek(35000));
+      audio.currentTime = 0;
+      Object.defineProperty(audio, "readyState", { get: () => 1 });
+      vi.mocked(audio.load).mockClear();
+      if (control === "button") act(() => result.current.playback.toggle());
+      else remote("play");
+      expect(audio.currentTime).toBe(35);
       expect(audio.muted).toBe(false);
-      expect(hook.result.current.playback.isPlaying).toBe(false);
-      expect(audio.play).toHaveBeenCalledTimes(1);
+      expect(audio.load).not.toHaveBeenCalled();
+      expect(result.current.playback.isPlaying).toBe(true);
     },
   );
 
-  it.each(["pause", "error"])(
-    "releases pending mute on synthetic %s without losing its durable position",
-    (event) => {
-      const { result, audio } = mount();
-      Object.defineProperty(audio, "readyState", { get: () => 0 });
-      act(() => result.current.playback.loadBook(nextBook, true));
-      expect(audio.muted).toBe(true);
-      if (event === "pause") paused = true;
-      act(() => audio.dispatchEvent(new Event(event)));
-      expect(audio.muted).toBe(false);
-      expect(audio.currentTime).toBe(12);
-      expect(result.current.time).toBe(12000);
-      expect(result.current.playback.isPlaying).toBe(false);
-      if (event === "pause")
-        expect(persistence.persistProgress).toHaveBeenLastCalledWith("pause", 12000);
-      else expect(persistence.saveDurableState).toHaveBeenLastCalledWith("pause", 12000);
-      expect(audio.play).toHaveBeenCalledTimes(1);
-    },
-  );
-  it("requests play in the click task but holds audible output until the saved seek settles after preroll", () => {
+  it("starts in the action task and restores metadata position without muting", () => {
     const hook = renderHook(() => usePlayback(), {
       wrapper: ({ children }) => <PlaybackProvider userId="user-1">{children}</PlaybackProvider>,
     });
@@ -733,71 +718,30 @@ describe("synthetic cold resume ordering", () => {
     Object.defineProperty(audio, "readyState", { get: () => ready });
     act(() => hook.result.current.loadBook(book, true));
     expect(audio.play).toHaveBeenCalledTimes(1);
-    expect(audio.currentTime).toBe(0);
-    expect(audio.muted).toBe(true);
+    expect(audio.muted).toBe(false);
+    audio.currentTime = 0;
     ready = 1;
     act(() => audio.dispatchEvent(new Event("loadedmetadata")));
-    expect(audio.currentTime).toBe(0);
-    ready = 2;
-    act(() => audio.dispatchEvent(new Event("loadeddata")));
-    expect(audio.currentTime).toBe(0);
-    ready = 3;
-    act(() => audio.dispatchEvent(new Event("canplay")));
     expect(audio.currentTime).toBe(12);
-    expect(audio.muted).toBe(true);
-    act(() => audio.dispatchEvent(new Event("seeked")));
     expect(audio.muted).toBe(false);
-    expect(audio.play).toHaveBeenCalledTimes(1);
     expect(persistence.persistProgress).not.toHaveBeenCalled();
-    expect(persistence.saveDurableState).not.toHaveBeenCalled();
   });
 
-  it("retains the pending saved position through pause, rate change and unload without another play", () => {
-    const hook = renderHook(() => ({ playback: usePlayback(), time: usePlaybackTime() }), {
-      wrapper: ({ children }) => <PlaybackProvider userId="user-1">{children}</PlaybackProvider>,
-    });
-    const audio = document.querySelector("audio")!;
+  it("preserves a pending seek through pause, rate change and unload", () => {
+    const { result, audio } = mount();
     Object.defineProperty(audio, "readyState", { get: () => 0 });
-    act(() => hook.result.current.playback.loadBook(book, true));
-    expect(hook.result.current.time).toBe(12_000);
-    expect(session.setPositionState).toHaveBeenLastCalledWith({
-      duration: 120,
-      playbackRate: 1,
-      position: 12,
-    });
-    act(() => hook.result.current.playback.toggle());
-    expect(persistence.persistProgress).toHaveBeenLastCalledWith("pause", 12_000);
-    act(() => hook.result.current.playback.setPlaybackRate(1.5));
-    expect(persistence.persistProgress).toHaveBeenLastCalledWith("rate-change", 12_000);
-    act(() => hook.result.current.playback.unloadBook());
-    expect(persistence.saveDurableState).toHaveBeenLastCalledWith("book-unload", 12_000);
-    act(() => audio.dispatchEvent(new Event("loadeddata")));
+    act(() => result.current.playback.seek(42000));
+    audio.currentTime = 0;
+    act(() => result.current.playback.toggle());
+    act(() => result.current.playback.toggle());
+    expect(persistence.persistProgress).toHaveBeenLastCalledWith("pause", 42000);
+    act(() => result.current.playback.setPlaybackRate(1.5));
+    expect(persistence.persistProgress).toHaveBeenLastCalledWith("rate-change", 42000);
+    act(() => result.current.playback.unloadBook());
+    expect(persistence.saveDurableState).toHaveBeenLastCalledWith("book-unload", 42000);
+    audio.currentTime = 0;
+    act(() => audio.dispatchEvent(new Event("loadedmetadata")));
     expect(audio.currentTime).toBe(0);
     expect(audio.muted).toBe(false);
-    expect(audio.play).toHaveBeenCalledTimes(1);
-  });
-
-  it("restores a paused native position and primes safely if Play arrives before preroll", () => {
-    const hook = renderHook(() => ({ playback: usePlayback(), time: usePlaybackTime() }), {
-      wrapper: ({ children }) => <PlaybackProvider userId="user-1">{children}</PlaybackProvider>,
-    });
-    const audio = document.querySelector("audio")!;
-    let ready = 0;
-    Object.defineProperty(audio, "readyState", { get: () => ready });
-    act(() => hook.result.current.playback.loadBook(book));
-    expect(audio.currentTime).toBe(12);
-    expect(audio.muted).toBe(false);
-    expect(audio.play).not.toHaveBeenCalled();
-    act(() => hook.result.current.playback.toggle());
-    expect(audio.currentTime).toBe(0);
-    expect(hook.result.current.time).toBe(12_000);
-    expect(audio.muted).toBe(true);
-    expect(audio.play).toHaveBeenCalledTimes(1);
-    ready = 3;
-    act(() => audio.dispatchEvent(new Event("canplay")));
-    expect(audio.currentTime).toBe(12);
-    act(() => audio.dispatchEvent(new Event("seeked")));
-    expect(audio.muted).toBe(false);
-    expect(audio.play).toHaveBeenCalledTimes(1);
   });
 });

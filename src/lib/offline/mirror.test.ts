@@ -30,7 +30,6 @@ import {
 import { liveBookDigest } from "./live-book-digest";
 import type { PullBatch, PulledBook } from "./sync-protocol";
 
-// Helpers stay in the oracle: production uses one read for all three views.
 async function listMirrorBooks(userId: string, query: LibraryQuery = {}) {
   return filterLibraryBooks((await readMirrorLibrary(userId)).books, query);
 }
@@ -247,8 +246,6 @@ describe("applyPullBatch", () => {
   it("applies nothing when a row late in the batch cannot be written", async () => {
     await applyPullBatch(USER_A, batch({ cursor: "2026-07-01T00:00:00.000Z" }));
 
-    // Listening sessions are written after books, tags and collections, so a
-    // failure here proves the earlier stores roll back rather than commit.
     const poisoned = batch({
       cursor: "2026-07-09T00:00:00.000Z",
       books: [book("book-1")],
@@ -384,7 +381,6 @@ describe("tombstones", () => {
   it("never treats absence from a page as a deletion", async () => {
     await applyPullBatch(USER_A, seeded());
 
-    // A later page carries only book-1 and no live-id manifest at all.
     await applyPullBatch(
       USER_A,
       batch({ complete: false, books: [book("book-1")], liveBookIds: null }),
@@ -399,8 +395,6 @@ describe("tombstones", () => {
   it("deletes a book and everything hanging off it when the manifest omits it", async () => {
     await applyPullBatch(USER_A, seeded());
 
-    // The collection still claims both books; the tombstone must win, or a
-    // deleted book would linger as a dangling membership row.
     await applyPullBatch(USER_A, batch({ ...seeded(), books: [], liveBookIds: ["book-1"] }));
 
     expect((await listMirrorBooks(USER_A)).map((row) => row.id)).toStrictEqual(["book-1"]);
@@ -503,7 +497,6 @@ describe("tombstones", () => {
   });
 });
 
-/** The register-backed stub both fence cases read and write through. */
 function stubPlaybackStorage(): Map<string, string> {
   const values = new Map<string, string>();
   vi.stubGlobal("localStorage", {
@@ -525,8 +518,6 @@ describe("healMirrorPlaybackFromLocal", () => {
       stubPlaybackStorage();
       const db = await database();
       try {
-        // A surviving local register must not authorize a stale writer across
-        // the account boundary, even when a subsequent sign-in reopens it.
         saveLocalPlaybackState(USER_A, "book-1", { positionMs: 42000, occurredAt: Date.now() });
         if (boundary === "entry") {
           commitAccountSignOutFence();
@@ -549,8 +540,6 @@ describe("healMirrorPlaybackFromLocal", () => {
             key,
           ) {
             const request = get.call(this, key);
-            // If the fenced job is admitted to the transaction, a later
-            // sign-in can clear the fence before the final commit assertion.
             if (this.name === "playbackStates") void reopenAccountAfterSignIn(USER_B);
             return request;
           });
@@ -917,7 +906,6 @@ describe("local library reads", () => {
     expect(await ids("title")).toStrictEqual(["book-dune", "book-emma", "book-ilium"]);
     expect(await ids("author")).toStrictEqual(["book-ilium", "book-dune", "book-emma"]);
     expect(await ids("added")).toStrictEqual(["book-dune", "book-emma", "book-ilium"]);
-    // Activity is the later of the metadata edit and the last listen.
     expect(await ids("activity")).toStrictEqual(["book-emma", "book-dune", "book-ilium"]);
   });
 
@@ -989,8 +977,6 @@ describe("scale", () => {
     expect(all[0]?.id).toBe("book-0000");
     expect(tagged).toHaveLength(100);
     expect(searched.map((row) => row.id)).toStrictEqual(["book-0777"]);
-    // Three full passes over a thousand books; a per-row IndexedDB lookup
-    // would be orders of magnitude slower than this ceiling.
     expect(elapsed).toBeLessThan(1_000);
   });
 });

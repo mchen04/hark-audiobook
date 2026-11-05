@@ -16,20 +16,6 @@ import {
 import { bookBuffer, SEED_BOOKS } from "./harness/library-seed";
 import { mediaEntries, readDeviceStorage } from "./harness/snapshot";
 
-/**
- * `docs/local-first.md` section 8, the half that is easy to get catastrophically
- * wrong.
- *
- * A revoked or expired session must send the user to `/login` — nobody may be
- * left sitting on a cached library they are no longer entitled to. And it must
- * do that WITHOUT purging: the purge path deletes downloads and their media,
- * and per section 2 those MP3s exist nowhere else in the world. A session
- * timing out overnight is routine; it must not cost the user every audiobook on
- * the device.
- *
- * So this asserts both halves. Either one alone would let the other regress.
- */
-
 const BOOK = SEED_BOOKS[0]!;
 
 let account: Account;
@@ -59,7 +45,6 @@ test("a revoked session lands on /login and destroys nothing this device holds",
     await expect(device.page.getByRole("link", { name: BOOK.title, exact: true })).toBeVisible({
       timeout: 60_000,
     });
-    // Let the pull that follows the import land, so the mirror is populated too.
     await device.page.reload({ waitUntil: "domcontentloaded" });
     await device.page.waitForSelector("[data-launch-ready]", { state: "attached" });
     await device.page.waitForTimeout(2_000);
@@ -74,15 +59,11 @@ test("a revoked session lands on /login and destroys nothing this device holds",
       0,
     );
 
-    // Revoked server-side, the way an administrator or an expiry does it. The
-    // device is told nothing.
     const revoked = await revokeSessions(account.userId);
     expect(revoked, "no session row was deleted, so nothing was actually revoked").toBeGreaterThan(
       0,
     );
 
-    // A launch: a brand-new document in the same warm profile, at the URL the
-    // Home Screen icon uses.
     const launched = await device.context.newPage();
     await launched.goto(`${device.origin}/library?source=pwa`, { waitUntil: "domcontentloaded" });
     await expect
@@ -94,8 +75,6 @@ test("a revoked session lands on /login and destroys nothing this device holds",
       })
       .toBe("/login");
 
-    // And nothing was destroyed on the way. The audio in particular exists
-    // nowhere else: the server has never held the bytes.
     const after = await readDeviceStorage(launched, account.userId);
     expect(
       after.stores["chapterline-offline-v1/downloads"]?.ownedByTarget ?? 0,

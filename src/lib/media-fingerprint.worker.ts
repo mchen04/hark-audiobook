@@ -1,6 +1,5 @@
 import { fullSha256, type FingerprintWorkerResponse } from "./media-hash";
 
-// DOM lib types `self` as Window; narrow it to the worker surface used here.
 const workerScope = self as unknown as {
   onmessage: ((event: MessageEvent<File>) => void) | null;
   postMessage: (message: FingerprintWorkerResponse) => void;

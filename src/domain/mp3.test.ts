@@ -98,8 +98,6 @@ async function overflowingChapterFixture(untitledIndex?: number): Promise<string
   return source;
 }
 
-// Mirrors the browser importer: parse failures and format mismatches are both
-// InvalidMp3Error.
 async function parseFixture(filePath: string, fallbackTitle: string): Promise<ParsedMp3> {
   let metadata;
   try {

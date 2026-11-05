@@ -4,18 +4,6 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import ts from "typescript";
 
-/**
- * The sync unit is the book aggregate (`docs/local-first.md` section 3).
- *
- * `chapters`, `book_tags` and `collection_books` carry no `updatedAt` of their
- * own, so a mutation that touches one of them and does not bump its parent is a
- * change no other device can ever observe. It is silent: the route returns 200,
- * the local UI updates, and the write simply never propagates.
- *
- * This cheap source-level route audit complements the production-PWA sync
- * regressions. It does not prove database receipt or commit ordering.
- */
-
 const API_ROOT = join(process.cwd(), "src/app/api");
 
 const PARENT_OF: Record<string, string> = {
@@ -43,7 +31,6 @@ function writesChild(source: string, child: string): boolean {
 }
 
 function bumpsParent(source: string, parent: string): boolean {
-  // `.update(parent)` ... `updatedAt:` within the same chained statement.
   return new RegExp(`\\.update\\(\\s*${parent}\\s*\\)[\\s\\S]{0,400}?updatedAt:`).test(source);
 }
 
@@ -59,8 +46,6 @@ describe("every mutation route bumps its parent aggregate", () => {
       const offenders = ROUTES.filter(
         (route) =>
           writesChild(route.source, child) &&
-          // A route that creates the parent in the same request has nothing to
-          // bump — the insertion stamps its own receipt.
           !new RegExp(`\\.insert\\(\\s*${parent}\\s*\\)`).test(route.source) &&
           !bumpsParent(route.source, parent),
       );
@@ -74,8 +59,6 @@ describe("every mutation route bumps its parent aggregate", () => {
     )!.source;
     const guard = source.match(/if \(([^)]*)\) \{\s*await transaction\s*\.update\(collections\)/);
     expect(guard, "the collection bump must be guarded").not.toBe(null);
-    // Gating the bump on `name` alone is exactly the bug: adding or removing a
-    // book would leave `collections.updatedAt` untouched.
     expect(guard![1]).toContain("bookId !== undefined");
   });
 
@@ -88,8 +71,6 @@ describe("every mutation route bumps its parent aggregate", () => {
 describe("deletions leave a durable tombstone", () => {
   it("writes the tombstone in the same transaction as the book delete", () => {
     const source = ROUTES.find((route) => route.name === "books/[bookId]/route.ts")!.source;
-    // Parse callback boundaries, independent of formatter line breaks or a
-    // transaction-options argument. A regex could also span two transactions.
     const file = ts.createSourceFile("route.ts", source, ts.ScriptTarget.Latest, true);
     const blocks: string[] = [];
     function visit(node: ts.Node) {

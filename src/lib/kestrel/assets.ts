@@ -18,11 +18,6 @@ export type KestrelAssetProgress = {
 
 export type KestrelAssetBundle = Record<(typeof KESTREL_ASSETS)[number]["id"], Uint8Array>;
 
-/**
- * Fetches the immutable Kestrel weights once, verifies every byte, and keeps
- * them in Cache Storage. The source document and synthesized audio never use
- * this network path; only public model files do.
- */
 export async function loadKestrelAssets(
   onProgress?: (progress: KestrelAssetProgress) => void,
 ): Promise<KestrelAssetBundle> {

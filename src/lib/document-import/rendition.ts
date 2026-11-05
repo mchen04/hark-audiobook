@@ -8,7 +8,6 @@ const KESTREL_VOICE_ID = "af_heart";
 const DOCUMENT_EXTRACTION_REVISION = "extract-v2";
 const SENTENCE_SPLITTER_REVISION = "split-v1";
 
-/** Keep this recipe byte-for-byte stable for existing Kestrel books. */
 export const NARRATION_RENDITION_KEY = [
   "kestrel-fast-v1",
   KESTREL_BUNDLE_REVISION.slice(0, 16),
@@ -23,12 +22,10 @@ export const NARRATOR_LABEL = "Kestrel Fast · af_heart";
 export const UNAVAILABLE_RENDITION_MESSAGE =
   "This saved narration was made with an older engine. It still plays on devices that have its completed audio. Hark cannot rebuild it without changing its timing.";
 
-/** Unknown and legacy Lemonade recipes must never reuse a Kestrel timeline. */
 export function canRegenerateRendition(key: string): boolean {
   return key === NARRATION_RENDITION_KEY;
 }
 
-/** Refuses to attach bytes whose seek map differs from the saved rendition. */
 export function assertSameRenditionTimeline(
   generated: Pick<PlayerBook, "durationMs" | "chapters">,
   canonical: Pick<PlayerBook, "durationMs" | "chapters">,

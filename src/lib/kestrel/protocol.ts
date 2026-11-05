@@ -24,7 +24,6 @@ export type KestrelWorkerResponse =
     }
   | { type: "error"; id: number; message: string };
 
-/** Between Kestrel's worker and its audio renderer, which runs beside inference. */
 export type KestrelRenderRequest =
   | { type: "configure"; fft: Uint8Array }
   | { type: "render"; id: number; frames: KestrelSpectralFrames };

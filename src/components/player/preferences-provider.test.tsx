@@ -5,19 +5,6 @@ import "@testing-library/jest-dom/vitest";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-/**
- * A settings toggle must send exactly one write.
- *
- * `updatePreferences` used to call `savePreferences` from INSIDE the
- * `setPreferences` updater. React is allowed to invoke an updater more than
- * once for a single call — StrictMode does it on every render — so one tap on a
- * toggle fired two PATCHes. A state updater is required to be pure; a network
- * request is the least pure thing that could be in one.
- *
- * The test therefore renders under `StrictMode` deliberately. Without it the
- * double-invoke never happens and the assertion cannot fail.
- */
-
 const { savePreferences, fetchPreferences, readCachedPreferences, DEFAULTS } = vi.hoisted(() => ({
   savePreferences: vi.fn(),
   fetchPreferences: vi.fn(),
@@ -96,9 +83,6 @@ it("composes two changes in the same tick instead of losing one", async () => {
   fireEvent.click(screen.getByRole("button", { name: "rewind" }));
 
   await waitFor(() => expect(savePreferences).toHaveBeenCalledTimes(2));
-  // Moving the save out of the updater means it no longer receives React's
-  // freshest state automatically, so the second change must still see the
-  // first. If it does not, one of the two settings silently reverts.
   expect(savePreferences.mock.calls[1]![1]).toMatchObject({ skipBackMs: 45_000 });
   expect(screen.getByLabelText("skip back")).toHaveTextContent("45000");
   expect(screen.getByLabelText("smart rewind")).toHaveTextContent("false");

@@ -8,18 +8,10 @@ type RenderWorker = Pick<Worker, "postMessage" | "terminate"> & {
   onerror: ((event: ErrorEvent) => void) | null;
 };
 
-/** Chunks inferred ahead of their audio; bounds the spectral frames held in memory. */
 export const RENDER_AHEAD = 2;
 
-/** How long a new renderer may take to load before chunks render inline instead. */
 const RENDERER_START_TIMEOUT_MS = 5_000;
 
-/**
- * Renders audio in a second worker so it overlaps the next chunk's inference.
- * Work goes to that worker only after it reports it has loaded. The same
- * renderer runs inline wherever the worker cannot start, never reports ready,
- * or stops.
- */
 export function createAudioRenderer(
   startWorker: () => RenderWorker,
   renderInline: AudioRenderer,
@@ -92,12 +84,6 @@ export function createAudioRenderer(
   };
 }
 
-/**
- * Infers chunks one after another while earlier chunks render. `inferred`
- * settles when the last chunk is inferred, so the next request can start;
- * `audio` settles with every chunk's audio in chunk order. At most
- * RENDER_AHEAD chunks of one request wait to render.
- */
 export function synthesizeInOrder(
   count: number,
   infer: (index: number) => Promise<KestrelSpectralFrames>,
@@ -112,7 +98,6 @@ export function synthesizeInOrder(
         onRendered(index);
         return samples;
       });
-      // Awaited through `audio`; this only keeps an early failure from surfacing as unhandled.
       audio.catch(() => undefined);
       rendered.push(audio);
     }

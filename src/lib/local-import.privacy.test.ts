@@ -9,16 +9,12 @@ import { importLocalMp3, parseLocalMp3 } from "./local-import";
 
 const FIXTURE = join(__dirname, "..", "..", "tests", "fixtures", "transcripts", "tiny-book.mp3");
 
-// Words that exist ONLY inside the embedded transcript payload (the book text
-// is not in any audio tag), so their presence in a request would prove leakage.
 const TRANSCRIPT_MARKERS = ["lantern", "flickered", "sentences", "charStart", "granularity"];
 
 const storeBookTranscript = vi.hoisted(() => vi.fn(async () => undefined));
 const storeLocalBookMedia = vi.hoisted(() => vi.fn(async () => ({}) as never));
 
 vi.mock("./offline/transcript-store", () => ({ storeBookTranscript }));
-// Only the byte-writing half is stubbed; `withLocalMediaSlot` stays real, so
-// the import still runs inside the media slot the product holds.
 vi.mock("./offline/media-store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./offline/media-store")>()),
   storeLocalBookMedia,
@@ -29,11 +25,6 @@ function fixtureFile(): File {
   return new File([bytes], "tiny-book.mp3", { type: "audio/mpeg" });
 }
 
-// An import journals its registration in the outbox before it touches the
-// network, so the module under test needs IndexedDB for the queue and
-// localStorage for the device id it attributes the mutation to. Neither is a
-// place transcript content could hide: both are on-device stores, and the
-// assertions below still watch every `fetch` the import makes.
 beforeEach(() => {
   vi.stubGlobal("indexedDB", new FakeIDBFactory());
   vi.stubGlobal("localStorage", memoryStorage());
@@ -85,7 +76,6 @@ describe("import privacy", () => {
       }
     }
 
-    // The cues do get stored — on this device only.
     expect(storeBookTranscript).toHaveBeenCalledTimes(1);
     const [, , stored] = storeBookTranscript.mock.calls[0]! as unknown as [
       string,
@@ -96,7 +86,6 @@ describe("import privacy", () => {
   });
 
   it("imports the audio cleanly when the transcript frame is malformed", async () => {
-    // Corrupt only the GEOB payload: flip bytes inside the gzip data region.
     const bytes = readFileSync(FIXTURE);
     const marker = Buffer.from("EPUB_LISTENER_TRANSCRIPT\0");
     const at = bytes.indexOf(marker);

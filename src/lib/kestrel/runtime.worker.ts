@@ -30,10 +30,6 @@ workerScope.onmessage = (event) => {
   requestTail = requestTail.then(() => handleRequest(request)).catch(() => undefined);
 };
 
-/**
- * Resolves once this request no longer needs the inference sessions, so the
- * next queued request can start while this one's last chunks still render.
- */
 async function handleRequest(request: KestrelWorkerRequest): Promise<void> {
   try {
     const sessions = await getSessions(request.id);
@@ -47,7 +43,6 @@ async function handleRequest(request: KestrelWorkerRequest): Promise<void> {
     if (chunks.length === 0) throw new Error("This section does not contain readable text.");
     post({ type: "progress", id: request.id, stage: "phonemes", fraction: 1 });
 
-    // Each chunk's audio renders beside the next chunk's inference.
     const { inferred, audio } = synthesizeInOrder(
       chunks.length,
       (index) => inferChunk(sessions, chunks[index]!, request.seed + index),
@@ -102,8 +97,6 @@ function getSessions(requestId: number): Promise<Sessions> {
 
 async function initializeSessions(requestId: number): Promise<Sessions> {
   ort.env.logLevel = "error";
-  // This runtime already lives in a dedicated worker. A second ORT proxy and
-  // cross-origin-isolation-only pthreads add overhead without more parallelism.
   ort.env.wasm.proxy = false;
   ort.env.wasm.numThreads = 1;
   const { ortModule, ortWasm } = ORT_RUNTIME_ASSETS;
@@ -147,10 +140,7 @@ async function initializeSessions(requestId: number): Promise<Sessions> {
         assets,
         voice,
       );
-    } catch {
-      // Unsupported WebGPU operators and driver limits vary by device. WASM
-      // executes the same graph and remains the universal local fallback.
-    }
+    } catch {}
   }
   return createSessions(
     render,
@@ -262,7 +252,6 @@ async function inferChunk(
         style: decoderStyle,
       });
       try {
-        // Copies outlive the tensors disposed below.
         return {
           f0: (f0.data as Float32Array).slice(),
           filterMagnitude: (decoderResults.filter_magnitude!.data as Float32Array).slice(),

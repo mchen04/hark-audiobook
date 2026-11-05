@@ -10,8 +10,6 @@ import type { PlayerBook } from "@/domain/player";
 import { UNLOAD_PLAYER_EVENT } from "@/lib/app-keys";
 
 const { loadPlaybackHistory, storePlaybackAction, persistence } = vi.hoisted(() => {
-  // Stable across renders, as the real hook's `useCallback`s are, so a durable
-  // write can be attributed to the transport action that caused it.
   const persistProgress = vi.fn();
   const saveDurableState = vi.fn();
   return {
@@ -232,14 +230,6 @@ describe("playback action capture", () => {
     expect(audio.getAttribute("src")).toBe("/offline-media/replacement");
   });
 
-  /**
-   * WHICH MECHANISM caused each durable write, at the call sites.
-   *
-   * The record carries a `source` so that a person can read
-   * `docs/resume-durability-device-check.md`'s answer off the phone instead of
-   * inferring it. That only works if every path names itself honestly: a pause
-   * recorded as a cadence write would say a suspended timer was alive.
-   */
   it("names the mechanism behind every transport-driven durable write", async () => {
     render(
       <PlaybackProvider userId="user-1">

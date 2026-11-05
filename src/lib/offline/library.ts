@@ -44,20 +44,11 @@ export async function listOfflineBooks(userId: string): Promise<OfflineBook[]> {
     .sort((left, right) => right.downloadedAt.localeCompare(left.downloadedAt));
 }
 
-/**
- * The raw download records for one account: one indexed lookup, no deletion
- * retry and no Cache Storage reconcile. The library reads this on the paint
- * path; `listOfflineBooks` does the reconciling read afterwards.
- */
 export async function listStoredOfflineBooks(userId: string): Promise<OfflineBook[]> {
   const db = await database();
   return db.getAllFromIndex("downloads", "by-user", userId);
 }
 
-/**
- * Paint-path records, excluding books whose permanent deletion is already
- * durable but whose byte cleanup is still waiting on another tab's lock.
- */
 export async function listVisibleStoredOfflineBooks(userId: string): Promise<OfflineBook[]> {
   const db = await database();
   const transaction = db.transaction(["downloads", "deletions"]);
@@ -72,15 +63,6 @@ export async function listVisibleStoredOfflineBooks(userId: string): Promise<Off
   return records.filter((record) => !permanentlyDeleted.has(record.book.id));
 }
 
-/**
- * One download record exactly as stored — no deletion retry, no reconcile, no
- * Cache Storage read at all.
- *
- * `getOfflineBook` answers a different question ("can this device play it
- * right now?") and deliberately returns `undefined` for a book whose audio is
- * missing. A caller that needs the ROW — to reclaim the bytes the old token
- * owned, or to put it back after a failed write — has to ask for the row.
- */
 export async function getStoredOfflineBook(
   userId: string,
   bookId: string,
@@ -102,8 +84,6 @@ export async function getOfflineBook(userId: string, bookId: string) {
 
     const cache = await caches.open(MEDIA_CACHE);
     const reconciled = await reconcileOfflineRecord(db, cache, record);
-    // The marker can land while Cache Storage is being read. Check once more
-    // before handing bytes to the player so that transition is never exposed.
     if (isPermanentOfflineDeletion(await db.get("deletions", key))) return undefined;
     return reconciled;
   } catch {
@@ -111,38 +91,6 @@ export async function getOfflineBook(userId: string, bookId: string) {
   }
 }
 
-/**
- * Answers one question — can this device play this book right now? — and
- * records the answer. It DESTROYS NOTHING.
- *
- * It used to. A single missed `cache.match` deleted the download record, its
- * journaled cache rows and the book's read-along cues, on a path that runs on
- * every `/library` visit and every player open. WebKit was then measured
- * discarding every Cache Storage *record* for this origin while the cache
- * *names* survived — a heal restored and verified 33 shell and 6 media entries,
- * and seconds later both caches read zero from two pages at once. So
- * `caches.open` resolves, every `match` misses, and the app destroyed the
- * user's downloads and read-along data on the next launch. Putting the bytes
- * back afterwards restores neither.
- *
- * A failed read is not proof of permanent loss, so it is not treated as one:
- *
- * - `undefined` still comes back, which is the ONLY thing the callers ever
- *   needed. `local-media-gate.tsx` turns it into the "this device does not
- *   currently have it — attach the original MP3" screen, and
- *   `listOfflineBooks` drops the book from the playable set. That is already
- *   the correct destination for a book whose bytes are missing.
- * - `offlineMediaUrl` and its `cacheEntries` rows stay, so bytes that come back
- *   are still owned and still reachable rather than swept as orphans.
- * - The transcript stays. It is keyed by book id and was never addressed by the
- *   token that missed; losing read-along data because an audio blob was evicted
- *   is gratuitous.
- * - The record is marked instead, and unmarked as soon as a `match` succeeds.
- *
- * Deletion still happens where it is correct and nowhere else: `removeOfflineBook`
- * (explicit user delete, and the library's remove-download), `clearLocalDataForUser`
- * and `purgeAccount`. None of them route through here.
- */
 async function reconcileOfflineRecord(db: OfflineDb, cache: Cache, record: OfflineBook) {
   if (await cache.match(record.offlineMediaUrl)) {
     if (!record.mediaMissingSince) return record;
@@ -155,12 +103,6 @@ async function reconcileOfflineRecord(db: OfflineDb, cache: Cache, record: Offli
   return undefined;
 }
 
-/**
- * Stamps the observation on the stored record, in one transaction, and only
- * while the record still points at the token that was looked up. An import
- * mints a fresh token and writes a fresh record, so that check is what stops a
- * reconcile racing an attach from marking audio that has just arrived.
- */
 async function setMediaMissingSince(
   db: OfflineDb,
   record: OfflineBook,
@@ -179,37 +121,6 @@ async function setMediaMissingSince(
   notifyLibraryChanged();
 }
 
-/**
- * Re-points this device's copy of a book from the id it was imported under to
- * the id the server settled on. Not one audio byte moves.
- *
- * An import queued while the network was down carries an id this device minted,
- * and the bytes, the download record, the cache journal and the read-along cues
- * are all written under it. When that registration finally replays and the
- * server answers 409 — this fingerprint already belongs to book Y — the audio on
- * this device is filed under a name no pull will ever mention: a second copy of
- * the same audiobook, playable here and invisible everywhere else, next to a
- * book Y that asks the user to re-import a file they already imported. Design
- * contract section 10 promises that re-import is lossless and creates no
- * duplicate; this is that promise on the offline path.
- *
- * What moves is the IDENTITY, never the data:
- *
- * - `offlineMediaUrl` is a random token minted at store time and kept on the
- *   record. Nothing derives it from the book id — `media-store.ts` mints it,
- *   `local-media-gate.tsx` and `asOfflinePlayerBook` read it back — so
- *   re-pointing the record leaves every chunk in Cache Storage exactly where it
- *   is. That is the only tolerable shape here: a book can be a 600-hour MP3 and
- *   copying it to rename it would risk `QuotaExceededError` while destroying
- *   the one copy of data that exists nowhere else in the world (section 1).
- * - `cacheEntries.bookId` and the transcript keys travel with it, so the
- *   eviction sweep and the account purge still find the rows they own.
- *
- * Interruption-safe by construction. The byte identity and mirror identity
- * each move in one IndexedDB transaction, and the queued registration settles
- * only after both return. A stop between them leaves the registration queued;
- * replay gets the same deterministic 409 and finishes the idempotent move.
- */
 export async function reattachLocalBookIdentity(
   userId: string,
   fromBookId: string,
@@ -222,26 +133,12 @@ export async function reattachLocalBookIdentity(
   const toKey = offlineBookKey(userId, toBookId);
   const canonicalBook = toCanonicalBook(canonical);
 
-  // Exactly one lock is taken, and it is the SOURCE's. The import holds that
-  // same lock across its whole local write (`media-store.ts#withLocalMediaSlot`),
-  // so waiting for it is what stops a replay from moving a book whose bytes are
-  // still being written. A second lock on the target is deliberately not taken:
-  // an import that reattached online holds the source's slot and then asks for
-  // the target's, so a reattach that took them in the other order could deadlock
-  // against it. The target needs no lock — the move below is one atomic
-  // transaction, and a writer that loses that race leaves URLs no record owns,
-  // which `retryAllPendingOfflineDeletions` already sweeps.
   const journaled = await withMediaWriteLock(fromKey, async () => {
     const [record, target] = await Promise.all([
       db.get("downloads", fromKey),
       db.get("downloads", toKey),
     ]);
     if (record && target && (await mediaIsStored(target.offlineMediaUrl))) {
-      // The canonical id already holds these exact bytes — the server proved
-      // that by rejecting the registration on the fingerprint. The source is a
-      // redundant second copy of a file that is still on this device, so it is
-      // journaled for deletion first and removed after, never the other way
-      // round.
       await db.put("deletions", {
         key: fromKey,
         userId,
@@ -257,10 +154,6 @@ export async function reattachLocalBookIdentity(
     return false;
   });
   await rekeyMirroredLocalBook(userId, fromBookId, toBookId, canonicalBook);
-  // Outside the lock: the journal takes it again for every entry it completes.
-  // A failure here is not a failed merge — the download record is already gone
-  // and the journal row is what owns those bytes now, exactly as it does for
-  // any other interrupted deletion.
   if (journaled) await retryPendingOfflineDeletions(userId).catch(() => undefined);
 }
 
@@ -269,11 +162,6 @@ async function mediaIsStored(offlineMediaUrl: string): Promise<boolean> {
   return !!(await cache.match(offlineMediaUrl));
 }
 
-/**
- * The whole move, in one transaction over the three stores that name a book by
- * id. Cache Storage is not opened here at all, which is the point: the bytes
- * are addressed by a token this function never reads.
- */
 async function rekeyLocalBook(
   db: OfflineDb,
   userId: string,
@@ -301,9 +189,6 @@ async function rekeyLocalBook(
       downloads.put({
         ...record,
         key: toKey,
-        // The id is the key's own tail, never the payload's: a record whose
-        // `book.id` disagreed with the row it is filed under would be a book
-        // the gate can find and the library cannot, or the reverse.
         book: canonical ? { ...canonical, id: toBookId } : renameBook(record.book, toBookId),
       }),
       downloads.delete(fromKey),
@@ -314,9 +199,6 @@ async function rekeyLocalBook(
   }
   for (const cue of cues) {
     writes.push(transcripts.delete(cue.key));
-    // Cues already filed under the canonical id came from this same file — the
-    // server matched the fingerprint — so the source's copy is dropped rather
-    // than written over them.
     if (!targetCueKeys.length) {
       writes.push(
         transcripts.put({
@@ -331,7 +213,6 @@ async function rekeyLocalBook(
   notifyLibraryChanged();
 }
 
-/** The record's own metadata, with every id that named the old book replaced. */
 function renameBook(book: OfflineBook["book"], bookId: string): OfflineBook["book"] {
   return {
     ...book,
@@ -340,13 +221,6 @@ function renameBook(book: OfflineBook["book"], bookId: string): OfflineBook["boo
   };
 }
 
-/**
- * The `playerBook` a 409 carries, when it carries one: the canonical title,
- * chapters and saved position, which is what the online reattach in
- * `local-import.ts` stores. Anything unrecognisable is ignored rather than
- * trusted — the record it would replace is the only local description of a file
- * the server does not have.
- */
 function toCanonicalBook(value: unknown): OfflineBook["book"] | null {
   if (!value || typeof value !== "object") return null;
   const book = value as Partial<PlayerBook>;
@@ -460,11 +334,6 @@ export function asOfflinePlayerBook(record: OfflineBook): PlayerBook {
   };
 }
 
-/**
- * Removes every locally stored trace of one account: downloads, cached media,
- * queued mutations, positions, and preferences. Other accounts on the same
- * device keep their data.
- */
 export async function clearLocalDataForUser(userId: string): Promise<void> {
   invalidatePreferenceWrites(userId);
   const downloads = await listStoredOfflineBooks(userId);
@@ -474,8 +343,6 @@ export async function clearLocalDataForUser(userId: string): Promise<void> {
   const cacheCleanupFailed = cleanup.some((result) => result.status === "rejected");
   const db = await database();
   const orphaned = await db.getAllFromIndex("cacheEntries", "by-user", userId);
-  // Grouped per book so a chunked audiobook takes one lock and one batched
-  // delete instead of thousands of per-chunk lock acquisitions.
   const orphansByBook = new Map<string, string[]>();
   for (const entry of orphaned) {
     const group = orphansByBook.get(entry.bookId);
@@ -514,10 +381,5 @@ export async function clearLocalDataForUser(userId: string): Promise<void> {
   if (failures.length > 1) throw new AggregateError(failures, "Local account cleanup failed.");
 }
 
-// This module owns the records a 409 reconciliation must touch, and the sync
-// layer below it must not import upward — that edge is what closed the
-// offline-sync ↔ offline/library cycle. So the dependency is inverted:
-// registered here, at module init, the handlers exist before anything that can
-// see a download record can trigger a replay.
 registerImportReattachedHandler(reattachLocalBookIdentity);
 registerProgressConflictHandler(projectOfflineProgress);

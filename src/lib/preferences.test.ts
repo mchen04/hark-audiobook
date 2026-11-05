@@ -15,7 +15,7 @@ import {
   readCachedPreferences,
   savePreferences,
 } from "./preferences";
-import { resolveStartPosition } from "./playback-core";
+import { resolveStartPosition } from "@/domain/player";
 
 beforeEach(() => {
   const store = new Map<string, string>();
@@ -27,7 +27,6 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
-/** Enough of `window` for the reconnect listener, with a way to fire "online". */
 function fakeWindow() {
   const listeners = new Map<string, Set<EventListener>>();
   return {
@@ -327,8 +326,6 @@ describe("preference durability", () => {
 
       receipts.set(writeId, patch);
       serverPreferences = { ...serverPreferences, ...patch };
-      // The server committed A, but A never received the response. Device B
-      // then chose a newer value before A came back online.
       serverPreferences = { ...serverPreferences, skipBackMs: 10_000 };
       throw new Error("response lost after commit");
     });
@@ -380,8 +377,6 @@ describe("preference durability", () => {
       { autoplayNextInCollection: true },
     );
 
-    // Another device changes A's field after A committed but before its
-    // delayed acknowledgment reaches this device.
     serverPreferences = { ...serverPreferences, skipBackMs: 10_000 };
     releaseFirst!(currentAcknowledgment({ skipBackMs: 45_000 }, firstRequest));
     await Promise.all([first, second]);
@@ -495,10 +490,6 @@ describe("preference durability", () => {
     await vi.waitFor(() => expect(acknowledgeOld).not.toBe(null));
     const oldRetry = flushPendingPreferences(userId);
 
-    // Sign-out deletes the entire envelope, so the next session starts its
-    // numeric revision counter at 1 again while the timed-out request remains
-    // alive. Its opaque write identity must distinguish the two, and the retry
-    // queued behind the old request must become a no-op.
     localStorage.removeItem(`chapterline:preferences:${userId}`);
     const newWrite = savePreferences(userId, DEFAULT_PREFERENCES, { skipForwardMs: 45_000 });
     acknowledgeOld!(currentAcknowledgment({ skipBackMs: 45_000 }, oldRequest));
@@ -581,14 +572,6 @@ describe("exact resume defaults", () => {
   });
 });
 
-/**
- * A preference change is the one user write in this product that is NOT an
- * outbox row (`docs/local-first.md` section 5) — it lives only as a flag in
- * `chapterline:preferences:<userId>`, a key `clearLocalDataForUser` removes
- * wholesale on sign-out. So the two things below are the entire safety net:
- * the write must heal itself on reconnect, and while it has not, it must be
- * visible to the sign-out drain that is about to delete it.
- */
 describe("an undelivered preference change is not lost silently", () => {
   it("retries the dropped write when the device comes back online", async () => {
     const userId = "user-reconnect";
@@ -646,8 +629,6 @@ describe("an undelivered preference change is not lost silently", () => {
     const revalidation = fetchPreferences(userId);
     await vi.waitFor(() => expect(releaseGet).not.toBe(null));
 
-    // The user changes a setting, and the server takes it — all while the GET
-    // above is still open. Nothing pending is left behind by the time it lands.
     await savePreferences(userId, DEFAULT_PREFERENCES, { skipBackMs: 45_000 });
     expect(listPendingPreferenceWrites(userId)).toStrictEqual([]);
 

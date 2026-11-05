@@ -210,8 +210,6 @@ describe("imported media streaming", () => {
   });
 
   it("disarms a lying seek table before the bytes reach Cache Storage", async () => {
-    // ffmpeg writes a 300-hour book's byte count modulo 2^32 into the Info
-    // tag, so a browser seeking by that table lands in the first few minutes.
     const file = new File([brokenSeekTableMp3(5 * 1024 * 1024)], "long-book.mp3");
     const original = new Uint8Array(await file.arrayBuffer());
     const record = await withLocalMediaSlot("user", "minted", (slot) =>
@@ -285,9 +283,6 @@ function book(id: string) {
   };
 }
 
-// ID3v2 tag, then an MPEG-2 Layer III Info frame (64 kbps, 24 kHz, mono) whose
-// byte count wrapped past 32 bits: 45,191,770 frames of 192 bytes, declared as
-// 86,885,440. Everything after the first frame is filler the decoder never sees.
 const BROKEN_ID3_BYTES = 4_000;
 const BROKEN_TAG_OFFSET = 10 + BROKEN_ID3_BYTES + 4 + 9;
 

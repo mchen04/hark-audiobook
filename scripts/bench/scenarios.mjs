@@ -1,7 +1,6 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
-import { devices } from "@playwright/test";
 
 import { startLatencyProxy, PROBE_PATH } from "./proxy.mjs";
 import { outsideRepository, root } from "./build.mjs";
@@ -12,9 +11,8 @@ import {
   backButton,
   bookCard,
   booksReady,
-  closeWebKitPages,
+  closeWebKit,
   importAudio,
-  headers,
   launchWebKit,
   playerReady,
   shellReady,
@@ -23,7 +21,6 @@ import {
   startPath,
   storedAudioReady,
   syntheticAccount,
-  trackWebKitPages,
 } from "./runtime.mjs";
 
 export const scenarioNames = [
@@ -41,13 +38,7 @@ export const scenarioNames = [
 const libraryLeaving = ["mainHeading", "firstCard"];
 const playerLeaving = ["mainHeading", "playerHeading", "playButton"];
 
-export async function recordScenarios({
-  origin,
-  directory = root,
-  output,
-  names = scenarioNames,
-  context,
-}) {
+export async function recordScenarios({ origin, directory = root, output, names = scenarioNames }) {
   const destination = outsideRepository(output);
   mkdirSync(destination, { recursive: true });
   for (const name of names)
@@ -57,6 +48,7 @@ export async function recordScenarios({
   const proxy = await startLatencyProxy(origin);
   const videoDirectory = mkdtempSync(path.join(tmpdir(), "hark-frame-videos-"));
   const videoOptions = { recordVideo: { dir: videoDirectory, size: { width: 393, height: 852 } } };
+  const profile = mkdtempSync(path.join(tmpdir(), "hark-scenario-profile-"));
   let warm;
   let fresh;
   let pendingVideo;
@@ -93,23 +85,6 @@ export async function recordScenarios({
       result.video = target;
     }
     pendingVideo = null;
-  };
-  const createFresh = async () => {
-    if (!context) return launchWebKit(videoOptions);
-    const deviceContext = await context.browser().newContext({
-      ...devices["iPhone 15"],
-      extraHTTPHeaders: headers,
-      serviceWorkers: "allow",
-      ...videoOptions,
-    });
-    await deviceContext.addInitScript(() =>
-      Object.defineProperty(navigator, "standalone", { configurable: true, value: true }),
-    );
-    return {
-      ...trackWebKitPages(deviceContext),
-      close: () => deviceContext.close(),
-      version: context.browser().version(),
-    };
   };
   const capture = async (name, handle, sampler, proof = null, readyPage) => {
     const page = readyPage ?? (await handle.newPage());
@@ -243,21 +218,9 @@ export async function recordScenarios({
     return page;
   };
   try {
-    warm = context
-      ? {
-          ...trackWebKitPages(context),
-          close: async () => {},
-          version: context.browser().version(),
-        }
-      : await launchWebKit(videoOptions);
-    if (context) {
-      await context.setExtraHTTPHeaders(headers);
-      await context.addInitScript(() =>
-        Object.defineProperty(navigator, "standalone", { configurable: true, value: true }),
-      );
-    }
+    warm = await launchWebKit(videoOptions, profile);
     cookies = await signIn(warm.context, proxy.origin, account);
-    const warmSampler = await attachSampler(warm.context);
+    let warmSampler = await attachSampler(warm.context);
     let page = await warm.newPage();
     await page.goto(`${proxy.origin}/library`, { waitUntil: "domcontentloaded" });
     await booksReady(page);
@@ -270,7 +233,7 @@ export async function recordScenarios({
     }
     for (const name of executionOrder) {
       if (["signed-out", "first-sync"].includes(name)) {
-        fresh = await createFresh();
+        fresh = await launchWebKit(videoOptions);
         if (name === "first-sync") await fresh.context.addCookies(cookies);
         const sampler = await attachSampler(fresh.context);
         await capture(name, fresh, sampler);
@@ -280,31 +243,33 @@ export async function recordScenarios({
         fresh = null;
       } else {
         const previousVideo = page.video();
-        const hadPendingVideo = !!pendingVideo;
+        const finishPreviousVideo = () => (pendingVideo ? finishVideo() : previousVideo?.delete());
         let proof = null;
         let readyPage;
-        if (reopens.includes(name)) proof = await closeWebKitPages(warm);
-        else {
+        if (reopens.includes(name)) {
+          [, proof] = await Promise.all([finishPreviousVideo(), closeWebKit(warm)]);
+          warm = await launchWebKit(videoOptions, profile);
+          warmSampler = await attachSampler(warm.context);
+        } else {
           await warmSampler.stop(page);
           readyPage = await warm.newPage();
           await readyPage.goto(`${proxy.origin}/library`, { waitUntil: "domcontentloaded" });
           await booksReady(readyPage);
           await page.close();
+          await finishPreviousVideo();
         }
-        await finishVideo();
-        if (!hadPendingVideo && previousVideo) await previousVideo.delete();
         page = await capture(name, warm, warmSampler, proof, readyPage);
         if (name === "invalid-session") await warm.context.addCookies(cookies);
       }
       save();
     }
-    for (const current of warm.context.pages()) await current.close();
-    await finishVideo();
+    await Promise.all([finishVideo(), ...warm.context.pages().map((page) => page.close())]);
     save();
     return summary();
   } finally {
     await fresh?.close();
     await warm?.close();
+    rmSync(profile, { recursive: true, force: true });
     await proxy.close();
     save();
   }

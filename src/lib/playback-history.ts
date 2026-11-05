@@ -206,14 +206,6 @@ export async function clearPlaybackHistoryForBook(userId: string, bookId: string
   await transaction.done;
 }
 
-/**
- * Every account with a recorded play, pause or seek in this database.
- *
- * `hark-playback-history-v1` is a separate database from the mirror, opened by
- * this module alone and named nothing like the others, so an account
- * whose only surviving trace is what it listened to would otherwise be invisible
- * to the account sweep. Read from the `by-user` index's keys.
- */
 export async function listPlaybackHistoryUserIds(): Promise<string[]> {
   const db = await database();
   const index = db.transaction("actions").store.index("by-user");
@@ -227,12 +219,6 @@ export async function listPlaybackHistoryUserIds(): Promise<string[]> {
   return users;
 }
 
-/**
- * The account's playback actions the server has not acknowledged. This store is
- * its own outbox — `syncState: "pending"` rows are user writes that exist
- * nowhere else — so a sign-out that clears it without draining first is a lost
- * write exactly like dropping a queued mutation.
- */
 export async function listPendingPlaybackActions(
   userId: string,
 ): Promise<Array<{ id: string; bookId: string; occurredAt: string }>> {
@@ -277,8 +263,6 @@ async function syncPlaybackAction(
     const response = await fetchFn(`/api/books/${entry.bookId}/history`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      // Survives navigation like the progress PATCH, so an action recorded
-      // right before a reload still reaches the server instead of aborting.
       keepalive: true,
       body: JSON.stringify({
         id: entry.id,
@@ -314,7 +298,6 @@ async function syncPlaybackAction(
     await transaction.done;
     return false;
   } catch {
-    // IndexedDB remains the durable offline queue.
     return true;
   }
 }

@@ -21,31 +21,13 @@ import { getStoredOfflineBook } from "./library";
 import { notifyLibraryChanged } from "./library-revision";
 
 const MEDIA_CHUNK_BYTES = 4 * 1024 * 1024;
-// Overlaps file reads with cache commits while keeping at most ~12MB of audio
-// in flight, well inside iOS WebKit's memory budget.
 const MEDIA_WRITE_CONCURRENCY = 3;
 
-/**
- * One book's media slot, held across a caller-owned sequence.
- *
- * An import writes three things under the id this device minted — the bytes,
- * the download record and the transcript — and a replay that learns the server
- * settled on a *different* id has to move all three
- * (`library.ts#reattachLocalBookIdentity`). Holding the slot for the whole
- * sequence is what stops the move from landing in the middle of it and leaving
- * whatever was written afterwards behind under a dead id.
- *
- * The handle is the proof of possession: `storeLocalBookMedia` re-acquires the
- * lock unless it is handed the slot for the very key it is about to write, so a
- * nested call cannot deadlock on a lock its own caller holds and an unrelated
- * caller cannot skip it by accident.
- */
 declare const mediaSlotBrand: unique symbol;
 export type MediaSlot = { readonly key: string; readonly [mediaSlotBrand]: true };
 const heldMediaSlots = new WeakSet<MediaSlot>();
 
 export type StreamedLocalMedia = {
-  /** Append-only MP3 bytes; backpressure includes the Cache Storage write. */
   writable: WritableStream<Uint8Array>;
   commit: (
     book: Omit<PlayerBook, "mediaUrl" | "coverUrl">,
@@ -71,11 +53,6 @@ export function withLocalMediaSlot<T>(
   });
 }
 
-/**
- * Stores an imported MP3 in bounded chunks. iOS WebKit has a much smaller
- * memory budget than desktop browsers, so neither import nor a later Range
- * request may materialize a whole audiobook-sized Blob.
- */
 export async function storeLocalBookMedia(
   userId: string,
   book: Omit<PlayerBook, "mediaUrl" | "coverUrl">,
@@ -120,15 +97,6 @@ async function storeLocalBookMediaWithinFence(
   return holdsMediaSlot(slot, key) ? write() : withMediaWriteLock(key, write);
 }
 
-/**
- * Opens a crash-recoverable, bounded-memory media stream for generated MP3s.
- *
- * Every completed chunk is journaled before it enters Cache Storage. The
- * caller must hold `slot` until `commit` or `abort` completes; this prevents
- * another tab's orphan sweep from mistaking an in-progress narration for
- * garbage. A duplicate registration may commit under a different canonical
- * book id, in which case the journal ownership moves atomically first.
- */
 export async function createStreamedLocalBookMedia(
   userId: string,
   bookId: string,
@@ -393,16 +361,10 @@ async function storeLocalBookMediaUnlocked(
   const chunkUrls = Array.from({ length: chunkCount }, (_, index) => writer.chunkUrl(index));
   const cleanupUrls: string[] = [...chunkUrls, offlineMediaUrl];
   try {
-    // Journal rows for every chunk land in one transaction before any bytes
-    // move: the journal-before-bytes invariant is unchanged, but a
-    // thousand-chunk audiobook costs one IndexedDB commit instead of one per
-    // chunk.
     await writer.journal(cleanupUrls);
     let storedChunks = 0;
     let writeFailed = false;
     let writeFailure: unknown;
-    // Workers swallow their own failure and drain, so no chunk write is still
-    // in flight when cleanup below starts deleting what they wrote.
     await runBounded(
       Array.from({ length: chunkCount }, (_, index) => index),
       MEDIA_WRITE_CONCURRENCY,
@@ -482,12 +444,6 @@ async function storeLocalBookMediaUnlocked(
   );
 }
 
-/**
- * The browser seeks a saved MP3 by the byte table in its first frame, and
- * ffmpeg writes that table wrong for any book over 4 GiB. The copy this device
- * keeps carries a disarmed table; the source file and its fingerprint stay
- * untouched, so re-importing the same file still resolves to the same book.
- */
 async function repairedFirstChunk(
   chunk: Blob,
   file: File,

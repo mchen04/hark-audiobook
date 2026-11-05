@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  mediaTime,
-  setMediaTime,
-  loadMediaSource,
-  cancelMediaStart,
-  recoverMediaStartEnd,
-} from "./media-source";
+import { mediaTime, setMediaTime, loadMediaSource, clearMediaSeek } from "./media-source";
 
 import {
   createContext,
@@ -28,14 +22,8 @@ import {
   type UnloadPlayerDetail,
 } from "@/lib/app-keys";
 import { createListeningTracker, queueListeningSession } from "@/lib/listening-tracker";
-import {
-  bootstrapPlaybackState,
-  markPausedNow,
-  readMsSinceLastPause,
-  resolveStartPosition,
-  rewindForAbsence,
-  selectCurrentChapter,
-} from "@/lib/playback-core";
+import { bootstrapPlaybackState, markPausedNow, readMsSinceLastPause } from "@/lib/playback-core";
+import { resolveStartPosition, rewindForAbsence, selectCurrentChapter } from "@/domain/player";
 
 import { readAudioSession } from "./audio-session";
 import {
@@ -58,7 +46,7 @@ import { usePlaybackHistoryLog } from "./use-playback-history-log";
 import { useProgressPersistence } from "./use-progress-persistence";
 import { type SleepMode, useSleepTimer } from "./use-sleep-timer";
 import { useTabArbitration } from "./use-tab-arbitration";
-import { safePlay, useTransportActions } from "./use-transport-actions";
+import { useTransportActions } from "./use-transport-actions";
 
 type PlaybackContextValue = {
   userId: string;
@@ -68,7 +56,7 @@ type PlaybackContextValue = {
   history: PlaybackHistoryEntry[];
   historyNotice: string | null;
   sleepMode: SleepMode;
-  /** Bumped each time a book plays to its end; consumers react to completion. */
+
   lastEndedAt: number;
   loadBook: (
     book: PlayerBook,
@@ -105,8 +93,6 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
   const [playbackRate, setRateState] = useState(1);
   const [lastEndedAt, setLastEndedAt] = useState(0);
 
-  // Read-at-call-time: preferences must not re-render the transport, so the
-  // provider never subscribes to them. `PreferencesProvider` owns the state.
   const preferencesRef = usePreferencesRef();
   const announcePlaying = useTabArbitration(audioRef);
   const {
@@ -173,8 +159,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
       if (activeBookRef.current) onSleepTick(audio);
       const positionMs = mediaTime(audio) * 1000;
       timeStore.write(positionMs);
-      // Programmatic seeks also fire timeupdate; only actual listening may
-      // persist, otherwise merely opening a book would overwrite the position.
+
       if (!audio.paused) onListeningTick(positionMs);
     };
     const updateSleepChapter = () => {
@@ -221,8 +206,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
         return;
       }
       const positionMs = mediaTime(audio) * 1000;
-      // The marker records an absence from a specific book, so there is nothing
-      // to mark when no book is loaded.
+
       if (activeBookRef.current) {
         markPausedNow(userId, activeBookRef.current.id);
         trackerRef.current.end(activeBookRef.current.id, positionMs);
@@ -234,13 +218,6 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
       clearInterruption();
       observedPlaying = false;
       setIsPlaying(false);
-      if (recoverMediaStartEnd(audio)) {
-        timeStore.write(mediaTime(audio) * 1000);
-        setMediaSessionPlaybackState("paused");
-        if (activeBookRef.current)
-          syncMediaSessionPosition(audio, activeBookRef.current.durationMs, { current: "" });
-        return;
-      }
       const endPositionMs = activeBookRef.current?.durationMs || mediaTime(audio) * 1000;
       if (activeBookRef.current) trackerRef.current.end(activeBookRef.current.id, endPositionMs);
       markPositionChanged();
@@ -282,7 +259,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
     window.addEventListener("pageshow", reconcileElement);
     document.addEventListener("visibilitychange", reconcileVisible);
     return () => {
-      cancelMediaStart(audio);
+      clearMediaSeek(audio);
       audio.removeEventListener(APP_PAUSE_EVENT, clearInterruption);
       audio.removeEventListener(APP_POSITION_EVENT, clearInterruption);
       audioSession?.removeEventListener("statechange", onAudioSessionChange);
@@ -321,8 +298,6 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
     recordAction,
   });
 
-  // Every dependency here is referentially stable, so the actions object is
-  // created once; consumers can put it (or any method) in effect deps safely.
   const actions = useMemo(() => {
     return {
       loadBook(nextBook: PlayerBook, autoplay = false, historySnapshot?: PlaybackHistorySnapshot) {
@@ -332,19 +307,9 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
           clearChapterSleep();
           const previousBook = activeBookRef.current;
           if (previousBook) {
-            // The previous book's position is made durable BEFORE the seek
-            // debounce is dropped, because dropping it is what used to throw
-            // away a seek the user made while paused.
             const previousPositionMs = mediaTime(audio) * 1000;
             if (!audio.paused) suppressNextPauseRef.current = true;
-            // `completed` is deliberately NOT passed. A literal `false` here
-            // un-finished the book the user had just finished — locally and on
-            // the server — and it fired by itself on the autoplay-next path,
-            // where the finished book is ALWAYS the previous one. Left
-            // undefined, both writes fall through to the completion this book
-            // actually has (`completionRef`, then `previousBook.completed`), so
-            // switching books records where the user was without ever making a
-            // claim about whether they finished it.
+
             saveDurableState("book-switch", previousPositionMs, undefined, previousBook);
             void persistProgress("book-switch", previousPositionMs, undefined, previousBook);
             cancelSeekPersist();
@@ -363,17 +328,14 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
             smartRewindEnabled: preferencesRef.current.smartRewind,
             msSinceLastPause: readMsSinceLastPause(userId, resolvedBook.id),
           });
-          // The rewind is a one-shot listening aid: refresh the pause marker so
-          // reopening the book again does not walk the position further back.
+
           if (appliedRewindMs > 0) markPausedNow(userId, resolvedBook.id);
           const startRate = resolvedBook.initialPlaybackRate;
 
-          loadMediaSource(audio, resolvedBook.mediaUrl, startAtMs / 1000, autoplay);
+          loadMediaSource(audio, resolvedBook.mediaUrl, startAtMs / 1000);
           audio.playbackRate = startRate;
           activeBookRef.current = resolvedBook;
-          // Nothing has happened to this book's position yet on this open, so a
-          // close with no listening must not write the (possibly rewound)
-          // start back as if the user had chosen it.
+
           resetPositionChanged();
           setBook(resolvedBook);
           clearHistory();
@@ -388,12 +350,6 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
               : null,
           );
         } else if (activeBookRef.current.mediaUrl !== nextBook.mediaUrl) {
-          // Cache eviction leaves the book identity intact. Reattaching its
-          // source writes a fresh content URL, so identity alone cannot decide
-          // whether the audio element is current: keeping the old URL makes a
-          // successful regeneration look playable while every range returns
-          // 404. Refresh the transport in place without recording a book
-          // switch or throwing away the position/rate already on this book.
           const wasPlaying = !audio.paused;
           const positionMs = Math.min(mediaTime(audio) * 1000, nextBook.durationMs);
           const rate = audio.playbackRate;
@@ -402,23 +358,22 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
             pauseWithIntent(audio);
           }
           const refreshedBook = bootstrapPlaybackState(userId, nextBook).book;
-          loadMediaSource(audio, refreshedBook.mediaUrl, positionMs / 1000, wasPlaying);
+          loadMediaSource(audio, refreshedBook.mediaUrl, positionMs / 1000);
           audio.playbackRate = rate;
           activeBookRef.current = refreshedBook;
           setBook(refreshedBook);
           timeStore.write(positionMs);
           setRateState(rate);
-          if (wasPlaying) safePlay(audio);
+          if (wasPlaying && !autoplay) transport.play();
         }
         hydrateHistory(nextBook.id, historySnapshot);
-        if (autoplay) safePlay(audio);
+        if (autoplay) transport.play();
       },
       setPlaybackRate(rate: number) {
         const bounded = Math.min(3, Math.max(0.5, rate));
         if (audioRef.current) audioRef.current.playbackRate = bounded;
         setRateState(bounded);
-        // The rate is part of durable playback state, so it survives reloads
-        // even when changed while paused.
+
         markPositionChanged();
         void persistProgress("rate-change", mediaTime(audioRef.current) * 1000);
         recordAction("playback_rate", undefined, null, `${bounded}×`);
@@ -442,11 +397,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
       unloadBook() {
         clearSleepTarget();
         const audio = audioRef.current;
-        // Durable BEFORE anything is torn down. `cancelSeekPersist` used to run
-        // first and `audio.pause()` on an already-paused element fires no
-        // event, so leaving the player after a seek made while paused lost the
-        // seek entirely — and `removeAttribute("src")` then zeroes
-        // `currentTime`, so there is nothing left to read afterwards either.
+
         if (audio && activeBookRef.current) {
           const positionMs = mediaTime(audio) * 1000;
           saveDurableState("book-unload", positionMs);
@@ -455,7 +406,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
         cancelSeekPersist();
         if (audio) {
           pauseWithIntent(audio);
-          cancelMediaStart(audio);
+          clearMediaSeek(audio);
           audio.removeAttribute("src");
           audio.load();
         }
@@ -484,6 +435,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
     setSleepAtChapterEndTarget,
     setSleepMinutesTarget,
     timeStore,
+    transport,
     userId,
   ]);
 
@@ -498,9 +450,6 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
   }, [actions, userId]);
 
   useEffect(() => {
-    // The ONE listener for a conflict another device won. Completion
-    // bookkeeping is brought in step FIRST, then the playback surface
-    // (element, stores) — the order is load-bearing and owned here.
     const reconcile = (event: Event) => {
       const detail = (event as CustomEvent<ProgressConflictDetail>).detail;
       if (detail.userId !== userId || activeBookRef.current?.id !== detail.bookId) return;
@@ -522,6 +471,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
     book,
     preferencesRef,
     play: transport.play,
+    pause: transport.pause,
     seek: transport.seek,
     skip: transport.skip,
   });
@@ -569,30 +519,12 @@ export function usePlayback() {
   return context;
 }
 
-/** Current position in ms; re-renders the subscriber on every timeupdate. */
 export function usePlaybackTime(): number {
   const store = useContext(PlaybackTimeContext);
   if (!store) throw new Error("usePlaybackTime must be used inside PlaybackProvider");
   return useSyncExternalStore(store.subscribe, store.read, readServerTime);
 }
 
-/**
- * Recomputes `derive` on every playback tick but re-renders the subscriber
- * only when the derived value changes. Constrained to primitives so a fresh
- * object per call can never trip React's snapshot-caching check.
- */
-export function usePlaybackDerived<T extends string | number | boolean | null>(derive: () => T): T {
-  const store = useContext(PlaybackTimeContext);
-  if (!store) throw new Error("usePlaybackDerived must be used inside PlaybackProvider");
-  return useSyncExternalStore(store.subscribe, derive, derive);
-}
-
-/**
- * Derives a primitive from the current position; recomputed per tick but the
- * subscriber re-renders only when the derived value changes. This is what the
- * read-along view leans on: cue lookups run every tick, re-renders only on
- * cue boundaries.
- */
 export function usePlaybackTimeDerived<T extends string | number | boolean | null>(
   derive: (timeMs: number) => T,
 ): T {
@@ -605,7 +537,6 @@ export function usePlaybackTimeDerived<T extends string | number | boolean | nul
   );
 }
 
-/** The chapter under the playhead; re-renders only when the chapter changes. */
 export function useCurrentChapter(): PlayerChapter | null {
   const { book } = usePlayback();
   const store = useContext(PlaybackTimeContext);

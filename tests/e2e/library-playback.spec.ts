@@ -17,16 +17,7 @@ test("library buttons play in place, preserve saved position and keep a syntheti
   await context.addCookies(storageState.cookies);
   await page.addInitScript(() => {
     const calls: Array<{ position: number; duringClick: boolean; muted: boolean }> = [];
-    const audible: number[] = [];
-    Object.assign(window, { libraryPlayCalls: calls, libraryAudibleStarts: audible });
-    const muted = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "muted")!;
-    Object.defineProperty(HTMLMediaElement.prototype, "muted", {
-      ...muted,
-      set(value: boolean) {
-        muted.set!.call(this, value);
-        if (!this.muted && !this.paused) audible.push(this.currentTime);
-      },
-    });
+    Object.assign(window, { libraryPlayCalls: calls });
     let duringClick = false;
     document.addEventListener(
       "click",
@@ -109,21 +100,7 @@ test("library buttons play in place, preserve saved position and keep a syntheti
   );
   expect(calls).toHaveLength(1);
   expect(calls[0]!.duringClick).toBe(true);
-  expect(calls[0]!.position).toBe(0);
-  expect(calls[0]!.muted).toBe(true);
-  await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          (window as typeof window & { libraryAudibleStarts: number[] }).libraryAudibleStarts
-            .length,
-      ),
-    )
-    .toBeGreaterThan(0);
-  const audibleStart = await page.evaluate(
-    () => (window as typeof window & { libraryAudibleStarts: number[] }).libraryAudibleStarts[0],
-  );
-  expect(audibleStart).toBeCloseTo(12, 1);
+  expect(calls[0]!.muted).toBe(false);
   await expect
     .poll(() => page.locator("audio").evaluate((audio: HTMLAudioElement) => audio.currentTime))
     .toBeGreaterThan(12);

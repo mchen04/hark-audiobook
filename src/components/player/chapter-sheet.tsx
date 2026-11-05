@@ -18,11 +18,6 @@ import { HistoryList } from "./history-list";
 
 const DISMISS_DRAG_PX = 90;
 
-/**
- * Bottom sheet over the lower half of the screen. Dismisses by tapping the
- * scrim above it, dragging it down (when its list is scrolled to the top),
- * or pressing Escape. The list itself scrolls natively inside.
- */
 export type PlayerSheetView = "chapters" | "history";
 
 export function PlayerSheet({
@@ -78,8 +73,6 @@ export function PlayerSheet({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  // Center the active chapter and move focus in when the sheet opens;
-  // restore focus to the opener when it closes.
   useEffect(() => {
     if (!open) return;
     const opener = document.activeElement as HTMLElement | null;
@@ -88,8 +81,6 @@ export function PlayerSheet({
     return () => opener?.focus();
   }, [open]);
 
-  // Drag-down to dismiss. Native listeners: React's synthetic touch events
-  // are passive, and the drag must preventDefault to stop list scrolling.
   useEffect(() => {
     const sheet = sheetRef.current;
     if (!open || !sheet) return;

@@ -5,14 +5,13 @@ import { mediaTime, setMediaTime } from "./media-source";
 import { RefObject, useCallback, useEffect, useRef, useState } from "react";
 
 import type { PlayerChapter } from "@/domain/player";
-import { CHAPTER_END_EPSILON_MS, selectCurrentChapter } from "@/lib/playback-core";
+import { CHAPTER_END_EPSILON_MS, selectCurrentChapter } from "@/domain/player";
 
 export type SleepMode =
   { kind: "time"; endsAt: number; minutes?: number } | { kind: "chapter" } | null;
 
 import { pauseWithIntent } from "./pause-intent";
 
-/** Sleep timer state machine: fixed durations plus stop-at-chapter-end. */
 export function useSleepTimer(audioRef: RefObject<HTMLAudioElement | null>) {
   const [sleepMode, setSleepMode] = useState<SleepMode>(null);
   const sleepModeRef = useRef<SleepMode>(null);
@@ -65,7 +64,6 @@ export function useSleepTimer(audioRef: RefObject<HTMLAudioElement | null>) {
     [setSleepAtChapterEnd],
   );
 
-  /** Called from the audio timeupdate loop; pauses exactly once at the boundary. */
   const onTimeUpdate = useCallback(
     (audio: HTMLAudioElement) => {
       const mode = sleepModeRef.current;

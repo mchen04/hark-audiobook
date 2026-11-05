@@ -1,28 +1,10 @@
-/**
- * Repairs the seek table an MP3 carries in its first frame.
- *
- * LAME-family encoders write a "Xing" or "Info" tag into the first MPEG frame
- * with the stream's frame count, byte count, and a 100-entry seek table (TOC).
- * Both counts are 32-bit fields. An audiobook longer than 4 GiB overflows the
- * byte count, so ffmpeg stores it modulo 2^32 and fills the TOC as if the whole
- * stream fit in that wrapped size. Browsers trust the tag: Chromium turns a seek
- * to hour 16 of a 300-hour book into a byte offset inside the first ten minutes.
- *
- * Only the tag's flags word changes. With the byte-count and TOC bits cleared,
- * every decoder falls back to the frame count for duration and to the bitrate
- * for seeking, which is exact for the constant-bitrate output these books are.
- */
-
 const XING_FRAMES = 0x1;
 const XING_BYTES = 0x2;
 const XING_TOC = 0x4;
 const XING_QUALITY = 0x8;
 
-// A trailing ID3v1 or APE tag legitimately leaves the declared byte count a
-// little short of the file. Anything beyond this is a broken table.
 const BYTE_COUNT_TOLERANCE = 64 * 1024;
 const BYTE_COUNT_TOLERANCE_RATIO = 0.01;
-// How far past the ID3 tag a first frame is searched for.
 const FRAME_SEARCH_WINDOW = 64 * 1024;
 
 const BITRATES_KBPS: Record<"mpeg1" | "mpeg2", number[]> = {
@@ -36,9 +18,7 @@ const SAMPLE_RATES: Record<"mpeg1" | "mpeg2" | "mpeg25", number[]> = {
 };
 
 export type Mp3SeekHeader = {
-  /** Offset of the first MPEG frame that carries the tag. */
   frameOffset: number;
-  /** Offset of the "Xing"/"Info" marker. */
   tagOffset: number;
   marker: "Xing" | "Info";
   flags: number;
@@ -58,7 +38,6 @@ export type Mp3SeekHeaderRepair =
       flags: number;
     };
 
-/** Locates the Xing/Info tag in the first frame after any ID3v2 tags. */
 export function findMp3SeekHeader(head: Uint8Array): Mp3SeekHeader | null {
   const frameOffset = findFirstFrame(head, skipId3v2(head));
   if (frameOffset === null) return null;
@@ -84,11 +63,6 @@ export function findMp3SeekHeader(head: Uint8Array): Mp3SeekHeader | null {
   return { frameOffset, tagOffset, marker, flags, frames, declaredBytes };
 }
 
-/**
- * Returns the first bytes of a file with a lying seek table disarmed. `head`
- * must start at byte 0 of the file; `fileSize` is the whole file's length.
- * The input is never mutated: a repaired result is a copy.
- */
 export function repairMp3SeekHeader(
   head: Uint8Array<ArrayBuffer>,
   fileSize: number,
@@ -98,7 +72,6 @@ export function repairMp3SeekHeader(
   if (header.declaredBytes === null) {
     return { repaired: false, bytes: head, reason: "The tag declares no byte count." };
   }
-  // The Xing byte count covers the stream from the tag's own frame to the end.
   const actualBytes = fileSize - header.frameOffset;
   const tolerance = Math.max(BYTE_COUNT_TOLERANCE, actualBytes * BYTE_COUNT_TOLERANCE_RATIO);
   if (Math.abs(actualBytes - header.declaredBytes) <= tolerance) {
@@ -156,7 +129,6 @@ function parseFrameHeader(head: Uint8Array, offset: number): FrameHeader | null 
   const b3 = head[offset + 3]!;
   const versionBits = (b1 >> 3) & 0x3;
   const layerBits = (b1 >> 1) & 0x3;
-  // Only Layer III carries a Xing/Info tag, and only Layer III is imported.
   if (versionBits === 1 || layerBits !== 1) return null;
   const version = versionBits === 3 ? "mpeg1" : versionBits === 2 ? "mpeg2" : "mpeg25";
   const bitrate = BITRATES_KBPS[version === "mpeg1" ? "mpeg1" : "mpeg2"][b2 >> 4]! * 1000;

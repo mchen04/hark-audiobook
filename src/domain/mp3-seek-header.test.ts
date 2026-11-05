@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { findMp3SeekHeader, repairMp3SeekHeader } from "./mp3-seek-header";
 
-const FRAME_BYTES = 192; // MPEG-2 Layer III, 64 kbps, 24 kHz, no padding.
+const FRAME_BYTES = 192;
 const FRAME_SECONDS = 576 / 24_000;
 
 type HeadOptions = {
@@ -18,11 +18,6 @@ type HeadOptions = {
   stereoMpeg1?: boolean;
 };
 
-/**
- * Builds the first bytes of a file the way ffmpeg + libmp3lame lay them out:
- * an ID3v2.3 tag, then one 192-byte Info frame whose seek table is followed by
- * a few ordinary frames.
- */
 function buildHead({
   id3Bytes = 4_000,
   frames = 45_191_770,
@@ -40,7 +35,6 @@ function buildHead({
 
   const frameBytes = stereoMpeg1 ? 417 : FRAME_BYTES;
   const frame = new Uint8Array(frameBytes);
-  // MPEG-1 Layer III 128 kbps 44.1 kHz joint stereo, or MPEG-2 64 kbps 24 kHz mono.
   frame.set(stereoMpeg1 ? [0xff, 0xfb, 0x90, 0x40] : [0xff, 0xf3, 0x84, 0xc0]);
   const tagOffset = 4 + (stereoMpeg1 ? 32 : 9);
   frame.set(
@@ -121,7 +115,6 @@ describe("repairMp3SeekHeader", () => {
       flags: 0x1,
     });
     expect(flagsAt(repair.bytes, tagOffset)).toBe(0x1);
-    // Only the flags word changes; the frame count and every audio byte stay.
     const differences = [...repair.bytes].flatMap((byte, index) =>
       byte === head[index] ? [] : [index],
     );
@@ -156,8 +149,6 @@ describe("repairMp3SeekHeader", () => {
   });
 });
 
-// The book that surfaced this: 693 chapters, 301 hours, 8.68 GB. When the file
-// is on this machine, the repair must reproduce the hand-patched copy exactly.
 const sourceMp3 = path.join(homedir(), "Downloads", "A-Practical-Guide-to-Evil-complete.mp3");
 const patchedMp3 = path.join(
   homedir(),

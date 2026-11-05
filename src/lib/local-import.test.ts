@@ -6,16 +6,8 @@ import { database, mirrorKey } from "@/lib/offline/db";
 import { commitBookDeletion } from "@/lib/offline/outbox";
 import { listQueuedMutations, withMediaRegistrationLock } from "@/lib/offline-sync";
 
-// An import journals its registration in the outbox before it touches the
-// network, so the module under test needs the two browser globals that write
-// reaches for: IndexedDB for the queue, and localStorage for the device id it
-// attributes the mutation to.
 const { storeLocalBookMedia } = vi.hoisted(() => ({ storeLocalBookMedia: vi.fn() }));
 
-// Only the byte-writing half is stubbed. `withLocalMediaSlot` is the REAL one,
-// so the lock the import holds across its whole local write is the lock the
-// product takes — a stub of it would quietly delete the ordering guarantee that
-// keeps a concurrent reattach out of the middle of an import.
 vi.mock("@/lib/offline/media-store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/offline/media-store")>()),
   storeLocalBookMedia,
@@ -70,13 +62,8 @@ describe("local MP3 import", () => {
       file,
       null,
       expect.any(Function),
-      // The slot the import holds names the id this device MINTED, not the one
-      // the server answered with: everything written under the minted id has to
-      // be inside one slot for a later reattach to be able to move all of it.
       { key: expect.stringMatching(/^mobile-user:[0-9a-f-]{36}$/) },
       expect.any(AbortSignal),
-      // The canonical media write stays inside the import's already-held
-      // account fence instead of deadlocking on a second acquisition.
       expect.objectContaining({ userId: "mobile-user" }),
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);

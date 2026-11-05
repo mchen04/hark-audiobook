@@ -46,8 +46,6 @@
   letter-spacing: -0.03em;
   line-height: 1.04;
 }
-
-/* Search and sort share one row; the search field flexes, sort stays compact. */
 .library-tools {
   display: flex;
   flex-wrap: nowrap;
@@ -125,9 +123,6 @@
   background: var(--surface-muted);
   color: var(--accent);
 }
-
-/* Books read left-to-right, top-to-bottom: two per row on phones, filling
-   each row before starting the next. */
 .book-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 11.5rem), 1fr));
@@ -239,10 +234,6 @@
   color: var(--text-muted);
   font-size: var(--text-xs);
 }
-
-/* One meta line per card: how long, how far in, and what it costs this device.
-   The status truncates before the size does — the number is the part that
-   cannot be inferred from anything else on the card. */
 .book-progress-copy {
   display: flex;
   align-items: center;
@@ -433,8 +424,6 @@
     font-size: var(--text-sm);
   }
 }
-
-/* ---- Wave 6: covers, resume card, filters, dialogs, settings ---- */
 .book-cover img.book-cover-art {
   position: absolute;
   inset: 0;
@@ -563,9 +552,6 @@
   outline: 3px solid color-mix(in srgb, var(--accent) 65%, transparent);
   outline-offset: 2px;
 }
-
-/* Status and tag chips ride one horizontally scrolling row that bleeds to
-   the screen edges; the grid below gets breathing room. */
 .library-filters {
   display: flex;
   flex-wrap: nowrap;
@@ -622,9 +608,6 @@
   color: var(--text-muted);
   font-size: var(--text-xs);
 }
-
-/* Device-local read-along availability: overlaid on the cover so the badge
-   never shifts card baselines out of alignment. */
 .book-cover > .book-readalong {
   position: absolute;
   top: 0.55rem;
@@ -641,14 +624,8 @@
   letter-spacing: 0;
   white-space: nowrap;
   color: var(--accent-contrast);
-  /* Fully opaque so the pill renders identically over every cover gradient. */
   background: var(--accent);
 }
-
-/* ---- Wave 7: the "on this device" facet and its honesty markers ---- */
-
-/* The download facet is a chip in the same row as the status chips: the
-   library gained a facet, it did not gain a screen. */
 .filter-chip-device {
   display: inline-flex;
   align-items: center;
@@ -662,12 +639,6 @@
   font-size: var(--text-2xs);
   font-variant-numeric: tabular-nums;
 }
-
-/* A card whose audio is missing still says so in words, and still says what to
-   do about it — the cover badge is clipped by the 4.5rem cover in list view, so
-   it cannot be the only marker. It wraps rather than truncating, because
-   "attach its original file to listen" is the whole point of it. A card whose audio IS
-   here needs no sentence: its size sits in the meta line above. */
 .book-device {
   display: flex;
   align-items: start;
@@ -709,10 +680,6 @@
   background: var(--surface-muted);
   color: var(--danger);
 }
-
-/* Sits where the read-along badge sits, so a card can carry either without
-   shifting its baselines. A book whose audio is gone stays browsable and
-   never wears the accent colour that means "playable". */
 .book-cover-controls > .book-offdevice {
   position: absolute;
   right: 0.55rem;
@@ -733,24 +700,15 @@
   border: 1px solid var(--border);
   z-index: 2;
 }
-
-/* Small list covers keep the icon; the row spells out the missing-source state. */
 .book-grid-list .book-cover-controls > .book-offdevice {
   font-size: var(--text-xs);
 }
-
-/* Same footprint as the play button, deliberately not the same affordance. */
 .book-play-unavailable,
 .continue-unavailable {
   border: 1px dashed var(--border);
   background: transparent;
   color: var(--text-muted);
 }
-
-/* The book being narrated. It looks like a book card, but it carries none of a
-   finished book's class names: it has no player route, no duration and no
-   position, and answering to `.book-item` or `.book-title` would let anything
-   looking for a real book find this one instead. */
 .narrating-book {
   display: grid;
   max-width: 16rem;

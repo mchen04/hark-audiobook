@@ -21,14 +21,10 @@ export function rememberPendingAccountDeletion(userId: string, deleteToken: stri
     phase: "prepared",
     createdAt: Date.now(),
   };
-  // The fence is durable before the active identity is revoked. Peer tabs see
-  // the storage mutation and this tab sees the custom event, so every mounted
-  // provider tears down while the journal still names what must be swept.
   writePendingAccountDeletion(pending);
   forgetActiveUserId(userId);
 }
 
-/** Purge, idempotently commit, then purge again; every phase survives a crash. */
 export function finishPendingAccountDeletion(
   fetchFn: typeof fetch = fetch,
 ): Promise<AccountDeletionResult | null> {
@@ -55,8 +51,6 @@ async function finishPendingAccountDeletionOnce(
   }
 
   if (pending.phase === "purged") {
-    // A successful first commit can lose its response after the transaction
-    // landed. The server keeps a short-lived receipt, so retrying is safe.
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const response = await fetchFn("/api/account/delete", {
         method: "POST",
@@ -78,19 +72,14 @@ async function finishPendingAccountDeletionOnce(
   }
 
   try {
-    // The fence remains installed through this sweep. Cadence writes are
-    // refused synchronously, and in-flight pulls abort before they commit.
     await purgeAccount(pending.userId);
   } catch {
-    // `committed` is durable, so a restart retries only local cleanup even if
-    // the server-side deletion receipt has expired by then.
     return { ok: false, phase: "final-purge" };
   }
   clearPendingAccountDeletion(pending.userId);
   return { ok: true };
 }
 
-/** Leaves an expired intent safely; the server session decides the next screen. */
 export function abandonExpiredAccountDeletion(): void {
   const pending = readPendingAccountDeletion();
   if (!pending) return;

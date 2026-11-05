@@ -39,8 +39,6 @@ import { CoverNowReading, TranscriptPane } from "./transcript-pane";
 import type { SleepMode } from "./use-sleep-timer";
 import { useSuspensionRecovery } from "./use-suspension-recovery";
 
-// The details dialog is a heavy edit form most sessions never open; load it
-// on first use and keep it out of the player bundle.
 const BookDetailsDialog = dynamic(
   () => import("@/components/book/book-details-dialog").then((mod) => mod.BookDetailsDialog),
   { ssr: false },
@@ -64,11 +62,6 @@ export function FullPlayer({
   offlineMode?: boolean;
   backHref?: string;
   backLabel?: string;
-  /**
-   * Returns to the caller's own view instead of navigating. The library uses
-   * it for the player it opens in place, where a navigation is exactly what
-   * the device could not do.
-   */
   onBack?: () => void;
   autoplay?: boolean;
   details?: BookDetails | null;
@@ -82,17 +75,6 @@ export function FullPlayer({
   const { preferences } = usePreferences();
   const currentChapter = useCurrentChapter();
   const { loadBook } = playback;
-  /**
-   * DECLARED BEFORE EVERY OTHER EFFECT IN THIS COMPONENT, and specifically
-   * before the one that calls `loadBook`.
-   *
-   * Effects run in declaration order, and what this hook reads is the durable
-   * record as the LAUNCH found it. The signature it looks for is "nothing wrote
-   * after the hide edge", so the first durable write of the new session — which
-   * an `?autoplay=1` open makes within 200 ms of `loadBook` — destroys it.
-   * Reading first is what keeps the offer available on the one path where the
-   * user is least able to notice they lost their place.
-   */
   const recovery = useSuspensionRecovery({
     userId: playback.userId,
     bookId: playerBook.id,
@@ -102,8 +84,6 @@ export function FullPlayer({
   const [sheetView, setSheetView] = useState<PlayerSheetView | null>(null);
   const mountedEndedAtRef = useRef(playback.lastEndedAt);
   const autoplayConsumedForRef = useRef<string | null>(null);
-  // All read-along state is keyed by book (and chapter) instead of being
-  // reset in effects: a stale entry for another book simply never matches.
   const [transcriptBookId, setTranscriptBookId] = useState<string | null>(null);
   const [textViewBookId, setTextViewBookId] = useState<string | null>(null);
   const [chapterCues, setChapterCues] = useState<{
@@ -114,8 +94,6 @@ export function FullPlayer({
   const hasTranscript = transcriptBookId === playerBook.id;
   const showText = hasTranscript && textViewBookId === playerBook.id;
 
-  // Read-along cues live only in this device's storage; one indexed lookup
-  // decides whether the Text control exists at all.
   useEffect(() => {
     let active = true;
     void getTranscriptChapterIndexes(playback.userId, playerBook.id)
@@ -129,8 +107,6 @@ export function FullPlayer({
   }, [playback.userId, playerBook.id]);
 
   const chapterIndexForCues = currentChapter?.position ?? -1;
-  // Cues load for any transcript-bearing book, not just while the text view is
-  // open, so the cover can echo the narrated line and the pane opens instantly.
   useEffect(() => {
     if (!hasTranscript || chapterIndexForCues < 0) return;
     let active = true;
@@ -171,7 +147,6 @@ export function FullPlayer({
     }
   }, [autoplayNext, nextInCollection, offlineMode, playback.lastEndedAt, router]);
 
-  // Chapter positions are validated to equal their array index.
   const chapterIndex = currentChapter?.position ?? -1;
 
   function moveChapter(delta: number) {
@@ -183,9 +158,6 @@ export function FullPlayer({
 
   const skipBackSeconds = Math.round(preferences.skipBackMs / 1000);
   const skipForwardSeconds = Math.round(preferences.skipForwardMs / 1000);
-  // Bound to a const so the jump handler closes over a value TypeScript has
-  // narrowed, rather than re-reading a property it cannot narrow inside a
-  // callback and needing a non-null assertion to say so.
   const suspensionGap = recovery.gap;
 
   function followBackHref() {
@@ -281,11 +253,6 @@ export function FullPlayer({
             <SuspensionRecovery
               gap={suspensionGap}
               onJump={() => {
-                // The user pressing this IS the authorisation. Nothing on any
-                // other path in this app may move the position forward. The
-                // seek goes through the ordinary transport, so it is clamped to
-                // the book, made durable as a `seek`, and recorded in history —
-                // which is also how the user takes it back.
                 playback.seek(suspensionGap.projectedPositionMs);
                 recovery.dismiss();
               }}
@@ -404,18 +371,6 @@ export function FullPlayer({
         onHistoryRestore={playback.restoreHistoryPosition}
         diagnostic={details?.chapterDiagnostic}
       />
-
-      {/*
-        Mounted as soon as this book has details, not on the first click.
-
-        The dialog stays a separate chunk — the library bundle, which is what
-        launch is measured on, renders `FullPlayer` with no `details` and so
-        never fetches it. But on a book page the chunk has to arrive BEFORE the
-        connection does not: fetching it on the click threw `ChunkLoadError`
-        offline and nothing opened, which would have made the whole offline
-        edit surface unreachable exactly when the outbox matters most. The
-        element renders nothing until `showModal()` runs.
-      */}
       {details && (
         <BookDetailsDialog
           details={details}
@@ -429,30 +384,6 @@ export function FullPlayer({
   );
 }
 
-/**
- * The recovery offer: quiet, dismissible, and never a decision the app makes.
- *
- * WHAT IT IS FOR. `useSuspensionRecovery` has found the signature of a listen
- * this device could not record — the app was backgrounded with the book
- * playing, and nothing wrote after that. The saved place is still the source of
- * truth and is where the player has already resumed; this offers a one-tap jump
- * to where the audio would have got to, and says in as many words that it is an
- * estimate.
- *
- * THE RULES IT KEEPS, all of which are the point rather than decoration:
- *
- *   - `role="status"`, not a dialog. It announces politely and traps nothing;
- *     the transport underneath it stays live and the user can simply play.
- *   - the dismiss control is a peer of the jump, not a corner afterthought, so
- *     "no" is exactly as easy as "yes";
- *   - the saved place is printed next to the estimate, because the number the
- *     user is being asked to leave matters as much as the one on offer;
- *   - "about" leads both figures. Neither is a measurement.
- *
- * The data attributes carry the unrounded numbers for `tests/resume`, which
- * grades the projection against the elapsed time and rate rather than against a
- * clock string quantised to the second.
- */
 function SuspensionRecovery({
   gap,
   onJump,
@@ -515,8 +446,6 @@ function CoverArt({ playerBook, onFlip }: { playerBook: PlayerBook; onFlip?: () 
     </div>
   );
   if (!onFlip) return art;
-  // The labeled toggle lives in the topbar; the cover itself is a bonus tap
-  // target for readers who expect it to flip.
   return (
     <button type="button" className="player-cover-flip" aria-label="Show text" onClick={onFlip}>
       {art}
@@ -556,8 +485,6 @@ function Scrubber({
           draggingRef.current = true;
         }}
         onChange={(event) => {
-          // While a pointer drag is active, only preview; the seek happens
-          // once on release. Keyboard changes seek immediately.
           const value = Number(event.target.value);
           if (draggingRef.current) setScrubMs(value);
           else onSeek(value);
@@ -582,7 +509,6 @@ function SleepMenu() {
   const playback = usePlayback();
   const detailsRef = useRef<HTMLDetailsElement>(null);
 
-  // Tapping anywhere outside the open menu dismisses it.
   useEffect(() => {
     function onPointerDown(event: PointerEvent) {
       const details = detailsRef.current;

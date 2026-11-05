@@ -49,9 +49,6 @@ export const auth = betterAuth({
   },
   rateLimit: {
     enabled: true,
-    // Vercel and any horizontally scaled deployment run more than one process.
-    // The default in-memory store gives every process a separate attempt
-    // budget; the existing Better Auth table is the shared enforcement point.
     customStorage: createDatabaseRateLimitStorage(authRateLimitRetention),
     window: authRateLimitWindow,
     max: 100,
@@ -59,11 +56,6 @@ export const auth = betterAuth({
   },
   advanced: {
     cookiePrefix: "chapterline",
-    // A production build is also how we exercise the service worker locally.
-    // WebKit correctly rejects Secure cookies delivered over http://localhost,
-    // while Chromium treats localhost as a special case. Base the cookie flag
-    // on the configured public origin so the production PWA test matches the
-    // security of the origin it is actually running on.
     useSecureCookies: new URL(env.BETTER_AUTH_URL).protocol === "https:",
   },
   trustedOrigins: [env.BETTER_AUTH_URL],

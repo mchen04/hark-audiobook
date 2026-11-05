@@ -19,7 +19,6 @@ export type KestrelSynthesis = {
   sampleRate: number;
 };
 
-/** One book-scoped worker, so model weights are loaded once and then reused. */
 export class KestrelClient {
   private readonly worker: Worker;
   private readonly pending = new Map<number, PendingRequest>();
@@ -33,8 +32,6 @@ export class KestrelClient {
     });
     this.worker.onmessage = (event: MessageEvent<KestrelWorkerResponse>) =>
       this.handleMessage(event.data);
-    // Offline, the worker's own code may not be on this device yet: it is
-    // cached with the model, which only a first online narration downloads.
     this.worker.onerror = () =>
       this.failAll(
         typeof navigator !== "undefined" && !navigator.onLine

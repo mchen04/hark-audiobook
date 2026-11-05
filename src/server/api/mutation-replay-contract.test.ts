@@ -29,23 +29,6 @@ import {
   progressSchema,
 } from "./mutation-schemas";
 
-/**
- * The bug this suite exists for.
- *
- * `toReplayRequest` built a tag edge as `{ tagId, include }` and sent it to
- * `PATCH /api/books/:id`, whose schema knew only `tags: string[]`. Zod stripped
- * both keys, the handler updated nothing, the route answered **200**, and
- * `settleMutation` deleted the outbox row as successfully delivered. The mirror
- * had already shown the user the change optimistically, so the edit looked
- * applied — until the next pull silently reverted it.
- *
- * Nothing failed anywhere. No error, no retry, no log. That is the dangerous
- * shape of this bug class, and it is why the check below is a *contract* test:
- * it runs the body the client actually builds through the schema of the route
- * it actually targets, for every mutation kind, so the two halves cannot drift
- * apart in silence again.
- */
-
 const USER = "user-a";
 const BOOK = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const COLLECTION = "3f2504e0-4f89-41d3-9a0c-0305e82c3302";
@@ -71,15 +54,10 @@ function registration() {
   };
 }
 
-/**
- * One representative mutation per kind, queued through the production API, plus
- * the schema of the route `toReplayRequest` sends it to.
- */
 const KINDS: {
   kind: MutationKind;
   queue: () => Promise<unknown>;
   url: string;
-  /** Null where the route takes no JSON body. */
   schema: { safeParse: (value: unknown) => { success: boolean } } | null;
 }[] = [
   {
@@ -198,11 +176,6 @@ describe("every replayed mutation is a shape its route accepts", () => {
   });
 });
 
-/**
- * The other half: proof that a wrong shape now *fails* instead of being
- * quietly discarded. Without `.strict()` every one of these parses, the route
- * applies nothing, and the outbox settles a write that never happened.
- */
 describe("mutation schemas reject a body they do not understand", () => {
   it("rejects the exact flat tag-edge body that caused the lost write", () => {
     expect(bookPatchSchema.safeParse({ tagId: TAG, include: false }).success).toBe(false);

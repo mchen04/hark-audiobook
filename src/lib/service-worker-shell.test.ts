@@ -261,9 +261,6 @@ describe("service-worker shell generations", () => {
     const shell = createShellFunctions(storage.cacheStorage, shellFetch("install.js"));
     const installGeneration = await shell.prepareInstalledShell();
 
-    // The shipping predecessor swept every /_next/static entry from the shared
-    // live cache that its own document did not name. The install marker must be
-    // in a different cache so that old code cannot erase the handoff.
     storage.legacyLiveStaticSweep(LEGACY_SHELL_CACHE);
 
     expect(await storage.text(SHELL_METADATA_CACHE, INSTALL_READY_URL)).toBe(installGeneration);
@@ -382,9 +379,6 @@ describe("service-worker shell generations", () => {
       },
     });
     const fetchShell = alternatingShellFetch("candidate-a.js", "candidate-b.js");
-    // Separate factories model separate service-worker JS globals and therefore
-    // separate module-local refresh tails. Cache names remain shared, but each
-    // stage name maps to a genuinely distinct Cache instance.
     const activeWorker = createShellFunctions(storage.cacheStorage, fetchShell);
     const installingWorker = createShellFunctions(storage.cacheStorage, fetchShell, {
       clients: {
@@ -401,8 +395,6 @@ describe("service-worker shell generations", () => {
     expect(storage.stageNames()).toHaveLength(2);
     expect(new Set(storage.stageNames()).size).toBe(2);
 
-    // Activation promotes only after the new handler owns the clients. Let the
-    // older worker finish afterward to exercise the harshest legal ordering.
     await installingWorker.activateWorker();
     gate.release();
     await activeRefresh;
@@ -428,8 +420,6 @@ describe("service-worker shell generations", () => {
       },
     });
 
-    // This helper is the a3270cd shared-v6 algorithm, not another copy of the
-    // generation implementation under test.
     const oldRefresh = legacyPrecacheShell(storage.cacheStorage, fetchShell);
     await gate.reached;
     const installGeneration = await installingWorker.prepareInstalledShell();
@@ -441,8 +431,6 @@ describe("service-worker shell generations", () => {
     expect(await storage.document(OFFLINE_URL)).toContain("candidate-b.js");
     expect(await storage.liveGeneration()).toBe(installGeneration);
     expect(storage.cacheNames()).not.toContain(LEGACY_SHELL_CACHE);
-    // The old tab can still lazy-load both the document it had and the chunk
-    // fetched by its late refresh, but neither old document can become canonical.
     expect(storage.hasAsset("/_next/static/chunks/working-old.js")).toBe(true);
     expect(storage.hasAsset("/_next/static/chunks/candidate-a.js")).toBe(true);
     await expectLiveDocumentsHaveAssets(storage);
@@ -648,7 +636,6 @@ function runtimeManifestResponse(): Response {
   return Response.json(runtimeManifest);
 }
 
-/** The shared-cache refresh implementation deployed at a3270cd. */
 async function legacyPrecacheShell(
   cacheStorage: ReturnType<typeof namedShellStorage>["cacheStorage"],
   fetchFn: typeof fetch,

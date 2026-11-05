@@ -48,7 +48,6 @@ const { playback, timeState } = vi.hoisted(() => ({
 vi.mock("./playback-provider", () => ({
   usePlayback: () => playback,
   usePlaybackTime: () => timeState.currentTimeMs,
-  usePlaybackDerived: <T,>(derive: () => T) => derive(),
   useCurrentChapter: () => timeState.currentChapter,
 }));
 vi.mock("./preferences-provider", () => ({

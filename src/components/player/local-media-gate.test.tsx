@@ -73,7 +73,6 @@ it.each(["committed", "missing", "unavailable"])(
     });
     await waitFor(() => expect(storeMedia).toHaveBeenCalledTimes(1));
     const signal = storeMedia.mock.calls[0]![6] as AbortSignal;
-    // Model the boundary after storage committed but before its promise returns.
     if (outcome === "committed") readMedia.mockResolvedValue(media);
     if (outcome === "unavailable") readMedia.mockRejectedValue(new Error("Storage unavailable"));
     fireEvent.click(screen.getByRole("button", { name: "Cancel attachment" }));
@@ -95,7 +94,7 @@ it.each(["committed", "missing", "unavailable"])(
       for (const next of [
         { playerBook: { ...book, id: "next-book" } },
         { userId: "next-account" },
-        {}, // Returning to this book carries a fresh autoplay intent.
+        {},
       ]) {
         rerender(<LocalMediaGate {...props} {...next} />);
         await waitFor(() => {
@@ -204,7 +203,6 @@ it("keeps the resolved player mounted across equal identities and metadata/histo
         historySnapshot={{ entries: [], capturedAt: new Date().toISOString() }}
       />,
     );
-    // Identity changes would synchronously replace this with the checking gate.
     expect(screen.getByLabelText("Resolved media")).toBe(audio);
     await act(async () => {});
     expect(screen.getByLabelText("Resolved media")).toBe(audio);

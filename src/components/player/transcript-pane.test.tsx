@@ -6,11 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TranscriptSentence } from "@/domain/transcript";
 
-// A mutable clock the mocked provider reads; tests advance it then re-render.
 const clock = vi.hoisted(() => ({ ms: 0 }));
 
 vi.mock("./playback-provider", () => ({
-  // Mirrors the real hook: recompute the derivation against the current time.
   usePlaybackTimeDerived: <T,>(derive: (timeMs: number) => T) => derive(clock.ms),
 }));
 
@@ -46,7 +44,6 @@ const sentenceOnly: TranscriptSentence[] = [
 
 beforeEach(() => {
   clock.ms = 0;
-  // jsdom lacks these APIs the pane touches for auto-scroll and fade state.
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -68,7 +65,7 @@ function activeText(): string | null {
 
 describe("TranscriptPane", () => {
   it("highlights the sentence and marks the word at the playhead", () => {
-    clock.ms = 400; // inside sentence 0, on "tower"
+    clock.ms = 400;
     render(
       <TranscriptPane
         sentences={wordSentences}
@@ -90,7 +87,7 @@ describe("TranscriptPane", () => {
         onSeek={vi.fn()}
       />,
     );
-    clock.ms = 950; // still sentence 0, now on "bay"
+    clock.ms = 950;
     rerender(
       <TranscriptPane
         sentences={wordSentences}
@@ -101,7 +98,7 @@ describe("TranscriptPane", () => {
     );
     expect(screen.getByText("bay").tagName).toBe("MARK");
 
-    clock.ms = 2500; // sentence 1, on "struck"
+    clock.ms = 2500;
     rerender(
       <TranscriptPane
         sentences={wordSentences}
@@ -115,7 +112,7 @@ describe("TranscriptPane", () => {
   });
 
   it("respects the chapter start offset when the chapter does not start at zero", () => {
-    clock.ms = 30_400; // chapter starts at 30s -> 400ms in -> "tower"
+    clock.ms = 30_400;
     render(
       <TranscriptPane
         sentences={wordSentences}
@@ -141,7 +138,7 @@ describe("TranscriptPane", () => {
   });
 
   it("degrades to sentence-only highlighting when there are no word cues", () => {
-    clock.ms = 1800; // sentence 1 of the sentence-only transcript
+    clock.ms = 1800;
     render(
       <TranscriptPane
         sentences={sentenceOnly}
@@ -165,7 +162,7 @@ describe("TranscriptPane", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /Rain struck the glass\./ }));
-    expect(onSeek).toHaveBeenCalledWith(32_000); // 30_000 + 2_000
+    expect(onSeek).toHaveBeenCalledWith(32_000);
   });
 
   it("renders a quiet pane while cues are still pending", () => {
@@ -189,8 +186,6 @@ describe("TranscriptPane", () => {
   });
 
   it("attaches manual-scroll grace after mounting empty then filling (chapter swap)", () => {
-    // The container only exists after cues load; the pane also mounts empty on
-    // every chapter change. A manual scroll must still pause auto-scroll.
     const scrollIntoView = Element.prototype.scrollIntoView as ReturnType<typeof vi.fn>;
     clock.ms = 400;
     const { rerender, container } = render(
@@ -212,9 +207,7 @@ describe("TranscriptPane", () => {
     );
     scrollIntoView.mockClear();
 
-    // Reader scrolls by hand -> grace window opens.
     fireEvent.wheel(container.querySelector(".transcript-pane")!);
-    // Narration advances to the next sentence.
     clock.ms = 2500;
     rerender(
       <TranscriptPane
@@ -224,7 +217,6 @@ describe("TranscriptPane", () => {
         onSeek={vi.fn()}
       />,
     );
-    // Auto-scroll must stay paused: no scrollIntoView during the grace window.
     expect(scrollIntoView).not.toHaveBeenCalled();
   });
 });

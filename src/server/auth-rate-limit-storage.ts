@@ -8,13 +8,6 @@ import { rateLimit } from "@/server/db/schema";
 type RateLimitValue = { key: string; count: number; lastRequest: number };
 type RateLimitRule = { window: number; max: number };
 
-/**
- * Better Auth 1.6.23's database wrapper prunes with only the global and built-in
- * windows. It does not include `customRules`, so a one-minute request can erase
- * a still-live ten-minute signup or password-reset bucket. This store keeps the
- * same shared, atomic database contract while deriving retention from every
- * window the app actually configured.
- */
 export function createDatabaseRateLimitStorage(retentionWindowSeconds: number) {
   let nextPruneAt = 0;
 
@@ -65,8 +58,6 @@ export function createDatabaseRateLimitStorage(retentionWindowSeconds: number) {
       .from(rateLimit)
       .where(eq(rateLimit.key, key))
       .limit(1);
-    // A concurrent cleanup can remove the row between UPDATE and SELECT. The
-    // retry will insert it and count this request exactly once.
     if (!current) return consume(key, rule);
     return {
       allowed: false,

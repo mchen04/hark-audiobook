@@ -47,13 +47,6 @@ describe("deleting a book", () => {
     removeOfflineBook.mockReset().mockResolvedValue(undefined);
     unloadDetails = [];
 
-    /**
-     * What the provider really does on this event. `unloadBook` makes the
-     * position durable on its way out — correct for leaving a player, and the
-     * reason a delete used to END by writing a fresh position record for the
-     * book it had just destroyed. The test has to reproduce that write or it
-     * grades a cleanup with nothing to clean up.
-     */
     unload = (event) => {
       unloadDetails.push((event as CustomEvent<UnloadPlayerDetail>).detail);
       saveLocalPlaybackState("user-a", "book-1", { positionMs: 42_000 });
@@ -71,20 +64,11 @@ describe("deleting a book", () => {
     const { result } = renderHook(() =>
       useDeleteBook("user-a", "book-1", onError, mediaFingerprint, mediaRenditionKey),
     );
-    // First press arms the confirmation; second one deletes.
     await act(async () => void (await result.current.deleteBook()));
     await act(async () => void (await result.current.deleteBook()));
     return onError;
   }
 
-  /**
-   * F4. `healMirrorPlaybackFromLocal` sweeps every `chapterline:position:*` key
-   * on launch and writes back any whose moment beats the mirror's. The delete
-   * removes the book aggregate from IndexedDB; a surviving local record puts a
-   * playback row for the deleted book straight back on the next launch, and on
-   * every launch after that, because nothing ever removed the record feeding
-   * it.
-   */
   it("takes this device's local position for the book with it", async () => {
     localStorage.setItem(MARKER_KEY, String(Date.now()));
     const onError = await deleteThroughTheUi();

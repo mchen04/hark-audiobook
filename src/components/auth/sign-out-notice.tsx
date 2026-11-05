@@ -9,7 +9,6 @@ import {
   type SignOutReport,
 } from "@/lib/auth-client";
 
-/** The login page survives the account provider being revoked mid-sign-out. */
 export function SignOutNotice() {
   const report = useSyncExternalStore(subscribeToNoUpdates, peekSignOutReport, serverSignOutReport);
   const [dismissed, setDismissed] = useState(false);

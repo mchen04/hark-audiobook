@@ -15,7 +15,7 @@ import {
   commitMetadataEdit,
   commitTagList,
 } from "@/lib/offline/outbox";
-import { getDeviceId } from "@/lib/playback-core";
+import { getDeviceId } from "@/lib/device-id";
 import { isCollectionPayload, readJson, type CollectionSummary } from "@/lib/wire";
 
 export type BookDetails = {
@@ -66,19 +66,10 @@ export function BookDetailsDialog({
     return { userId: playback.userId, deviceId: getDeviceId() };
   }
 
-  /**
-   * Every edit below is journalled in the outbox and projected into this
-   * device's mirror, so it is already saved by the time this returns — the
-   * server hears about it on the next drain, which is now if the network is
-   * there and on reconnect if it is not.
-   */
   function settled(message: string) {
     setError(null);
     setNotice({ message, queued: !navigator.onLine });
     void replayQueuedMutations(playback.userId).catch(() => undefined);
-    // A refresh is a *read*, and the only reader that could answer it is the
-    // server. Asking with the network down would fail for nothing: the mirror
-    // this edit just patched is what the library reads from either way.
     if (navigator.onLine) router.refresh();
   }
 
@@ -161,15 +152,6 @@ export function BookDetailsDialog({
     settled(include ? `Added to ${collection.name}.` : `Removed from ${collection.name}.`);
   }
 
-  /**
-   * The one action here that genuinely cannot be queued.
-   *
-   * Every other edit names something that already exists; a new collection has
-   * no id until the server mints one, and there is no queued mutation that can
-   * carry "a collection whose id I do not know yet". So this one asks the
-   * network, and says so plainly when the network is not there — rather than
-   * failing with the same wording as an edit that was in fact saved.
-   */
   async function createCollection(event: FormEvent) {
     event.preventDefault();
     const name = newCollectionName.trim();
@@ -202,8 +184,6 @@ export function BookDetailsDialog({
       onClose={onClose}
       onCancel={onClose}
       onClick={(event) => {
-        // A click on the ::backdrop targets the dialog element itself, but so
-        // does one on the dialog's own padding — check the geometry.
         const dialog = dialogRef.current;
         if (!dialog || event.target !== dialog) return;
         const rect = dialog.getBoundingClientRect();

@@ -1,115 +1,16 @@
-import type { PlayerBook, PlayerChapter } from "@/domain/player";
+import type { PlayerBook } from "@/domain/player";
 import { isAccountWriteFenced } from "@/lib/account-deletion-fence";
 
-/** How close to a boundary counts as "at" it, in milliseconds. */
-export const CHAPTER_END_EPSILON_MS = 350;
-const BOOK_END_EPSILON_MS = 1_000;
-
-/**
- * The chapter containing a position. Positions at or past the last chapter's
- * start (including the sliver between its endMs and the audio's true duration)
- * belong to the final chapter so chapter navigation keeps working at the end.
- */
-export function selectCurrentChapter(
-  chapters: PlayerChapter[],
-  currentTimeMs: number,
-): PlayerChapter | null {
-  const last = chapters[chapters.length - 1];
-  if (!last) return null;
-  if (currentTimeMs >= last.startMs) return last;
-  // Chapters are sorted and non-overlapping, so binary-search the last one
-  // starting at or before the position — this runs per timeupdate tick and
-  // books can carry 10k+ chapters.
-  let low = 0;
-  let high = chapters.length - 1;
-  let candidate = -1;
-  while (low <= high) {
-    const mid = (low + high) >> 1;
-    if (chapters[mid]!.startMs <= currentTimeMs) {
-      candidate = mid;
-      low = mid + 1;
-    } else {
-      high = mid - 1;
-    }
-  }
-  if (candidate === -1) return null;
-  const chapter = chapters[candidate]!;
-  return currentTimeMs < chapter.endMs ? chapter : null;
-}
-
-/** Bounded smart-rewind for time spent away from the book. */
-export function rewindForAbsence(absenceMs: number): number {
-  if (!Number.isFinite(absenceMs) || absenceMs < 60_000) return 0;
-  if (absenceMs < 10 * 60_000) return 5_000;
-  if (absenceMs < 60 * 60_000) return 15_000;
-  return 30_000;
-}
-
-/**
- * Where playback should begin for a stored position. A book stored at its very
- * end restarts from the beginning; otherwise smart rewind (when enabled and a
- * pause marker exists) backs up a bounded amount.
- */
-export function resolveStartPosition(input: {
-  storedPositionMs: number;
-  durationMs: number;
-  smartRewindEnabled: boolean;
-  msSinceLastPause: number | null;
-}): { startAtMs: number; appliedRewindMs: number } {
-  if (input.storedPositionMs >= input.durationMs - BOOK_END_EPSILON_MS) {
-    return { startAtMs: 0, appliedRewindMs: 0 };
-  }
-  const appliedRewindMs =
-    input.smartRewindEnabled && input.msSinceLastPause !== null
-      ? rewindForAbsence(input.msSinceLastPause)
-      : 0;
-  return { startAtMs: Math.max(0, input.storedPositionMs - appliedRewindMs), appliedRewindMs };
-}
-
-export function isChapterEnding(chapter: PlayerChapter, positionMs: number): boolean {
-  return chapter.endMs - positionMs <= CHAPTER_END_EPSILON_MS;
-}
-
-/* Per-user local playback state. Keys are user-scoped so account switches on
- * one device never leak positions between accounts. */
-
-/**
- * WHICH MECHANISM performed a durable write — not which function called it.
- *
- * This exists to settle one question that no instrument on a development
- * machine can answer (`docs/resume-durability-device-check.md`): while a PWA is
- * backgrounded with the screen off and audio playing, does iOS suspend BOTH the
- * 200 ms rescheduling timer AND the media element's `timeupdate`? Each writer
- * alone is measured to bound the loss; only their simultaneous suspension loses
- * ground, and the automated suite cannot observe it because Playwright's WebKit
- * never reports a page as genuinely hidden.
- *
- * The answer is legible from the record itself once the record says who wrote
- * it. After a backgrounded listen, `"visibility-flush"` with a stale `writtenAt`
- * means both writers were frozen for the whole session; `"media-tick"` or
- * `"cadence-timer"` with a recent one means that writer survived.
- *
- * So these are named for the PLATFORM MECHANISM that produced the write —
- * `"media-tick"` is the media pipeline, `"cadence-timer"` is `setTimeout` — and
- * not for the hook or handler the call sits in, because it is the mechanism's
- * survival that is in question.
- */
 const PLAYBACK_WRITE_SOURCES = [
-  /** The media pipeline's `timeupdate`. Survives iOS suspending timers. */
   "media-tick",
-  /** The 200 ms self-rescheduling `setTimeout`. Suspended by a backgrounded page. */
   "cadence-timer",
-  /** The synchronous flush on `visibilitychange` to hidden. */
   "visibility-flush",
-  /** The synchronous flush on `pagehide`, which is terminal at any visibility. */
   "pagehide-flush",
   "pause",
   "seek",
   "ended",
   "rate-change",
-  /** Copies authoritative server/mirror clocks into this device before playback. */
   "player-bootstrap",
-  /** Leaving one book for another; the write belongs to the book being left. */
   "book-switch",
   "book-unload",
 ] as const;
@@ -118,56 +19,17 @@ export type PlaybackWriteSource = (typeof PLAYBACK_WRITE_SOURCES)[number];
 
 export type LocalPosition = {
   positionMs: number;
-  /** Writer-local media position paired with lifecycle provenance. */
   positionAtWrite?: number;
   occurredAt: number;
-  /** Absent on records written before the rate and completion were durable. */
   playbackRate?: number;
-  /** Writer-local rate paired with lifecycle provenance, not the joined rate. */
   playbackRateAtWrite?: number;
-  /** When `playbackRate` last changed; absent on older records. */
   playbackRateOccurredAt?: number;
   completed?: boolean;
-  /** Writer-local completion paired with lifecycle provenance. */
   completedAtWrite?: boolean;
-  /** When `completed` last changed; absent on older records. */
   completedOccurredAt?: number;
-  /** Document that wrote the compatibility tuple; joins provenance safely. */
   writerId?: string;
-  /**
-   * Which mechanism wrote this record. Absent on records written before writes
-   * carried their provenance.
-   */
   source?: PlaybackWriteSource;
-  /**
-   * WHEN THE WRITE HAPPENED — deliberately NOT `occurredAt`.
-   *
-   * `occurredAt` means "when this position was reached" and is preserved across
-   * a re-write that carries no new position, because it is the only thing
-   * `localWinsOver` compares and re-stamping it lets a stale tab overrule
-   * another device's real listening. `writtenAt` has the opposite job: it is
-   * always the real moment of the write, so a record whose position has not
-   * moved for five minutes still shows that something wrote it five minutes ago
-   * — or that nothing did. Conflating the two would reintroduce the cross-device
-   * regression `momentThisPositionWasReached` exists to prevent.
-   *
-   * Absent on records written before writes carried their provenance.
-   */
   writtenAt?: number;
-  /**
-   * WAS THE AUDIO ACTUALLY PLAYING at the instant of this write?
-   *
-   * The one fact a durable record could not previously answer, and the one
-   * `detectSuspendedSession` cannot do without. Everything else it needs is
-   * already here: `positionMs` is where the user was, `writtenAt` is when, and
-   * `playbackRate` is how fast the book was moving. What none of those say is
-   * whether there was a listening session still running at that moment — and a
-   * hide-edge write happens on EVERY backgrounding, paused or playing. A paused
-   * one has no lost stretch behind it and must never produce an offer.
-   *
-   * Written only when true, so absent means "not playing, or a build that
-   * predates this field" — both of which are correctly read as "do not offer".
-   */
   playingAtWrite?: boolean;
 };
 
@@ -182,15 +44,6 @@ export type PlaybackPredecessor = {
   completed?: { value: boolean; occurredAt: number };
 };
 
-/**
- * Exact physical-register corrections left behind by an acknowledged request.
- *
- * There is at most one obligation per field. While localStorage is unavailable,
- * its physical winner cannot change, so later acknowledgements update the
- * canonical target without appending another copy of that same source. This
- * keeps permanently blocked storage O(1) per book instead of growing once per
- * heartbeat.
- */
 export type PlaybackNormalization = {
   position?: PlaybackFieldNormalization<number>;
   playbackRate?: PlaybackFieldNormalization<number>;
@@ -210,16 +63,6 @@ export function installPendingPlaybackNormalizations(
   } else pendingPlaybackNormalizations.delete(key);
 }
 
-/**
- * Synchronously persists the playback fields a terminating page can finish.
- *
- * Each document owns one register per field, so it never rewrites another
- * document's position while changing only rate or completion. The joined tuple
- * remains for older builds and diagnostics. None of these writes waits on a
- * lock or IndexedDB transaction: a terminal lifecycle handler may get only its
- * current task. Storage failures are contained so the caller can still journal
- * the same event in the IndexedDB outbox.
- */
 export function saveLocalPlaybackState(
   userId: string,
   bookId: string,
@@ -231,15 +74,11 @@ export function saveLocalPlaybackState(
     completedOccurredAt?: number;
     occurredAt?: number;
     source?: PlaybackWriteSource;
-    /** Was the media element playing at the instant of this write? */
     playing?: boolean;
-    /** Actual media position when a durable smart-rewind floor is carried. */
     positionAtWrite?: number;
-    /** Explicit field mask supplied by the player causal baseline. */
     positionChanged?: boolean;
     playbackRateChanged?: boolean;
     completedChanged?: boolean;
-    /** Populate missing per-writer registers from an authoritative tuple. */
     hydrate?: boolean;
   },
 ): LocalPosition | null {
@@ -251,7 +90,6 @@ export function saveLocalPlaybackState(
   const candidate: LocalPosition = {
     positionMs,
     occurredAt: state.occurredAt ?? momentThisPositionWasReached(previous, positionMs, writtenAt),
-    // Always the real moment of THIS write, whatever `occurredAt` resolved to.
     writtenAt,
     writerId,
   };
@@ -300,7 +138,7 @@ export function saveLocalPlaybackState(
         candidate.completedOccurredAt !== previous.completedOccurredAt));
   if (state.hydrate || positionChanged) {
     const persisted = persistLocalRegister(
-      positionRegisterPrefix(userId, bookId),
+      playbackRegisterPrefix("position", userId, bookId),
       writerId,
       candidate.positionMs,
       candidate.occurredAt,
@@ -310,7 +148,7 @@ export function saveLocalPlaybackState(
   }
   if ((state.hydrate || playbackRateChanged) && typeof candidate.playbackRate === "number") {
     const persisted = persistLocalRegister(
-      rateRegisterPrefix(userId, bookId),
+      playbackRegisterPrefix("rate", userId, bookId),
       writerId,
       candidate.playbackRate,
       candidate.playbackRateOccurredAt ?? candidate.writtenAt ?? candidate.occurredAt,
@@ -320,7 +158,7 @@ export function saveLocalPlaybackState(
   }
   if ((state.hydrate || completedChanged) && typeof candidate.completed === "boolean") {
     const persisted = persistLocalRegister(
-      completedRegisterPrefix(userId, bookId),
+      playbackRegisterPrefix("completed", userId, bookId),
       writerId,
       candidate.completed,
       candidate.completedOccurredAt ?? candidate.writtenAt ?? candidate.occurredAt,
@@ -334,12 +172,7 @@ export function saveLocalPlaybackState(
     completedChanged,
     hydrate: state.hydrate === true,
   });
-  // Normalize the compatibility tuple against the winning registers before it
-  // is written. In particular, a stale tab must not attach its pagehide
-  // provenance to a peer's newer position.
   const record = joinLocalPlaybackRegisters(userId, bookId, merged) ?? merged;
-  // Kept as a joined legacy snapshot for old builds, diagnostics and book-key
-  // enumeration. New reads arbitrate it against the independent registers.
   writeLocalValue(localPositionKey(userId, bookId), JSON.stringify(record));
   if (isAccountWriteFenced(userId)) {
     clearLocalPlaybackState(userId, bookId);
@@ -348,7 +181,6 @@ export function saveLocalPlaybackState(
   return record;
 }
 
-/** Reconciles a successful server response without erasing a later local action. */
 export function applyAuthoritativePlaybackState(
   userId: string,
   bookId: string,
@@ -383,7 +215,6 @@ export function applyAuthoritativePlaybackStateWithStatus(
     playbackRateOccurredAt: number;
     completed: boolean;
     completedOccurredAt: number;
-    /** Exact joined registers observed before this event's local write. */
     predecessor?: PlaybackPredecessor;
   },
   source?: PlaybackWriteSource,
@@ -470,33 +301,13 @@ export function applyAuthoritativePlaybackStateWithStatus(
   const resolvedPositionClock = replacePosition
     ? server.occurredAt
     : (current?.occurredAt ?? server.occurredAt);
-  /**
-   * A server acknowledgement is not a new physical write mechanism.
-   *
-   * In particular, acknowledging a `visibility-flush` used to replace its
-   * ordinary register with a canonical one and then rebuild the compatibility
-   * tuple without `source`, `writtenAt`, or `playingAtWrite`. A renderer killed
-   * after that response therefore lost the exact suspension signature it had
-   * synchronously made durable before the request began.
-   *
-   * Preserve provenance only when the resolved server position is the exact
-   * position/moment the current tuple describes. A clamp, conflict, or newer
-   * server value must not inherit evidence from a different local position.
-   */
   const preservedProvenance =
     current?.source &&
     current.positionMs === resolvedPositionMs &&
     current.occurredAt === resolvedPositionClock
       ? current
       : null;
-  // Canonical entries intentionally lose an equal-clock tie to every ordinary
-  // document writer. A local action can land after the read above but before
-  // this write; giving the server entry lexical priority would let compaction
-  // erase that concurrent action without a compare-and-set primitive.
   const writerId = `!canonical:${localPlaybackWriterId()}`;
-  // When canonicalizing the exact position that supplied the provenance, keep
-  // its document identity. `joinLocalPlaybackRegisters` can then prove that the
-  // metadata and winning position still belong together across a reload.
   const positionWriterId = preservedProvenance?.writerId
     ? `!canonical:${documentPlaybackWriterId(preservedProvenance.writerId)}`
     : writerId;
@@ -504,7 +315,7 @@ export function applyAuthoritativePlaybackStateWithStatus(
   const positionPersisted =
     !replacePosition ||
     persistAuthoritativeLocalRegister(
-      positionRegisterPrefix(userId, bookId),
+      playbackRegisterPrefix("position", userId, bookId),
       positionWriterId,
       server.positionMs,
       server.occurredAt,
@@ -515,7 +326,7 @@ export function applyAuthoritativePlaybackStateWithStatus(
   const ratePersisted =
     !replaceRate ||
     persistAuthoritativeLocalRegister(
-      rateRegisterPrefix(userId, bookId),
+      playbackRegisterPrefix("rate", userId, bookId),
       writerId,
       server.playbackRate,
       server.playbackRateOccurredAt,
@@ -525,7 +336,7 @@ export function applyAuthoritativePlaybackStateWithStatus(
   const completionPersisted =
     !replaceCompleted ||
     persistAuthoritativeLocalRegister(
-      completedRegisterPrefix(userId, bookId),
+      playbackRegisterPrefix("completed", userId, bookId),
       writerId,
       server.completed,
       server.completedOccurredAt,
@@ -651,7 +462,6 @@ function serverFieldDecision<T extends number | boolean>(
   };
 }
 
-/** Builds the backward-compatible joined snapshot; registers remain authoritative. */
 function mergeLocalPlaybackFields(
   previous: LocalPosition | null,
   candidate: LocalPosition,
@@ -729,35 +539,6 @@ function mergeLocalPlaybackFields(
   return record;
 }
 
-/**
- * When did this device reach this position? Not: when did it last say so.
- *
- * `occurredAt` is the only thing `localWinsOver` compares, so it is a CLAIM
- * ABOUT LISTENING, not a write timestamp — and a write that carries no new
- * position has no new listening to claim. Re-stamping one is how a device
- * silently overrules another device that really did move the book forward.
- *
- * The path that proved it (`tests/resume/uncovered-axes.spec.ts` X3, measured in
- * WebKit): device A is paused at 6793 ms and its tab is left open; device B
- * takes the book to 15666 ms; A's tab is then navigated away from. `pagehide` is
- * terminal at any visibility so it flushes unconditionally — correctly, it is
- * the last task a killed iOS page gets — and the flush rewrote A's own record as
- * the SAME 6793 ms with an `occurredAt` 15.4 s newer. Nothing about the user's
- * position changed; only the clock did. `localWinsOver` then read that fresher
- * stamp, preferred it over the server's newer cross-device value, and A came
- * back 8873 ms behind, throwing away listening the user had really done, with no
- * user input anywhere in the sequence.
- *
- * Keeping the earlier moment fixes it at the source and leaves the flush alone,
- * which matters: the same unconditional flush is what saves the position in the
- * single-device crash cases, and removing it to fix this would trade one lost
- * position for another. A write that moves the position by even a millisecond
- * still stamps `Date.now()`, because then there IS new listening to claim.
- *
- * A caller that passes `occurredAt` explicitly is stating the moment itself and
- * is left alone. A stored record with `occurredAt: 0` (every pre-v2 value)
- * claims no moment at all, so it cannot lend one.
- */
 function momentThisPositionWasReached(
   previous: LocalPosition | null,
   positionMs: number,
@@ -768,38 +549,6 @@ function momentThisPositionWasReached(
     : now;
 }
 
-export function saveLocalPosition(
-  userId: string,
-  bookId: string,
-  positionMs: number,
-  occurredAt = Date.now(),
-): void {
-  saveLocalPlaybackState(userId, bookId, { positionMs, occurredAt });
-}
-
-/**
- * Forget everything this device remembers about where the user was in a book.
- *
- * Deleting a book has to take the position with it, and it did not. The delete
- * flow dispatches `UNLOAD_PLAYER_EVENT`, and `unloadBook` writes the position
- * one last time on the way out — so a delete ENDED by recording a fresh
- * `chapterline:position:*` record for the book it had just destroyed, stamped
- * later than anything in the mirror.
- *
- * `healMirrorPlaybackFromLocal` then sweeps exactly those keys on every launch
- * and writes back any whose moment beats the mirror's. The delete removed the
- * book aggregate from IndexedDB; the next launch put a playback row for it
- * straight back, and the launch after that did it again, because nothing ever
- * removed the localStorage record that was feeding it. One orphan row per
- * deleted book, forever, on a store the shelf reads.
- *
- * The pause marker goes with it. It is the same book's state, it is what smart
- * rewind reads, and a re-import of the same file is matched to the same book id
- * by fingerprint — so a stale marker would hand a freshly imported book a
- * rewind earned by a copy the user deleted months ago. The dismissed-suspension
- * marker goes for the same reason: it is an answer about one deleted book's
- * unrecorded stretch, and the fingerprint match would hand it to the re-import.
- */
 export function clearLocalPlaybackState(userId: string, bookId: string): void {
   pendingPlaybackNormalizations.delete(localPositionKey(userId, bookId));
   const remove = (key: string) => {
@@ -807,16 +556,14 @@ export function clearLocalPlaybackState(userId: string, bookId: string): void {
       try {
         localStorage.removeItem(key);
         return;
-      } catch {
-        // A transient lifecycle/storage fault gets one immediate retry.
-      }
+      } catch {}
     }
   };
   remove(localPositionKey(userId, bookId));
   const registerPrefixes = [
-    positionRegisterPrefix(userId, bookId),
-    rateRegisterPrefix(userId, bookId),
-    completedRegisterPrefix(userId, bookId),
+    playbackRegisterPrefix("position", userId, bookId),
+    playbackRegisterPrefix("rate", userId, bookId),
+    playbackRegisterPrefix("completed", userId, bookId),
   ];
   const registerKeys = new Set<string>();
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -828,17 +575,11 @@ export function clearLocalPlaybackState(userId: string, bookId: string): void {
         }
       }
       break;
-    } catch {
-      // Retry the scan once; individual removals remain isolated below.
-    }
+    } catch {}
   }
   registerKeys.forEach(remove);
   remove(lastPausedKey(userId, bookId));
   remove(suspensionDismissedKey(userId, bookId));
-}
-
-export function readLocalPosition(userId: string, bookId: string): number | null {
-  return readLocalProgress(userId, bookId)?.positionMs ?? null;
 }
 
 export function readLocalProgress(userId: string, bookId: string): LocalPosition | null {
@@ -846,9 +587,6 @@ export function readLocalProgress(userId: string, bookId: string): LocalPosition
 }
 
 function readLocalProgressRaw(userId: string, bookId: string): LocalPosition | null {
-  // `getItem` is inside the try, not in front of it: it throws outright when
-  // the user has blocked storage, and a throw from here used to propagate
-  // through `loadBook` so the book never opened at all.
   try {
     const value = localStorage.getItem(localPositionKey(userId, bookId));
     let legacy: LocalPosition | null = null;
@@ -923,7 +661,6 @@ function hasPlaybackNormalization(normalization: PlaybackNormalization): boolean
   return !!(normalization.position || normalization.playbackRate || normalization.completed);
 }
 
-/** Every book this device holds a local position for, for the shelf projection. */
 export function listLocalPlaybackStates(
   userId: string,
 ): Array<{ bookId: string; state: LocalPosition }> {
@@ -963,16 +700,6 @@ export function listLocalPlaybackStates(
   return found;
 }
 
-/**
- * The book this device wrote a position for most recently — for the settings
- * diagnostics readout, which reports the provenance of the latest durable write.
- *
- * Ordered by `writtenAt`, not `occurredAt`: the question this answers is "what
- * wrote last", and `occurredAt` is deliberately frozen across re-writes that
- * carry no new position, so ordering by it would show the wrong book. A record
- * from before provenance existed has no `writtenAt` and so sorts oldest, which
- * is the honest answer — nothing is known about when it was written.
- */
 export function readLatestLocalPlayback(
   userId: string,
 ): { bookId: string; state: LocalPosition } | null {
@@ -983,114 +710,21 @@ export function readLatestLocalPlayback(
   return latest;
 }
 
-/* ------------------------------------------------------------------ *
- * Recovering a listening session the device could not record
- * ------------------------------------------------------------------ */
-
-/**
- * The write occasions that mean "the app was going away".
- *
- * Only these two can leave the signature below, and that is the whole trick:
- * there is ONE durable record per (user, book) and every write overwrites it,
- * so a record still saying `visibility-flush` or `pagehide-flush` is proof that
- * NOTHING wrote after the hide edge. No extra bookkeeping, no second key, and
- * nothing for a later write to forget to clear — the absence of a later write
- * is the absence of a later write.
- */
 const HIDE_EDGE_SOURCES: readonly PlaybackWriteSource[] = ["visibility-flush", "pagehide-flush"];
 
-/**
- * How much unrecorded listening is worth telling the user about.
- *
- * The cadence writes every 200 ms, so anything the normal writers covered is
- * off by a fifth of a second and would never reach a record that still names
- * the hide edge in the first place. This floor is the second, independent
- * guard: 60 s is three hundred cadence intervals, and it is stated on the
- * PROJECTED ADVANCE rather than on the elapsed wall clock so that the same
- * number means the same thing at 0.5x and at 3x, and so that a projection the
- * duration clamp has flattened cannot be offered as a jump to nowhere.
- *
- * BEING STATED ON THE ADVANCE IS ALSO WHAT COVERS THE END OF THE BOOK, and
- * there is deliberately no second check for it. A book parked within
- * `BOOK_END_EPSILON_MS` of its end restarts from zero on the next open
- * (`resolveStartPosition`), so a projection from its stored position describes
- * a place the player is not going to be — but the clamp already leaves at most
- * `BOOK_END_EPSILON_MS` of advance there, and this floor is sixty times that,
- * so the offer is withdrawn by arithmetic. An explicit end-of-book branch was
- * written first and then removed: no test could make it fail, which is the
- * definition of a line that is not doing anything.
- *
- * It is deliberately coarse. A recovery prompt is an interruption, and one that
- * appears after an ordinary thirty-second glance at another app is a bug the
- * user meets several times a day. Erring long costs a user who really did lose
- * fifty seconds nothing they cannot fix by scrubbing.
- */
 export const SUSPENSION_GAP_FLOOR_MS = 60_000;
 
-/**
- * A stretch of listening the device could not record, and where it MIGHT have
- * reached. Every field is evidence; `projectedPositionMs` alone is a guess.
- */
 export type SuspendedSession = {
-  /**
-   * The position the hide-edge write recorded. THIS REMAINS THE SOURCE OF
-   * TRUTH: the app resumes here, and nothing in this module may move it.
-   */
   recordedPositionMs: number;
-  /** Wall clock of the hide-edge write. Identifies this gap for dismissal. */
   writtenAt: number;
-  /** How long the device went without recording anything. */
   elapsedMs: number;
-  /** The rate the book was playing at when the app went away. */
   playbackRate: number;
-  /**
-   * Where playback WOULD have reached if it ran for the whole gap at that rate,
-   * clamped to the book. An estimate, and must be labelled as one wherever it
-   * is shown — if iOS stopped the audio early, this is simply wrong, which is
-   * exactly why it is offered and never applied.
-   */
   projectedPositionMs: number;
 };
 
-/**
- * Did this device stop being able to record a session that was still playing?
- *
- * THE SIGNATURE. The last durable write was made at the hide edge, it says
- * audio was live at that moment, and the wall clock has since moved far enough
- * that the cadence cannot account for it. On a phone that means: the app was
- * backgrounded with the book playing, iOS suspended both the 200 ms timer and
- * the media element's `timeupdate` — the one question this repo cannot answer
- * on a development machine, see `docs/resume-durability-device-check.md` — and
- * the process was then reaped with no further callback. The measured cost of
- * that case is the entire session: `tests/resume`'s both-writers-dead row loses
- * 9644 ms out of 9500 ms of listening, scaling linearly.
- *
- * WHAT THIS IS NOT. It is not a claim that iOS does suspend both writers, and
- * it does not need one. If either writer survives a real backgrounding the last
- * record names that writer, the predicate returns null, and the user never sees
- * anything. The cost in the good case is one `localStorage` read at launch.
- *
- * WHAT IT MUST NEVER DO is move anybody. The returned position is a PROPOSAL
- * for a control the user has to press. Resuming forward on the strength of an
- * extrapolation would skip content the user never heard — the worst failure
- * this player has, and a blocker here at any magnitude — and it would be
- * straightforwardly wrong in the case where iOS stopped the audio too.
- *
- * The bounds, all of them refusals rather than adjustments:
- *
- *   - a record that names any other writer is a record something wrote after
- *     the hide edge, so there is no unrecorded stretch;
- *   - a hide edge taken while PAUSED has nothing behind it to recover;
- *   - a finished book has no unheard stretch behind it;
- *   - a missing or nonsensical rate falls back to 1x rather than scaling the
- *     estimate by a number nobody wrote;
- *   - the projection is clamped to the book, and the offer is withdrawn when
- *     what survives the clamp is under the floor.
- */
 export function detectSuspendedSession(input: {
   record: LocalPosition | null;
   durationMs: number;
-  /** Injected so the maths is testable; defaults to the wall clock. */
   now?: number;
 }): SuspendedSession | null {
   const { record, durationMs } = input;
@@ -1119,15 +753,6 @@ export function detectSuspendedSession(input: {
   };
 }
 
-/**
- * The gap this device has already been told to stop asking about.
- *
- * Keyed by the hide-edge write's own `writtenAt`, which is what makes "the same
- * gap" a decidable question: a dismissal is a statement about one specific
- * unrecorded stretch, not a permanent opt-out. A LATER suspension writes a
- * later `writtenAt` and is offered again, which is right — it is a different
- * loss, and the user's last answer said nothing about it.
- */
 export function readDismissedSuspensionGap(userId: string, bookId: string): number | null {
   try {
     const raw = Number(localStorage.getItem(suspensionDismissedKey(userId, bookId)) || 0);
@@ -1143,23 +768,13 @@ export function dismissSuspensionGap(userId: string, bookId: string, writtenAt: 
     const key = suspensionDismissedKey(userId, bookId);
     localStorage.setItem(key, String(writtenAt));
     if (isAccountWriteFenced(userId)) localStorage.removeItem(key);
-  } catch {
-    // Storage is blocked. The offer reappears next launch, which is a nuisance
-    // and not a lost position; nothing else in the player may fail for it.
-  }
+  } catch {}
 }
 
 function suspensionDismissedKey(userId: string, bookId: string): string {
   return `chapterline:suspension-dismissed:${userId}:${bookId}`;
 }
 
-/**
- * Does this device's own record describe a later moment than the server's?
- *
- * A local record with no timestamp (`occurredAt: 0`, which is every pre-v2
- * value) loses to any server timestamp: it claims no moment at all, so it
- * cannot claim a later one.
- */
 export function localWinsOver(
   local: LocalPosition | null,
   serverOccurredAt: string | null,
@@ -1170,28 +785,6 @@ export function localWinsOver(
   return !Number.isFinite(serverTime) || local.occurredAt > serverTime;
 }
 
-export function freshestPosition(input: {
-  local: LocalPosition | null;
-  serverPositionMs: number;
-  serverOccurredAt: string | null;
-}): number {
-  const { local } = input;
-  return local && localWinsOver(local, input.serverOccurredAt)
-    ? local.positionMs
-    : input.serverPositionMs;
-}
-
-/**
- * Resolves position, rate, and completion independently before a book opens.
- *
- * The local durable tuple can contain an unsent value for only one field, so
- * using position freshness to choose the other two either discards that value
- * or gives a stale value a fresh clock on the first cadence write. Writing the
- * selected tuple back with its original clocks gives every later persistence
- * path one complete causal baseline. This is hydration only: smart rewind is
- * applied afterwards, and `playback-provider` still suppresses server writes
- * until the user actually plays, seeks, or changes rate.
- */
 export function bootstrapPlaybackState(
   userId: string,
   serverBook: PlayerBook,
@@ -1284,20 +877,6 @@ function serializeClock(value: number): string | null {
   return value > 0 && Number.isFinite(value) ? new Date(value).toISOString() : null;
 }
 
-/**
- * How long the user has been away from THIS book, for smart rewind.
- *
- * Scoped by user and book. A single global marker made the absence a property
- * of the device rather than of the book: pausing book A and returning to book B
- * a week later rewound B by 30 seconds even though B had never been paused at
- * all, and switching accounts on one device leaked the other account's absence.
- * Smart rewind is "remind me where I was in THIS story", so the marker has to
- * be per story, per account.
- *
- * An absent marker returns null (never 0), which `resolveStartPosition` treats
- * as "no rewind" rather than "no absence" — a book that has never been paused
- * must not be rewound.
- */
 export function readMsSinceLastPause(userId: string, bookId: string): number | null {
   try {
     const raw = Number(localStorage.getItem(lastPausedKey(userId, bookId)) || 0);
@@ -1313,54 +892,23 @@ export function markPausedNow(userId: string, bookId: string): void {
     const key = lastPausedKey(userId, bookId);
     localStorage.setItem(key, String(Date.now()));
     if (isAccountWriteFenced(userId)) localStorage.removeItem(key);
-  } catch {
-    // A device with storage blocked still has to be able to play.
-  }
-}
-
-export function getDeviceId(): string {
-  try {
-    const existing = localStorage.getItem("chapterline:device-id");
-    if (existing) return existing;
-    const created = crypto.randomUUID();
-    localStorage.setItem("chapterline:device-id", created);
-    return created;
-  } catch {
-    return sessionDeviceId();
-  }
+  } catch {}
 }
 
 function lastPausedKey(userId: string, bookId: string): string {
   return `chapterline:last-paused-at:${userId}:${bookId}`;
 }
 
-/**
- * One stable id for a session that cannot persist one. Minting a fresh uuid per
- * call would give every write its own device identity, and the server orders
- * progress per (user, book, device) — a new device on every write is no
- * ordering at all, and every write but the first would be discarded.
- */
-let ephemeralDeviceId: string | null = null;
-
-function sessionDeviceId(): string {
-  if (!ephemeralDeviceId) ephemeralDeviceId = `ephemeral:${crypto.randomUUID()}`;
-  return ephemeralDeviceId;
-}
-
 function localPositionKey(userId: string, bookId: string): string {
   return `chapterline:position:${userId}:${bookId}`;
 }
 
-function positionRegisterPrefix(userId: string, bookId: string): string {
-  return `chapterline:playback-position:${userId}:${bookId}:`;
-}
-
-function rateRegisterPrefix(userId: string, bookId: string): string {
-  return `chapterline:playback-rate:${userId}:${bookId}:`;
-}
-
-function completedRegisterPrefix(userId: string, bookId: string): string {
-  return `chapterline:playback-completed:${userId}:${bookId}:`;
+function playbackRegisterPrefix(
+  field: "position" | "rate" | "completed",
+  userId: string,
+  bookId: string,
+): string {
+  return `chapterline:playback-${field}:${userId}:${bookId}:`;
 }
 
 type LocalPlaybackRegister = {
@@ -1385,8 +933,6 @@ function persistLocalRegister(
   let claimedAt = occurredAt;
   try {
     while (true) {
-      // Immutable keys remove the compare-and-set race from compaction: no live
-      // document will ever rewrite a key another document is considering.
       const revision = String(++playbackRegisterRevision).padStart(12, "0");
       const key = `${prefix}${writerId}:${revision}`;
       localStorage.setItem(key, JSON.stringify({ value, occurredAt: claimedAt, writerId }));
@@ -1394,14 +940,9 @@ function persistLocalRegister(
       if (!claimLatest) break;
       const winner = readNewestLocalRegister(prefix);
       if (!winner || winner.storageKey === key || winner.occurredAt !== claimedAt) break;
-      // Two documents can change one field from the same baseline in the same
-      // millisecond. Whichever write completes last observes the first winner,
-      // advances the clock, and returns that exact clock to the network event.
       claimedAt = winner.occurredAt + 1;
     }
-  } catch {
-    // The returned record can still reach the IndexedDB outbox and server.
-  }
+  } catch {}
   return { value, occurredAt: claimedAt, writerId };
 }
 
@@ -1424,14 +965,7 @@ function persistAuthoritativeLocalRegister(
       if (raw && register) entries.push({ key, raw, register });
     }
 
-    // Land the canonical replacement before retiring anything. If quota or a
-    // blocked store rejects it, the acknowledged local value remains intact.
     const revision = String(++playbackRegisterRevision).padStart(12, "0");
-    // The register's writer can deliberately name the previous document when
-    // an exact canonical acknowledgement preserves that document's lifecycle
-    // provenance. Its storage key still belongs to THIS document. Otherwise a
-    // reload resets `playbackRegisterRevision`, recreates the previous key, and
-    // the acknowledged-entry cleanup below removes the just-written register.
     const key = `${prefix}${storageWriterId}:${revision}`;
     const canonicalRaw = JSON.stringify({ value, occurredAt, writerId });
     localStorage.setItem(key, canonicalRaw);
@@ -1486,8 +1020,6 @@ function compactLocalRegisters(prefix: string): void {
   if (!winner) return;
   for (const entry of entries) {
     if (entry.key === winner.key) continue;
-    // Exact-raw revalidation protects a key written by an older/mixed build;
-    // immutable keys from this build cannot change after the first read.
     if (localStorage.getItem(entry.key) === entry.raw) localStorage.removeItem(entry.key);
   }
 }
@@ -1495,9 +1027,7 @@ function compactLocalRegisters(prefix: string): void {
 function writeLocalValue(key: string, value: string): void {
   try {
     localStorage.setItem(key, value);
-  } catch {
-    // The returned record can still reach the IndexedDB outbox and server.
-  }
+  } catch {}
 }
 
 function readLocalRegister(key: string): LocalPlaybackRegister | null {
@@ -1565,9 +1095,6 @@ function registerIsNewer(
   );
 }
 
-// Deliberately document-scoped. Browsers copy sessionStorage into opener and
-// duplicated tabs; persisting this id there would make two live documents
-// overwrite the same register and recreate the lost-update race.
 let playbackWriterId: string | null = null;
 
 function localPlaybackWriterId(): string {
@@ -1585,12 +1112,12 @@ function joinLocalPlaybackRegisters(
   bookId: string,
   legacy: LocalPosition | null,
 ): LocalPosition | null {
-  const position = readNewestLocalRegister(positionRegisterPrefix(userId, bookId));
+  const position = readNewestLocalRegister(playbackRegisterPrefix("position", userId, bookId));
   const registeredPosition =
     position && typeof position.value === "number" && position.value >= 0 ? position : null;
-  const rate = readNewestLocalRegister(rateRegisterPrefix(userId, bookId));
+  const rate = readNewestLocalRegister(playbackRegisterPrefix("rate", userId, bookId));
   const registeredRate = rate && typeof rate.value === "number" ? rate : null;
-  const completed = readNewestLocalRegister(completedRegisterPrefix(userId, bookId));
+  const completed = readNewestLocalRegister(playbackRegisterPrefix("completed", userId, bookId));
   const registeredCompleted = completed && typeof completed.value === "boolean" ? completed : null;
   if (!legacy && !registeredPosition && !registeredRate && !registeredCompleted) return null;
   const positionFromRegister =
@@ -1714,18 +1241,11 @@ function validLocalPosition(parsed: unknown, occurredAtOverride: number | undefi
   ) {
     record.completedOccurredAt = entry.completedOccurredAt;
   }
-  // Provenance is diagnostic and is rendered verbatim, so only a value this
-  // build actually writes is carried through; anything else stays absent rather
-  // than putting an unknown string in front of the user.
   if (isWriteSource(entry?.source)) record.source = entry.source;
   const writtenAt = entry?.writtenAt;
   if (typeof writtenAt === "number" && Number.isFinite(writtenAt) && writtenAt >= 0) {
     record.writtenAt = writtenAt;
   }
-  // Only a literal `true` carries through. Anything else — a string, a 1, a
-  // field a future build repurposes — is not evidence that a listening session
-  // was running, and `detectSuspendedSession` must never offer to move the
-  // user's position on the strength of a value it had to coerce.
   if (entry?.playingAtWrite === true) record.playingAtWrite = true;
   if (typeof entry?.writerId === "string" && entry.writerId.length > 0) {
     record.writerId = entry.writerId;

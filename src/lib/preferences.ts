@@ -15,40 +15,23 @@ const armedReconnectRetries = new Map<string, () => void>();
 
 type CachedPreferences = {
   preferences: PlayerPreferences;
-  /** Which product defaults an otherwise untouched cache was created from. */
   defaultsVersion: number;
   revision: number;
   pendingRevision: number | null;
-  /** Stable across every local change appended before this pending series drains. */
   pendingSeriesId: string | null;
-  /** Opaque identity for the pending write; unlike revision, it never repeats after a purge. */
   pendingWriteId: string | null;
-  /** Current-client fields waiting to be acknowledged. */
   pendingPatch: Partial<PlayerPreferences> | null;
-  /** Full payload queued by a pre-v2 client, retained until acknowledged. */
   legacyPendingPreferences: PlayerPreferences | null;
-  /** Stable identity for the legacy piece while newer field patches are appended. */
   legacyPendingWriteId: string | null;
-  /** When the still-unacknowledged revision was written on this device. */
   pendingSince: number;
 };
 
-/**
- * A preference change this device made that the server has not acknowledged.
- *
- * Preferences are the one mirrored entity (`docs/local-first.md` section 2)
- * whose write is NOT an outbox row, so nothing else on the device knows it is
- * outstanding. Sign-out purges the cache key that holds it, which made it the
- * one user write this product could destroy silently. It is surfaced here so
- * the sign-out drain can try to deliver it, and report it if it cannot.
- */
 export type PendingPreferenceWrite = {
   kind: "preferences";
   entityId: string;
   queuedAt: number;
 };
 
-/** Cached copy keeps the player configured offline and on first paint. */
 export function readCachedPreferences(userId: string): PlayerPreferences {
   return readCache(userId).preferences;
 }
@@ -90,11 +73,6 @@ function readCache(userId: string): CachedPreferences {
       const preferences = { ...storedPreferences };
       const defaultsVersion = finiteOr(envelope.defaultsVersion, 0);
       const isLegacy = defaultsVersion < PREFERENCES_DEFAULTS_VERSION;
-      // Builds before defaults v2 cannot distinguish an explicit opt-in from
-      // the inherited enabled default. Reset every legacy envelope once so an
-      // unrelated preference write cannot preserve an unexpected rewind.
-      // A listener can opt back in after the upgrade, at which point the cache
-      // carries defaultsVersion 2 and this migration no longer applies.
       if (isLegacy) {
         preferences.smartRewind = DEFAULT_PREFERENCES.smartRewind;
       }
@@ -127,9 +105,6 @@ function readCache(userId: string): CachedPreferences {
         pendingSeriesId,
         pendingWriteId,
         pendingPatch,
-        // A pre-v2 pending envelope is the only durable copy of an offline
-        // write. Retain its exact normalized payload until the server
-        // acknowledges it; the server applies legacy default policy.
         legacyPendingPreferences,
         legacyPendingWriteId,
         pendingSince: finiteOr(envelope.pendingSince, 0),
@@ -164,18 +139,10 @@ export async function fetchPreferences(userId: string): Promise<PlayerPreference
       defaultsVersion?: unknown;
     };
     const preferences = normalize(payload.preferences);
-    // A predecessor server cannot prove that true was an explicit opt-in.
-    // Preserve this v2 device's known value while mixed-version instances
-    // drain instead of adopting an ambiguous old response.
     if (payload.defaultsVersion !== PREFERENCES_DEFAULTS_VERSION) {
       preferences.smartRewind = before.preferences.smartRewind;
     }
     const latest = readCache(userId);
-    // The server's answer is adopted only if this device has written nothing
-    // since the GET was issued. `pendingRevision === null` is not enough on its
-    // own: a write that started AND was acknowledged while the GET was in
-    // flight leaves no pending flag behind, and the body now in hand predates
-    // it. The revision counter is what makes that case visible.
     if (latest.pendingRevision === null && latest.revision === before.revision) {
       cachePreferences(userId, { ...latest, preferences });
       return preferences;
@@ -186,7 +153,6 @@ export async function fetchPreferences(userId: string): Promise<PlayerPreference
   }
 }
 
-/** Applies the change locally first; the server write happens in the background. */
 export async function savePreferences(
   userId: string,
   current: PlayerPreferences,
@@ -224,12 +190,6 @@ export async function savePreferences(
   return next;
 }
 
-/**
- * Re-sends the unacknowledged revision, if there is one. Safe to call at any
- * time: it joins the same per-user chain every other write uses, so it can
- * never race a save into the wrong order, and it is a no-op when nothing is
- * outstanding.
- */
 export async function flushPendingPreferences(
   userId: string,
   fetchFn?: typeof fetch,
@@ -258,30 +218,17 @@ export async function flushPendingPreferences(
   armReconnectRetry(userId);
 }
 
-/** The outstanding preference write, in the shape the sign-out report uses. */
 export function listPendingPreferenceWrites(userId: string): PendingPreferenceWrite[] {
   const cached = readCache(userId);
   if (cached.pendingRevision === null) return [];
   return [{ kind: "preferences", entityId: userId, queuedAt: cached.pendingSince }];
 }
 
-/** Detaches requests that may outlive sign-out from writes made after a new sign-in. */
 export function invalidatePreferenceWrites(userId: string): void {
   activePreferenceWrites.delete(userId);
   disarmReconnectRetry(userId);
 }
 
-/**
- * Heals a dropped PATCH on reconnect rather than waiting for the next app
- * open. Without this the only retry was `fetchPreferences` at launch, so a
- * failed write survived only as long as the tab did — and a sign-out in
- * between destroyed it, because `clearLocalDataForUser` removes the cache key
- * that is the write's sole record.
- *
- * The listener detaches itself as soon as nothing is outstanding, which also
- * covers the account being purged: the key is gone, so there is no pending
- * revision, so the retry retires.
- */
 function armReconnectRetry(userId: string): void {
   if (typeof window === "undefined" || typeof window.addEventListener !== "function") return;
   if (readCache(userId).pendingRevision === null) {
@@ -352,9 +299,6 @@ function enqueuePreferenceWrite(
         cachePreferences(userId, {
           ...latest,
           pendingPatch: remaining,
-          // A receipt identifies one immutable body. Fields appended while it
-          // was in flight continue under a fresh receipt instead of replaying
-          // acknowledged values as though they were part of the old write.
           pendingWriteId: remaining ? crypto.randomUUID() : null,
         });
       }
@@ -398,8 +342,6 @@ async function sendPreferencePatch(
     headers[PREFERENCES_LEGACY_REPLAY_HEADER] = "1";
   }
   headers[PREFERENCES_WRITE_ID_HEADER] = writeId;
-  // The versioned path is also the rollback fence for migrated legacy writes:
-  // a predecessor instance returns 404 instead of applying an unreceipted body.
   const response = await send("/api/preferences/v2", {
     method: "PATCH",
     headers,

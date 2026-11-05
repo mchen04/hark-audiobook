@@ -70,17 +70,32 @@ test("the frame sampler detects all five flicker types", async ({ context, page 
 
 test("library and player retain their visible landmarks across launches and navigation", async ({
   baseURL,
-  context,
-}) => {
+}, info) => {
   test.setTimeout(175000);
   expect(baseURL).toBeTruthy();
   const output = mkdtempSync(path.join(tmpdir(), "hark-flicker-regression-"));
   const summary = await recordScenarios({
-    context,
     origin: baseURL!,
     output,
   });
   console.log("Frame evidence:", output);
+  await info.attach("launch-scenarios", {
+    path: path.join(output, "summary.json"),
+    contentType: "application/json",
+  });
+  for (const scenario of summary.scenarios.filter(
+    (entry) => entry.failure || entry.errors.length,
+  )) {
+    await info.attach(`${scenario.name}-frames`, {
+      path: path.join(output, scenario.name, "frames.json"),
+      contentType: "application/json",
+    });
+    if (scenario.video)
+      await info.attach(`${scenario.name}-video`, {
+        path: scenario.video,
+        contentType: "video/webm",
+      });
+  }
   expect(
     summary.scenarios.filter((scenario) => scenario.failure || scenario.errors.length),
     "All scenarios must complete without page errors",

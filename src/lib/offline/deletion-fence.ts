@@ -15,14 +15,6 @@ export function isPermanentOfflineDeletion(
   return deletion?.clearPlaybackHistory === true;
 }
 
-/**
- * Makes a deletion durable without taking the media lock.
- *
- * This ordering is intentional. A tab can be killed while it waits for a
- * lock held by another tab, so putting the marker behind that lock leaves no
- * recovery fact and lets the orphaned download reappear as a device-only
- * book. Permanent markers also fence stale media writers immediately.
- */
 export async function journalOfflineBookDeletion(
   userId: string,
   bookId: string,
@@ -43,9 +35,6 @@ export async function journalOfflineBookDeletion(
     pending?.offlineCoverThumbUrl,
   );
 
-  // A completed attempt is already the required fence. Re-open it only when
-  // there are bytes to reclaim, or when a completed remove-download is being
-  // upgraded to a permanent book deletion that must also clear history.
   if (
     pending?.completedAt !== undefined &&
     !ownsMedia &&
@@ -81,7 +70,6 @@ export async function journalOfflineBookDeletion(
   return { db, key, operationId, needsCleanup: true };
 }
 
-/** A server-visible permanent delete must never exist without this local fence. */
 export async function ensurePermanentOfflineBookDeletion(
   userId: string,
   bookId: string,

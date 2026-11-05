@@ -17,12 +17,6 @@ import {
   storePlaybackAction,
 } from "@/lib/playback-history";
 
-/**
- * The playback-history log: optimistic capture of every transport action, the
- * per-book hydration merge, and the replay of entries queued while offline.
- * The provider decides WHEN things happen; this hook owns what the history
- * list shows and how an entry survives (or is rolled back from) storage.
- */
 export function usePlaybackHistoryLog(
   userId: string,
   audioRef: RefObject<HTMLAudioElement | null>,
@@ -72,7 +66,6 @@ export function usePlaybackHistoryLog(
     [activeBookRef, audioRef, userId],
   );
 
-  /** Merge the server's (or a snapshot's) entries under what was captured locally. */
   const hydrateHistory = useCallback(
     (bookId: string, historySnapshot?: PlaybackHistorySnapshot) => {
       void loadPlaybackHistory(userId, bookId, historySnapshot)
@@ -91,7 +84,6 @@ export function usePlaybackHistoryLog(
     [activeBookRef, userId],
   );
 
-  /** A different book is taking the element: its log starts empty. */
   const clearHistory = useCallback(() => {
     setHistory([]);
   }, []);

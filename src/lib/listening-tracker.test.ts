@@ -50,10 +50,6 @@ describe("createListeningTracker", () => {
     expect(post).toHaveBeenCalledTimes(1);
   });
 
-  // The tracker used to consult `navigator.onLine` and discard a stretch that
-  // ended with the network down, on the reasoning that history is a nicety.
-  // A session the user has already watched accrue is a write, and it is now
-  // journalled like every other one.
   it("records a stretch that ended while the network was down", () => {
     const post = vi.fn();
     let t = 0;

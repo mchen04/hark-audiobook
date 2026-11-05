@@ -12,7 +12,6 @@ type MediaIdentity = {
   durationMs: number;
 };
 
-/** True only when an idempotent replay describes the bytes already behind the book id. */
 export function isSameLocalRegistration(
   incoming: MediaIdentity & { chapters: readonly ChapterIdentity[] },
   stored: (MediaIdentity & { chapters: readonly ChapterIdentity[] }) | null,

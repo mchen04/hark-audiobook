@@ -9,7 +9,6 @@ import {
 
 export type MediaRegistrationIdentity = QueuedMediaRegistrationIdentity;
 
-/** Live registration and replay share one causal stream per source rendition. */
 export function withMediaRegistrationLock<T>(
   userId: string,
   identity: MediaRegistrationIdentity,
@@ -21,7 +20,6 @@ export function withMediaRegistrationLock<T>(
   );
 }
 
-/** A replacement cannot register until deletion of its predecessor has settled. */
 export async function hasPendingDeleteForMediaRegistration(
   userId: string,
   identity: MediaRegistrationIdentity,

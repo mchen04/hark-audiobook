@@ -7,7 +7,6 @@ const workerScope = self as unknown as {
   postMessage: (message: KestrelRenderResponse, transfer?: Transferable[]) => void;
 };
 
-// Requests arrive in chunk order and render one at a time on the shared FFT workspace.
 let renderTail = Promise.resolve();
 
 workerScope.onmessage = (event) => {
@@ -19,7 +18,6 @@ workerScope.onmessage = (event) => {
   renderTail = renderTail.then(() => render(request.id, request.frames));
 };
 
-// Sent only once this module has loaded; a renderer that never says so is not used.
 workerScope.postMessage({ type: "ready" });
 
 async function render(id: number, frames: KestrelSpectralFrames): Promise<void> {

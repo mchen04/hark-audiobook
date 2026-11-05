@@ -27,12 +27,6 @@ type GateState =
   | { phase: "unavailable" }
   | { phase: "attaching"; percent: number | null; stage: string };
 
-/**
- * Audio bytes live only on the user's devices. Before the player mounts, this
- * gate resolves the book's media from this device's store; when the book was
- * imported elsewhere, it asks for the original MP3 and verifies it is the
- * same file before storing it here.
- */
 type LocalMediaGateProps = {
   userId: string;
   playerBook: PlayerBook;
@@ -49,8 +43,6 @@ type LocalMediaGateProps = {
 };
 
 export function LocalMediaGate(props: LocalMediaGateProps) {
-  // Reset before React commits a different identity. An effect would be too
-  // late: it could mount the new book with the previous book/account's audio.
   const identity = JSON.stringify([
     props.userId,
     props.playerBook.id,
@@ -79,8 +71,6 @@ function MediaForIdentity({
   const [error, setError] = useState<string | null>(null);
   const [checkAttempt, setCheckAttempt] = useState(0);
   const [autoplayCancelled, setAutoplayCancelled] = useState(false);
-  // The book must stay deletable even when this device lacks the audio,
-  // otherwise a book imported elsewhere could never be removed from here.
   const { deleteBook, deleting, deleteLabel } = useDeleteBook(
     userId,
     playerBook.id,
@@ -152,7 +142,6 @@ function MediaForIdentity({
         setState({ phase: "attaching", percent, stage });
       }
     };
-    /** The MP3 keeps its own embedded artwork, so it is parsed before storing. */
     async function attachLocalMp3(
       source: File,
       targetBook: Omit<PlayerBook, "mediaUrl" | "coverUrl">,

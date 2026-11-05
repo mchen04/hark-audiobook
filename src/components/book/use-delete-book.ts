@@ -8,18 +8,9 @@ import { UNLOAD_PLAYER_EVENT, type UnloadPlayerDetail } from "@/lib/app-keys";
 import { replayQueuedMutations } from "@/lib/offline-sync";
 import { removeOfflineBook } from "@/lib/offline/deletion-journal";
 import { commitBookDeletion } from "@/lib/offline/outbox";
-import { clearLocalPlaybackState, getDeviceId } from "@/lib/playback-core";
+import { clearLocalPlaybackState } from "@/lib/playback-core";
+import { getDeviceId } from "@/lib/device-id";
 
-/**
- * The one delete-book flow: confirm tap, journalled delete, player unload,
- * local history and media cleanup, then back to the library. Every delete entry
- * point shares this so no path forgets a cleanup step.
- *
- * The delete is queued rather than sent, so it survives a close, a crash and a
- * flat connection. That ordering matters in one direction only: the intent is
- * durable *before* this device destroys the only copy of the audio, so the
- * server can never be left holding a book whose bytes are already gone.
- */
 export function useDeleteBook(
   userId: string,
   bookId: string,
@@ -54,13 +45,6 @@ export function useDeleteBook(
     window.dispatchEvent(
       new CustomEvent<UnloadPlayerDetail>(UNLOAD_PLAYER_EVENT, { detail: { userId, bookId } }),
     );
-    // AFTER the unload, never before. `UNLOAD_PLAYER_EVENT` is dispatched
-    // synchronously and `unloadBook` makes the position durable on its way out
-    // — correct for leaving a player, wrong for a book that is being destroyed.
-    // Clearing first would simply be overwritten by that write; clearing here
-    // removes it, and with it the local record that `healMirrorPlaybackFromLocal`
-    // would otherwise use to resurrect a playback row for a deleted book on
-    // every launch.
     clearLocalPlaybackState(userId, bookId);
     await removeOfflineBook(userId, bookId, { clearPlaybackHistory: true }).catch(() => {
       onError("The book was deleted, but device cleanup will retry automatically.");

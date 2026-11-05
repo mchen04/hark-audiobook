@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import "fake-indexeddb/auto";
 
-// Deliberately does NOT import "@/lib/offline/library": these tests exercise
-// the window before that module's init registers the conflict handler, which
-// is exactly the state a page whose bundle omits the library layer runs in.
 import {
   applyPendingProgressNormalizations,
   listProgressNormalizations,
@@ -68,14 +65,9 @@ describe("progress 409 with no registered conflict handler", () => {
     await queueProgress(progressEntry());
     const fetchFn = vi.fn().mockImplementation(async () => conflict409());
 
-    // No handler registered: the server's answer cannot be projected onto
-    // local state yet, so settling would erase the only record of the
-    // conflict. The row must survive the drain.
     await replayQueuedMutations(USER, fetchFn as typeof fetch);
     expect(await listQueuedMutations(USER)).toHaveLength(1);
 
-    // Vitest gives each test file its own module registry, so registering
-    // here cannot leak into other suites.
     const handler = vi.fn().mockResolvedValue(undefined);
     registerProgressConflictHandler(handler);
     blockRegisters = true;

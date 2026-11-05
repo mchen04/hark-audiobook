@@ -15,10 +15,6 @@ type MutationContext<P, D> = QueryContext<P> & { data: D };
 
 type RouteHandler = (request: Request, routeArgs?: RouteArgs) => Promise<Response>;
 
-/**
- * Authenticated read handler: resolves the session (401 otherwise) and params.
- * With a `params` schema, route params that fail it are a 404.
- */
 export function withQuery<P = Record<string, never>>(
   handler: (context: QueryContext<P>) => Promise<Response>,
 ): RouteHandler;
@@ -43,12 +39,6 @@ export function withQuery(
   };
 }
 
-/**
- * Authenticated write handler: origin check (403), session (401), and — when
- * schemas are given — params validation (404) and JSON body validation (400)
- * happen in exactly one place. Without a `body` schema the handler manages its
- * own body (uploads, deletes).
- */
 export function withMutation<P = Record<string, never>>(
   handler: (context: QueryContext<P>) => Promise<Response>,
 ): RouteHandler;

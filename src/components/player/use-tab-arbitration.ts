@@ -4,10 +4,6 @@ import { RefObject, useCallback, useEffect, useRef } from "react";
 
 import { pauseWithIntent } from "./pause-intent";
 
-/**
- * Only one tab may play at a time: announcing playback makes every other tab
- * of this origin pause itself.
- */
 export function useTabArbitration(audioRef: RefObject<HTMLAudioElement | null>) {
   const tabIdRef = useRef<string | null>(null);
   const channelRef = useRef<BroadcastChannel | null>(null);

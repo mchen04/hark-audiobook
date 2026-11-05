@@ -4,12 +4,6 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useRef } 
 
 const LocalNavigationContext = createContext<(() => void) | null>(null);
 
-/**
- * Keeps enough route provenance to leave a player without fetching a new
- * document. When the real library entry is behind the book, pop back to it so
- * Next restores its own route tree. A direct/shared book URL has no such entry,
- * so AppShell's local library is opened with a native in-document transition.
- */
 export function AppNavigation({ pathname, children }: { pathname: string; children: ReactNode }) {
   const currentPathname = useRef(pathname);
   const previousPathname = useRef<string | null>(null);

@@ -26,13 +26,6 @@ import {
   serializePlayerPreferences,
 } from "@/server/preferences/write-policy";
 
-/**
- * One PATCH implementation behind two routes. `/api/preferences/v2` is strict:
- * it demands the full write protocol (a version or legacy-replay header plus a
- * write id), while the legacy `/api/preferences` path keeps accepting bare
- * bodies from pre-v2 clients. Each route file configures its own handler here
- * so the behavior split lives in the route, not in URL sniffing.
- */
 export function makePreferencesPatch({ strict }: { strict: boolean }) {
   return withMutation(
     { body: preferencesPatchSchema, invalidBody: "Invalid preferences." },
@@ -57,11 +50,6 @@ export function makePreferencesPatch({ strict }: { strict: boolean }) {
           : {}),
       };
       const result = await db.transaction(async (transaction) => {
-        // Serialize this write with revocation of the session that authorized it.
-        // If sign-out deletes the row first, an already-authenticated request is
-        // rejected. If this lock wins first, sign-out cannot finish until this
-        // transaction commits, so a later same-account sign-in cannot be
-        // overwritten by work from the departed session.
         const [originatingSession] = await transaction
           .select({ id: authSession.id })
           .from(authSession)

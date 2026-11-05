@@ -10,28 +10,12 @@ export const MAX_ACCOUNT_TAGS = 100;
 
 export class TagLimitError extends Error {}
 
-/**
- * Serializes every write that can touch this account's tag vocabulary. Taken
- * as the first statement so concurrent edge writes, full replacements, and
- * book deletions observe each other's GC and limit checks in order.
- */
 export async function lockAccountTags(transaction: Transaction, userId: string): Promise<void> {
   await transaction.execute(
     sql`select pg_advisory_xact_lock(hashtextextended(${`tags:${userId}`}, 0))`,
   );
 }
 
-/**
- * Applies one book↔tag edge.
- *
- * The caller's `updatedAt` bump is not optional bookkeeping here: `book_tags`
- * carries no timestamp of its own, so the parent's bump is the only thing that
- * puts this edge into another device's incremental pull (design contract
- * section 3). It runs before this function for every PATCH, edge or not.
- *
- * Returns false when the tag id is not this account's, which the caller turns
- * into a 404 — an edge naming somebody else's tag must not be silently ignored.
- */
 export async function applyTagEdge(
   transaction: Transaction,
   edge: {
@@ -50,42 +34,25 @@ export async function applyTagEdge(
       userId: edge.userId,
       bookId: edge.bookId,
     });
-    // Already applied. Answering before the ownership check below is what makes
-    // a replayed *removal* a no-op: the removal may have garbage-collected the
-    // tag row, so re-checking ownership would 404 a write that did land.
     if (!receipt.claimed) return true;
   }
 
   const tagId = await resolveEdgeTag(transaction, edge);
   if (!tagId) {
-    // Nothing to remove is already the desired state; only an *add* that cannot
-    // name a tag is a failure the device needs to hear about.
     return !edge.include;
   }
 
   if (edge.include) {
-    // Add-wins and idempotent: replaying "add" twice is still one edge.
     await transaction.insert(bookTags).values({ bookId: edge.bookId, tagId }).onConflictDoNothing();
   } else {
     await transaction
       .delete(bookTags)
       .where(and(eq(bookTags.bookId, edge.bookId), eq(bookTags.tagId, tagId)));
-    // A tag no book references any more is not a filter chip anybody can use.
     await deleteUnusedTags(transaction, edge.userId);
   }
   return true;
 }
 
-/**
- * The tag this edge refers to, by id when the row still exists and by name
- * otherwise.
- *
- * Ids are not stable: `deleteUnusedTags` collects a tag as soon as its last
- * edge goes, so "remove fiction" followed by "add fiction back" replays a
- * second id that no longer resolves. Falling back to the queued name — and
- * re-creating the vocabulary entry for an add — is what keeps that second
- * write from being dropped as a terminal 404.
- */
 async function resolveEdgeTag(
   transaction: Transaction,
   edge: { userId: string; tagId: string; include: boolean; name?: string },
@@ -152,9 +119,6 @@ export async function replaceBookTags(
       .onConflictDoNothing();
   }
 
-  // A single GC pass after the re-insert keeps ids stable for tags this book
-  // still uses and collects the ones nothing references; checking the limit
-  // against the final state stays exact because the transaction rolls back.
   await deleteUnusedTags(transaction, userId);
   const [tagCount] = await transaction
     .select({ value: count() })

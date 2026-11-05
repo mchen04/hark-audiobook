@@ -1,6 +1,5 @@
 import { throwIfAborted } from "@/lib/abort";
 
-/** Reads a size-bounded Blob incrementally so cancellation stops further I/O. */
 export async function readFileBytes(file: File, signal?: AbortSignal): Promise<Uint8Array> {
   throwIfAborted(signal);
   const reader = file.stream().getReader();
@@ -27,7 +26,6 @@ export async function readFileBytes(file: File, signal?: AbortSignal): Promise<U
   }
 }
 
-/** Streaming UTF-8 decode bounds both peak work and cancellation latency. */
 export async function readFileText(
   file: File,
   maxCharacters: number,

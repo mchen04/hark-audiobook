@@ -35,8 +35,6 @@ export default async function BookPage({
   ]);
   if (!book?.durationMs) notFound();
 
-  // The audio bytes never live on the server; the client gate resolves the
-  // real media URL from this device's local store.
   const playerBook: PlayerBook = {
     id: book.id,
     title: book.title,

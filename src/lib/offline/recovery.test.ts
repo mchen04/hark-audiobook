@@ -110,11 +110,6 @@ describe("offline media recovery", () => {
     cachedUrls.add(available.offlineMediaUrl);
 
     await expect(listOfflineBooks("user")).resolves.toEqual([available]);
-    // The record is MARKED, not deleted. A missed `cache.match` proves only
-    // that this device cannot reach the bytes right now — WebKit was measured
-    // dropping every Cache Storage record while the cache names survived — and
-    // the download record is the only local description of a file that exists
-    // nowhere else. See `library.ts#reconcileOfflineRecord`.
     expect(store.get(stale.key)?.mediaMissingSince).toEqual(expect.any(String));
     expect(store.get(stale.key)?.offlineMediaUrl).toBe(stale.offlineMediaUrl);
   });
@@ -124,9 +119,6 @@ describe("offline media recovery", () => {
     store.set(stale.key, stale);
 
     await expect(getOfflineBook("user", stale.book.id)).resolves.toBeUndefined();
-    // Same as above: the gate is told there is no audio here, which is what
-    // opens the "attach the original MP3" screen, and the record survives so
-    // there is still something to attach it to.
     expect(store.get(stale.key)?.mediaMissingSince).toEqual(expect.any(String));
   });
 
@@ -220,7 +212,6 @@ describe("offline media recovery", () => {
         null,
       ),
     ).rejects.toThrow("This device could not save the audiobook for offline playback");
-    // Every journaled row (chunk and manifest) gets a best-effort cache sweep.
     expect(deleteEntry).toHaveBeenCalledTimes(2);
   });
 
@@ -291,8 +282,6 @@ describe("offline media recovery", () => {
 
     expect(cacheEntries.size).toBe(owned.length);
     expect(cachedUrls.size).toBe(owned.length);
-    // The sweep must stay an in-memory diff: per-chunk gets or locks froze
-    // startup for multi-gigabyte audiobooks.
     expect(fakeDb.get).not.toHaveBeenCalled();
   });
 
@@ -342,8 +331,6 @@ describe("offline media recovery", () => {
     await storeLocalBookMedia("user", book, file, null, (fraction) => progress.push(fraction));
 
     expect(fakeDb.transaction).toHaveBeenCalledTimes(1);
-    // Chunk journal rows go through the batched transaction, so the only
-    // direct put is the downloads record.
     expect(fakeDb.put).toHaveBeenCalledTimes(1);
     expect(progress.at(-1)).toBe(1);
     expect(progress.length).toBeGreaterThanOrEqual(3);

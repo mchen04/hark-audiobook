@@ -23,20 +23,6 @@ import {
 } from "./harness/library-seed";
 import { readLibrary, titlesOf, type LibrarySnapshot } from "./harness/snapshot";
 
-/**
- * `docs/local-first.md` sections 8 and 9, as gates.
- *
- * One library UI, at one URL, behaving identically with the network on and with
- * it gone — because nothing on the read path asks whether the network is there.
- *
- * The comparison is structural and total: URL, heading, every control and its
- * state, and the full ordered list of rendered book cards with each card's
- * title, author, tags, device line, badges, play affordance and progress text.
- * A count would agree while the offline library showed different books; this
- * cannot. And every offline phase is proved twice — a control request that
- * cannot connect, and zero requests reaching the app server.
- */
-
 const PHONE_VIEWPORT = { width: 393, height: 852 };
 
 let account: Account;
@@ -66,21 +52,15 @@ test.afterEach(async () => {
   if (net.isCut()) await restoreNetwork(device.page);
 });
 
-/** A launch: a brand-new document in the same warm profile. */
 async function launch(url: string, viewport = PHONE_VIEWPORT): Promise<Page> {
   const page = await device.context.newPage();
   await page.setViewportSize(viewport);
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("[data-launch-ready]", { state: "attached", timeout: 60_000 });
-  // Revalidation runs after paint and patches the rendered list in place. Both
-  // sides of every comparison below are read after it has had its chance, so
-  // the online side is never caught mid-patch — and the offline side pays the
-  // same wait, so the two are read at the same point in the lifecycle.
   await page.waitForTimeout(1_200);
   return page;
 }
 
-/** Fails loudly if anything reached the app server while it was meant to be gone. */
 async function expectNothingReachedTheServer(label: string): Promise<void> {
   const net = await network();
   const hits = net.hits();
@@ -95,11 +75,6 @@ async function expectNothingReachedTheServer(label: string): Promise<void> {
   ).toBeGreaterThan(0);
 }
 
-/**
- * The library must be worth comparing. Two empty screens match perfectly, and
- * so do two screens that lost the same book, so the online side is pinned to
- * the seed before it is ever used as the reference.
- */
 function expectSeededLibrary(snapshot: LibrarySnapshot): void {
   expect(snapshot.launchReady, "the library never reported real content on screen").toBe("books");
   expect(titlesOf(snapshot).sort()).toStrictEqual(
@@ -133,10 +108,6 @@ function expectSeededLibrary(snapshot: LibrarySnapshot): void {
   expect(snapshot.headerDownloadsHref).toBe("/library?device=1");
 }
 
-// ---------------------------------------------------------------------------
-// 1. Same route, same controls, same books
-// ---------------------------------------------------------------------------
-
 for (const [label, url, viewport] of [
   ["/library on the phone", "/library", PHONE_VIEWPORT],
   ["/library?device=1 on the phone", "/library?device=1", PHONE_VIEWPORT],
@@ -166,10 +137,6 @@ for (const [label, url, viewport] of [
   });
 }
 
-// ---------------------------------------------------------------------------
-// 2. Every control works offline
-// ---------------------------------------------------------------------------
-
 test("every library control works with the network gone", async () => {
   const net = await network();
   await cutNetwork(device.page);
@@ -179,15 +146,12 @@ test("every library control works with the network gone", async () => {
   const search = page.getByRole("searchbox", { name: "Search your library" });
   const titles = async () => titlesOf(await readLibrary(page));
 
-  // --- search filters, and clears
   await search.fill("Briarwood");
   await expect.poll(titles).toStrictEqual(["Parity Book Briarwood"]);
   await expect(page.getByRole("button", { name: "Clear search" })).toBeVisible();
   await page.getByRole("button", { name: "Clear search" }).click();
   await expect.poll(titles).toHaveLength(VISIBLE_SEED_BOOKS.length);
 
-  // Search reaches the fields the mirror indexes, not only the title: "Petra"
-  // appears nowhere but one book's author.
   await search.fill("Petra");
   await expect
     .poll(titles, { message: "offline search did not match on the author field" })
@@ -197,7 +161,6 @@ test("every library control works with the network gone", async () => {
   await page.getByRole("button", { name: "Clear filters" }).click();
   await expect.poll(titles).toHaveLength(VISIBLE_SEED_BOOKS.length);
 
-  // --- status filters
   for (const status of ["All", "In progress", "Not started", "Finished", "Archived"] as const) {
     const expected = SEED_BOOKS.filter((book) =>
       status === "All"
@@ -213,7 +176,6 @@ test("every library control works with the network gone", async () => {
   }
   await page.getByRole("button", { name: "All", exact: true }).click();
 
-  // --- tag filters
   await expect(
     page.getByRole("button", { name: "#fiction" }),
     "the tag filter chips are not on screen with the network gone",
@@ -229,7 +191,6 @@ test("every library control works with the network gone", async () => {
   await page.getByRole("button", { name: "#fiction" }).click();
   await expect.poll(titles).toHaveLength(VISIBLE_SEED_BOOKS.length);
 
-  // --- the on-this-device facet
   await page.getByRole("button", { name: "On this device" }).click();
   await expect
     .poll(async () => (await titles()).sort())
@@ -241,7 +202,6 @@ test("every library control works with the network gone", async () => {
   await page.getByRole("button", { name: "On this device" }).click();
   await expect.poll(titles).toHaveLength(VISIBLE_SEED_BOOKS.length);
 
-  // --- sort
   const sort = page.getByRole("combobox", { name: "Sort books" });
   await sort.selectOption("title");
   await expect
@@ -271,7 +231,6 @@ test("every library control works with the network gone", async () => {
     })
     .toBe(CONTINUE_BOOK.title);
 
-  // --- the grid/list view toggle, at a width where it is on screen
   const beforeToggle = await readLibrary(page);
   expect(
     beforeToggle.viewSwitch.visible,
@@ -288,7 +247,6 @@ test("every library control works with the network gone", async () => {
   await page.getByRole("button", { name: "Grid view" }).click();
   await expect.poll(async () => (await readLibrary(page)).listMode).toBe(false);
 
-  // --- the continue card, all the way into the player
   const continueCard = page.getByRole("link", {
     name: `Continue listening ${CONTINUE_BOOK.title}`,
   });
@@ -304,18 +262,12 @@ test("every library control works with the network gone", async () => {
   await page.close();
 });
 
-// ---------------------------------------------------------------------------
-// 3. Books whose audio is not on this device
-// ---------------------------------------------------------------------------
-
 test("books not on this device are marked, browsable, searchable and never playable", async () => {
   const net = await network();
   await cutNetwork(device.page);
   net.reset();
 
   const page = await launch(`${device.origin}/library`, PHONE_VIEWPORT);
-  // List view is where a card offers a play control at all, so it is the only
-  // view in which "never looks playable" is a claim with content.
   await page.getByRole("button", { name: "List view" }).click();
   await expect.poll(async () => (await readLibrary(page)).listMode).toBe(true);
 
@@ -325,8 +277,6 @@ test("books not on this device are marked, browsable, searchable and never playa
     expect(card, `"${seed.title}" is not in the library at all with the network gone`).toBeTruthy();
     if (seed.onDevice) {
       expect(card!.onDevice).toBe(true);
-      // The size lives in the meta line, and still says what it means to a
-      // screen reader rather than being a bare number next to a progress figure.
       expect(card!.deviceSize).toMatch(/^[\d.]+ (B|KB|MB|GB) on this device$/);
       expect(card!.deviceLine, "a downloaded book needs no missing-audio notice").toBe("");
       expect(card!.removeDownloadButton, "a downloaded book must offer removal").toBe(true);
@@ -336,7 +286,6 @@ test("books not on this device are marked, browsable, searchable and never playa
     }
     expect(card!.offDeviceBadge, `"${seed.title}" repeats a missing-audio cover badge`).toBe(false);
     expect(card!.deviceLine).toBe("Not on this device — attach its original file to listen");
-    // And never looks playable: no play link, only the inert stand-in.
     expect(card!.playButton, `"${seed.title}" offers a play affordance it cannot honour`).toBe(
       false,
     );
@@ -344,8 +293,6 @@ test("books not on this device are marked, browsable, searchable and never playa
     expect(card!.removeDownloadButton).toBe(false);
   }
 
-  // The same claim, made against the accessibility tree rather than class
-  // names, so a renamed class cannot quietly turn this assertion vacuous.
   for (const seed of VISIBLE_SEED_BOOKS.filter((book) => !book.onDevice)) {
     const card = page.locator("article.book-item", { hasText: seed.title });
     await expect(card.getByRole("button", { name: `Play ${seed.title}` })).toHaveCount(0);
@@ -358,7 +305,6 @@ test("books not on this device are marked, browsable, searchable and never playa
     await expect(card.getByRole("button", { name: `Play ${seed.title}` })).toHaveCount(1);
   }
 
-  // Still browsable and searchable — the marking is not a way of hiding them.
   const offDevice = VISIBLE_SEED_BOOKS.filter((book) => !book.onDevice)[0]!;
   const search = page.getByRole("searchbox", { name: "Search your library" });
   await search.fill(offDevice.title.replace("Parity Book ", ""));
@@ -380,10 +326,6 @@ test("books not on this device are marked, browsable, searchable and never playa
   await expectNothingReachedTheServer("browsing not-on-device books offline");
   await page.close();
 });
-
-// ---------------------------------------------------------------------------
-// 4. /offline is not a second UI
-// ---------------------------------------------------------------------------
 
 test("/offline lands in the unified library, online and offline", async () => {
   const net = await network();

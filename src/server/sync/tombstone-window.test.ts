@@ -24,9 +24,6 @@ describe("planTombstoneWindow", () => {
   });
 
   it("clamps to the page watermark while book pages remain", () => {
-    // A deletion stamped after the watermark must wait: reporting it would let
-    // the cursor move past book rows this batch never sent, and those books
-    // would then never be pulled again.
     expect(planTombstoneWindow(SINCE, { complete: false, watermark: WATERMARK })).toStrictEqual({
       emit: true,
       floor: SINCE,

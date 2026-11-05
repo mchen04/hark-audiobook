@@ -13,18 +13,6 @@ import {
   reattachLocalBookIdentity,
 } from "./library";
 
-/**
- * Re-import while offline — `docs/local-first.md` section 10.
- *
- * An import queued with the network down is filed under an id this device
- * minted. When it finally replays and the server answers "that fingerprint is
- * already book Y", this device has to end up holding ONE book, still playable,
- * under Y. The tests below are about how that is allowed to happen as much as
- * that it happens: the bytes in Cache Storage are asserted byte-for-byte
- * identical across the move, because the file underneath can be a 600-hour MP3
- * and the copy on this device is the only one in existence.
- */
-
 const USER = "user-a";
 const MINTED = "minted-book-id";
 const CANONICAL = "canonical-book-id";
@@ -62,7 +50,6 @@ beforeEach(() => {
   vi.stubGlobal("caches", caches.api);
 });
 
-/** One imported audiobook exactly as `media-store.ts` leaves it on the device. */
 async function storeBook(
   bookId: string,
   options: { chunks?: number; cues?: boolean; title?: string } = {},
@@ -391,8 +378,6 @@ describe("reattaching an offline import to the book the server already has", () 
   });
 
   it("never deletes the audio when the canonical id has a record but no bytes", async () => {
-    // Exactly the section 10 case: the book is known here, its audio was
-    // evicted, and the same MP3 was imported again while offline.
     const db = await database();
     const evicted = await storeBook(CANONICAL);
     for (const url of evicted.urls) {
@@ -413,26 +398,7 @@ describe("reattaching an offline import to the book the server already has", () 
   });
 });
 
-/**
- * A Cache Storage read that misses is not proof the audio is gone.
- *
- * WebKit was measured discarding every Cache Storage *record* for this origin
- * while the cache *names* survived: a heal restored and verified 33 shell and 6
- * media entries, and seconds later both caches read zero from two pages at
- * once. So `caches.open` resolves, every `match` misses, and the reconcile that
- * runs on every `/library` visit and every player open used to read that as
- * permanent loss — deleting the download record and the book's read-along cues.
- * Putting the bytes back afterwards restores neither.
- *
- * The audio is the one thing in this product that exists nowhere else (design
- * contract section 2), and the transcript is not even addressed by the token
- * that missed. The only honest response to "I looked and did not find it" is to
- * record that this device does not currently have the audio and leave every
- * recoverable thing recoverable — which is exactly the state the player's gate
- * already renders as "Attach the original MP3".
- */
 describe("a Cache Storage wipe that keeps the cache names", () => {
-  /** Records gone, name still registered — the measured WebKit condition. */
   function wipeCacheRecords() {
     caches.raw.get(MEDIA_CACHE)!.store.clear();
   }
@@ -510,7 +476,6 @@ describe("a Cache Storage wipe that keeps the cache names", () => {
     wipeCacheRecords();
     await listOfflineBooks(USER);
 
-    // WebKit hands the origin its Cache Storage records back.
     const cache = await caches.api.open(MEDIA_CACHE);
     for (const url of urls) await cache.put(url, new Response(before[url]!));
 
@@ -532,7 +497,6 @@ describe("a Cache Storage wipe that keeps the cache names", () => {
     await listOfflineBooks(USER);
     const stale = (await storedRecord())!;
 
-    // What the gate's "Attach MP3" button does.
     vi.stubGlobal("navigator", { storage: {} });
     const { storeLocalBookMedia } = await import("./media-store");
     const reattached = await storeLocalBookMedia(

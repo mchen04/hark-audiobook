@@ -43,8 +43,7 @@ Deleting a book removes its library
 metadata and progress across devices. Signing out removes that account's local
 media and data after a bounded attempt to send pending writes. An expired session
 does not itself delete downloads. Settings offers metadata export, account
-deletion, and resume diagnostics. See [storage and sync](docs/local-first.md) for
-the exact account and recovery boundaries.
+deletion, and resume diagnostics. See [operations](docs/operations.md) for recovery and account boundaries.
 
 ## Playback boundaries
 
@@ -93,15 +92,13 @@ On Node 26, replace the quick command with
 Exporting the environment lets child commands receive the database and auth settings.
 Browser checks build and run the
 production PWA against disposable local data; they do not prove physical iOS
-background behavior. See [iPhone testing](docs/ios-pwa-testing.md) and the
-[optional resume observations and limits](docs/resume-durability-device-check.md).
+background behavior. See [iPhone testing](docs/ios-pwa-testing.md).
 No physical device, Simulator, or manual checklist is required for acceptance.
 
 ## Documentation
 
-[Setup and contributing](docs/development.md) · [Architecture](docs/architecture.md) ·
-[Storage and sync](docs/local-first.md) · [Operations](docs/operations.md) ·
-[Changelog](CHANGELOG.md) · [Documentation index](docs/README.md)
+[Development](docs/development.md) · [Operations](docs/operations.md) ·
+[WebKit testing](docs/ios-pwa-testing.md)
 
 ## License
 

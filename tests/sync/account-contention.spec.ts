@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import type { PullBatch } from "@/lib/offline/sync-protocol";
 
 import { ACCOUNT_A, ensureAccount, network, sessionFor } from "../parity/harness/app";
+import { isLoginRscAccessControlError } from "./login-rsc-error";
 import {
   APP_ORIGIN,
   attachDriver,
@@ -520,17 +521,8 @@ test("sign-out retries a busy edit within its existing drain budget before purgi
   }
 });
 
-/** Exact pre-existing WebKit/Next login-RSC error reproduced on 33f4ccd and
- * 095ed406 (historical sign-out follow-up receipts). Keep it in raw evidence;
- * reject all other page errors. This fixture does not certify error-free Next
- * navigation or fix that framework fetch path.
- */
 function assertDrainPageErrors(errors: string[], origin: string): void {
-  const knownLoginRsc = (error: string) =>
-    error.includes(`Fetch API cannot load ${origin}/login?_rsc=`) &&
-    error.includes("due to access control checks.") &&
-    error.includes(`at T (${origin}/_next/static/chunks/12czkog7d-pir.js:1:99505)`);
-  expect(errors.filter((error) => !knownLoginRsc(error))).toEqual([]);
+  expect(errors.filter((error) => !isLoginRscAccessControlError(error, origin))).toEqual([]);
 }
 
 test("sign-out joins a held ambient replay then retries real server contention", async ({

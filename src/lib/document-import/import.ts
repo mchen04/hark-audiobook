@@ -54,7 +54,6 @@ export type DocumentImportOptions = {
   signal?: AbortSignal;
 };
 
-/** Turns a document into a normal, chaptered, offline Hark audiobook. */
 export async function importLocalDocument(
   userId: string,
   file: File,
@@ -122,8 +121,6 @@ async function importLocalDocumentWithinFence(
     try {
       throwIfAborted(signal);
       await ensureMp3Encoder();
-      // The length follows from the character count, so it can be shown before
-      // a single sample exists — the one number a reader wants up front.
       const estimatedLength = formatDurationRounded(
         estimateNarrationSeconds(totalCharacters, narrationUnits.length) * 1_000,
       );
@@ -165,15 +162,12 @@ async function importLocalDocumentWithinFence(
       const chapters: PlayerChapter[] = [];
       let synthesisIndex = 0;
       const meter = createNarrationMeter(totalCharacters);
-      /** Narration is the long stretch, so it is the only stage that earns a clock. */
       const withRemaining = (stage: string) => {
         const remaining = formatRemainingNarration(meter.remainingMs());
         return remaining ? `${stage} · ${remaining}` : stage;
       };
       const stageFor = (chapterIndex: number) =>
         `Narrating chapter ${chapterIndex + 1} of ${narrationUnits.length} on this device`;
-      // The whole document as one ordered list of requests. The next one is
-      // queued before this one is saved, so Kestrel never waits on the encoder.
       const requests = narrationUnits.flatMap((unit, chapterIndex) =>
         unit.chunks.map((text) => ({ text, chapterIndex })),
       );
@@ -190,7 +184,6 @@ async function importLocalDocumentWithinFence(
             withRemaining(stageFor(chapterIndex)),
           );
         });
-        // Awaited in order below; cancellation rejects requests still queued.
         synthesis.catch(() => undefined);
         return synthesis;
       };
@@ -241,8 +234,6 @@ async function importLocalDocumentWithinFence(
       await output.finalize();
       throwIfAborted(signal);
       const durationMs = samplesToMilliseconds(totalSamples);
-      // Rounding adjacent sample positions independently is monotonic, and the
-      // final boundary is made identical to the registered book duration.
       chapters[chapters.length - 1]!.endMs = durationMs;
       const generatedBook = generatedPlayerBook(bookId, document.title, document.author, chapters);
       let book: Omit<PlayerBook, "mediaUrl" | "coverUrl">;
@@ -330,8 +321,6 @@ function generatedPlayerBook(
 
 async function ensureMp3Encoder(): Promise<void> {
   mp3EncoderReady ??= (async () => {
-    // Some Chromium builds report native MP3 encoding support but never emit
-    // a packet. Prefer Mediabunny's deterministic LAME worker on every device.
     registerMp3Encoder();
     if (
       !(await canEncodeAudio("mp3", {
@@ -369,8 +358,6 @@ async function addAudio(
 }
 
 function estimateMp3Bytes(characterCount: number): number {
-  // Rough English narration is 12–16 characters/second. The 1.25 margin
-  // covers unusually slow prose, tags, and MP3 encoder padding.
   const seconds = characterCount / 12;
   return Math.ceil((seconds * GENERATED_MP3_BITRATE * 1.25) / 8 + 1024 * 1024);
 }

@@ -46,7 +46,6 @@ import { type DeviceIndex, useLibraryBooks } from "./use-library-books";
 import { useOfflineBookRoute } from "./use-offline-book-route";
 
 type LibraryClientProps = {
-  /** Present only when the server rendered this page; absent on a warm launch. */
   userId?: string;
 };
 
@@ -58,31 +57,16 @@ const STATUS_FILTERS: Array<{ id: StatusFilter; label: string }> = [
   { id: "archived", label: "Archived" },
 ];
 
-/** One page of cards, so a thousand-book library still paints a first screen. */
 const PAGE_SIZE = 50;
 
 const MISSING_MEDIA_HINT =
   "The audio for this book lives only on the device that imported it. Attach its original source here to listen.";
-
-/**
- * Every `Link` below carries `prefetch={false}`, deliberately.
- *
- * Left on, a launch quietly fires an RSC request per visible card the moment
- * hydration finishes — a server round trip with a `requireSession()` and a full
- * book query behind each one, for pages the user never asked for. That is the
- * network back on the launch path by the side door, competing with the one sync
- * the design does sanction, and on a slow connection it lands in the middle of
- * the next launch. The device already holds everything this screen needs; a
- * book page is fetched when the user actually opens one.
- */
 
 export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
   const userId = useActiveUserId(serverUserId);
   const searchParams = useSearchParams();
   const { view: savedView, setView: setSavedView } = useLibraryViewState();
   const { query, status, activeTag, sort, view } = savedView;
-  // The input stays controlled and immediate; the listing reads the deferred
-  // value, so a slow re-read never holds a keystroke back from the screen.
   const deferredQuery = useDeferredValue(query);
   const [onDevice, setOnDevice] = useSeedFollowingValue(
     searchParams.get("device") === "1" || savedView.onDevice,
@@ -90,9 +74,6 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
   const [readAlongIds, setReadAlongIds] = useState<Set<string>>(new Set());
   const { bookId: fallbackBookId, leavePlayer } = useOfflineBookRoute();
 
-  // Downloads remains a URL facet because the global header links to it. The
-  // rest of the controls live in AppShell's account-scoped provider so swapping
-  // route content cannot reset them and another account cannot inherit them.
   const updateDeviceRoute = useCallback((enabled: boolean) => {
     const params = new URLSearchParams(window.location.search);
     if (enabled) params.set("device", "1");
@@ -112,8 +93,6 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
       fallbackBookId,
     );
 
-  // The page owns its one alert region; the import hook and the download
-  // remover both report into it.
   const [error, setError] = useState<string | null>(null);
   const { fileInput, upload, chooseFile } = useBookImport(userId, reload, setError);
 
@@ -128,24 +107,7 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
   } | null>(null);
   const filterKey = JSON.stringify([deferredQuery, status, activeTag, sort, onDevice]);
   const { pages, showMore } = usePageWindow(filterKey);
-  // A first launch on a device that has never synced holds an empty mirror, and
-  // "you have no books" would simply be false there. Section 12's upgrading
-  // device is unaffected: it has downloads, so `libraryTotal` is not zero and
-  // its books render straight away.
-  //
-  // This stays true for as long as the device has not completed a pull — a
-  // failed or stalled first pull no longer resolves it, because a device that
-  // has not been told what the account holds cannot report what the account
-  // holds. There is no timeout after which a guess becomes a fact.
   const firstSync = !!snapshot && snapshot.libraryTotal === 0 && preparing;
-  // The launch benchmark measures the moment this attribute lands in the DOM.
-  // It is a contract: it may only be set when the user's REAL library is on
-  // screen — actual book cards, or the genuine "no books yet" state. A skeleton,
-  // a spinner, a placeholder grid, a filtered "no matching books" view, or the
-  // first-sync notice below must never carry it, or the benchmark starts
-  // measuring an empty box and the sub-500ms bar stops meaning anything.
-  // `snapshot` is null until this device's own library has been read, so
-  // nothing below renders before then.
   const launchReady = !snapshot
     ? undefined
     : snapshot.libraryTotal === 0
@@ -156,8 +118,6 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
         ? "books"
         : undefined;
 
-  // Revalidation is allowed to reach for the network only once this has
-  // happened; see `lib/launch-revalidation.ts`.
   useEffect(() => {
     if (launchReady) markLaunchPainted();
   }, [launchReady]);
@@ -176,9 +136,6 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
   }, [userId]);
 
   useEffect(() => {
-    // `device` is deliberately empty while IndexedDB is still opening. That is
-    // not evidence that a cold-routed book is absent, so the slower mirror
-    // fallback must not race the device snapshot and navigate away first.
     if (!userId || !fallbackBookId || playing || !snapshotReady) return;
     let active = true;
     void getMirrorPlayerBook(userId, fallbackBookId).then(
@@ -269,8 +226,6 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
     return null;
   }
 
-  // `snapshot` is null until this device's own library has been read, so
-  // nothing below — and no readiness marker — renders before then.
   if (!snapshot) {
     return unavailable ? (
       <section className="library-content">
@@ -290,14 +245,7 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
     );
   }
 
-  // The device has nothing mirrored and has never completed a pull. Saying
-  // "bring your first audiobook" here would be a guess presented as a fact, so
-  // it says what is actually happening — and carries no readiness marker, in
-  // either of its two wordings.
   if (firstSync) {
-    // A pull that has not answered yet has not failed. Only one of these three
-    // says the device could not reach the account, and none of them claims to
-    // know what the account holds.
     if (firstSyncStatus === "unreachable") {
       return (
         <section className="library-content" aria-labelledby="library-title">
@@ -490,7 +438,6 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
                   {filter.label}
                 </button>
               ))}
-              {/* Downloads are a facet of the one library, not a second screen. */}
               <button
                 type="button"
                 className="filter-chip filter-chip-device"
@@ -626,7 +573,6 @@ function BookCover({ book, coverUrl }: { book: LibraryBook; coverUrl?: string })
   );
 }
 
-// Memoized so search keystrokes re-render the tools row, not the whole grid.
 const BookItem = memo(function BookItem({
   book,
   compact,
@@ -647,8 +593,6 @@ const BookItem = memo(function BookItem({
       className="book-item"
       title={record ? undefined : "Not on this device — attach its original file to listen"}
     >
-      {/* The title link is the card's accessible entry; the cover stays clickable
-          without adding a duplicate tab stop. */}
       <div className="book-cover-controls">
         <Link
           href={`/books/${book.id}`}
@@ -691,12 +635,6 @@ const BookItem = memo(function BookItem({
             <span>Not on this device — attach its original file to listen</span>
           </p>
         )}
-        {/* Duration, progress and what the audio costs this device are one
-            line, not three. On a two-column phone grid the old standalone
-            "On this device · 5.4 GB" row wrapped and pushed the progress bar
-            most of a card-height further down; the facet chip and the icon
-            here already say what "on this device" meant, so only the number
-            it carried is worth the room. */}
         <div className="book-progress-copy">
           <span className="book-progress-status">
             {book.durationMs ? `${formatDurationRounded(book.durationMs)} • ` : ""}
@@ -707,8 +645,6 @@ const BookItem = memo(function BookItem({
               <span className="book-device-size">
                 <DownloadSimple size={13} aria-hidden="true" />
                 <span>{formatBytes(record.byteSize)}</span>
-                {/* The number alone means nothing read aloud, and the leading
-                    space keeps the element's text reading as one phrase. */}
                 <span className="visually-hidden">{" on this device"}</span>
               </span>
               <button
@@ -750,7 +686,6 @@ const BookItem = memo(function BookItem({
   );
 });
 
-/** Progress has no player route until the complete audiobook is committed. */
 function NarratingItem({ upload }: { upload: UploadState }) {
   return (
     <article className="narrating-book">

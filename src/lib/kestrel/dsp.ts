@@ -17,7 +17,6 @@ export type KestrelSpectralFrames = {
   seed: number;
 };
 
-/** Reconstructs Kestrel's source-filter spectrogram and centered ISTFT. */
 export async function renderKestrelAudio(input: KestrelSpectralFrames): Promise<Float32Array> {
   const frameCount = input.f0.length;
   validateFrames(input, frameCount);
@@ -69,8 +68,6 @@ export async function renderKestrelAudio(input: KestrelSpectralFrames): Promise<
         magnitude * (sourceReal * sine + sourceImaginary * cosine) +
         noiseGain * noiseData[complexOffset + 1]!;
     }
-    // KISS allocates n complex slots for its real transform even though only
-    // n/2+1 bins are meaningful. Clear the unused tail before the inverse.
     combinedData.fill(0, FREQUENCY_BINS * 2);
     fft.inverseCombined();
 

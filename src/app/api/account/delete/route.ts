@@ -26,16 +26,6 @@ const DELETE_INTENT_MS = 24 * 60 * 60 * 1_000;
 const DELETE_REAUTH_RULE = { window: 10 * 60, max: 5 } as const;
 const deleteReauthLimits = createDatabaseRateLimitStorage(DELETE_REAUTH_RULE.window);
 
-/**
- * Two phases make the irreversible boundary recoverable:
- *
- *  1. an authenticated password check issues a short-lived bearer intent;
- *  2. the device journals that intent, purges itself, then commits deletion.
- *
- * The commit is idempotent and the token remains usable after the user/session
- * rows are gone. If the successful HTTP response is lost, the device retries
- * instead of retaining a deleted account's mirror forever.
- */
 export async function POST(request: Request): Promise<Response> {
   if (!isTrustedMutationOrigin(request)) {
     return Response.json({ error: "Untrusted request origin." }, { status: 403 });
@@ -139,9 +129,6 @@ async function commitDeletion(
   if (!committed) {
     return Response.json({ error: "Deletion intent is invalid or expired." }, { status: 410 });
   }
-  // Better Auth owns the cookie prefix and the HTTPS `__Secure-` variant. Its
-  // sign-out endpoint clears the configured name even though the user/session
-  // rows were already removed transactionally above.
   const signedOut = await auth.api.signOut({ headers: request.headers, asResponse: true });
   const headers = new Headers();
   for (const cookie of signedOut.headers.getSetCookie()) headers.append("Set-Cookie", cookie);
@@ -152,7 +139,6 @@ function intentId(userId: string): string {
   return `account-delete:${createHash("sha256").update(userId).digest("hex")}`;
 }
 
-/** Accepts a deletion journal prepared by a build that stored the raw user id. */
 function legacyIntentId(userId: string): string {
   return `account-delete:${userId}`;
 }

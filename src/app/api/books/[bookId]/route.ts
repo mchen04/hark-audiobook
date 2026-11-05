@@ -84,9 +84,6 @@ export const PATCH = withMutation(
 export const DELETE = withMutation({ params: paramsSchema }, async ({ session, params }) => {
   const owned = await getOwnedBook(session.user.id, params.bookId);
   if (!owned) {
-    // Idempotent replay: a queued delete that already landed must not come back
-    // as 404, or the outbox would treat a successful write as a terminal
-    // failure. The tombstone is the durable proof it landed.
     const [tombstone] = await db
       .select({ bookId: bookTombstones.bookId })
       .from(bookTombstones)
@@ -98,16 +95,11 @@ export const DELETE = withMutation({ params: paramsSchema }, async ({ session, p
     return Response.json({ deleted: true, alreadyDeleted: true });
   }
 
-  // Audio bytes live only on the user's devices; the client removes its local
-  // copy alongside this row delete. Tags unique to this book are collected in
-  // the same transaction so no orphaned filter chips linger.
   await db.transaction(
     async (transaction) => {
       const receipt = await syncReceipt(transaction, session.user.id);
       await lockAccountTags(transaction, session.user.id);
       await transaction.delete(books).where(eq(books.id, params.bookId));
-      // Same transaction as the delete: a deletion the user saw succeed can never
-      // exist without the tombstone that tells the user's other devices about it.
       await transaction
         .insert(bookTombstones)
         .values({ bookId: params.bookId, ownerId: session.user.id, deletedAt: receipt })
@@ -124,11 +116,6 @@ export const DELETE = withMutation({ params: paramsSchema }, async ({ session, p
   return Response.json({ deleted: true });
 });
 
-/**
- * A device offline for longer than this has a stale cursor anyway and re-syncs
- * from a full pull, which conveys deletions by absence from the complete book
- * list. Matches the receipt retention horizon in `server/playback/history.ts`.
- */
 async function pruneExpiredTombstones(transaction: Transaction, userId: string): Promise<void> {
   await transaction
     .delete(bookTombstones)
