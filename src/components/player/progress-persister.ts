@@ -14,13 +14,13 @@ import {
 } from "@/lib/offline-sync";
 import { commitProgress, mirrorProgress } from "@/lib/offline/outbox";
 import {
-  getDeviceId,
   readLocalProgress,
   saveLocalPlaybackState,
   type LocalPosition,
   type PlaybackPredecessor,
   type PlaybackWriteSource,
 } from "@/lib/playback-core";
+import { getDeviceId } from "@/lib/device-id";
 
 const DURABLE_SAVE_INTERVAL_MS = 200;
 const SERVER_SAVE_INTERVAL_MS = 15_000;

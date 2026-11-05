@@ -665,6 +665,33 @@ it("does not carry an old interruption across a read-only reconciliation of a mi
 });
 
 describe("cold resume", () => {
+  it("corrects a native reset after play resolves without reloading", async () => {
+    const { result, audio } = mount();
+    act(() => result.current.playback.seek(35000));
+    vi.mocked(audio.load).mockClear();
+    vi.mocked(audio.play).mockImplementationOnce(function () {
+      paused = false;
+      audio.dispatchEvent(new Event("play"));
+      audio.currentTime = 0;
+      return Promise.resolve();
+    });
+    await act(async () => result.current.playback.toggle());
+    expect(audio.currentTime).toBe(35);
+    expect(audio.muted).toBe(false);
+    expect(audio.load).not.toHaveBeenCalled();
+  });
+
+  it("reattaches a missing source at the stored position", () => {
+    const { result, audio } = mount();
+    act(() => result.current.playback.seek(35000));
+    audio.removeAttribute("src");
+    audio.currentTime = 0;
+    remote("play");
+    expect(audio.getAttribute("src")).toBe(book.mediaUrl);
+    expect(audio.currentTime).toBe(35);
+    expect(audio.muted).toBe(false);
+  });
+
   it.each(["button", "media-session"])(
     "restores the stored position after native reset through %s",
     (control) => {

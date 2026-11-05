@@ -1,59 +1,5 @@
-import type { PlayerBook, PlayerChapter } from "@/domain/player";
+import type { PlayerBook } from "@/domain/player";
 import { isAccountWriteFenced } from "@/lib/account-deletion-fence";
-
-export const CHAPTER_END_EPSILON_MS = 350;
-const BOOK_END_EPSILON_MS = 1_000;
-
-export function selectCurrentChapter(
-  chapters: PlayerChapter[],
-  currentTimeMs: number,
-): PlayerChapter | null {
-  const last = chapters[chapters.length - 1];
-  if (!last) return null;
-  if (currentTimeMs >= last.startMs) return last;
-  let low = 0;
-  let high = chapters.length - 1;
-  let candidate = -1;
-  while (low <= high) {
-    const mid = (low + high) >> 1;
-    if (chapters[mid]!.startMs <= currentTimeMs) {
-      candidate = mid;
-      low = mid + 1;
-    } else {
-      high = mid - 1;
-    }
-  }
-  if (candidate === -1) return null;
-  const chapter = chapters[candidate]!;
-  return currentTimeMs < chapter.endMs ? chapter : null;
-}
-
-export function rewindForAbsence(absenceMs: number): number {
-  if (!Number.isFinite(absenceMs) || absenceMs < 60_000) return 0;
-  if (absenceMs < 10 * 60_000) return 5_000;
-  if (absenceMs < 60 * 60_000) return 15_000;
-  return 30_000;
-}
-
-export function resolveStartPosition(input: {
-  storedPositionMs: number;
-  durationMs: number;
-  smartRewindEnabled: boolean;
-  msSinceLastPause: number | null;
-}): { startAtMs: number; appliedRewindMs: number } {
-  if (input.storedPositionMs >= input.durationMs - BOOK_END_EPSILON_MS) {
-    return { startAtMs: 0, appliedRewindMs: 0 };
-  }
-  const appliedRewindMs =
-    input.smartRewindEnabled && input.msSinceLastPause !== null
-      ? rewindForAbsence(input.msSinceLastPause)
-      : 0;
-  return { startAtMs: Math.max(0, input.storedPositionMs - appliedRewindMs), appliedRewindMs };
-}
-
-export function isChapterEnding(chapter: PlayerChapter, positionMs: number): boolean {
-  return chapter.endMs - positionMs <= CHAPTER_END_EPSILON_MS;
-}
 
 const PLAYBACK_WRITE_SOURCES = [
   "media-tick",
@@ -192,7 +138,7 @@ export function saveLocalPlaybackState(
         candidate.completedOccurredAt !== previous.completedOccurredAt));
   if (state.hydrate || positionChanged) {
     const persisted = persistLocalRegister(
-      positionRegisterPrefix(userId, bookId),
+      playbackRegisterPrefix("position", userId, bookId),
       writerId,
       candidate.positionMs,
       candidate.occurredAt,
@@ -202,7 +148,7 @@ export function saveLocalPlaybackState(
   }
   if ((state.hydrate || playbackRateChanged) && typeof candidate.playbackRate === "number") {
     const persisted = persistLocalRegister(
-      rateRegisterPrefix(userId, bookId),
+      playbackRegisterPrefix("rate", userId, bookId),
       writerId,
       candidate.playbackRate,
       candidate.playbackRateOccurredAt ?? candidate.writtenAt ?? candidate.occurredAt,
@@ -212,7 +158,7 @@ export function saveLocalPlaybackState(
   }
   if ((state.hydrate || completedChanged) && typeof candidate.completed === "boolean") {
     const persisted = persistLocalRegister(
-      completedRegisterPrefix(userId, bookId),
+      playbackRegisterPrefix("completed", userId, bookId),
       writerId,
       candidate.completed,
       candidate.completedOccurredAt ?? candidate.writtenAt ?? candidate.occurredAt,
@@ -369,7 +315,7 @@ export function applyAuthoritativePlaybackStateWithStatus(
   const positionPersisted =
     !replacePosition ||
     persistAuthoritativeLocalRegister(
-      positionRegisterPrefix(userId, bookId),
+      playbackRegisterPrefix("position", userId, bookId),
       positionWriterId,
       server.positionMs,
       server.occurredAt,
@@ -380,7 +326,7 @@ export function applyAuthoritativePlaybackStateWithStatus(
   const ratePersisted =
     !replaceRate ||
     persistAuthoritativeLocalRegister(
-      rateRegisterPrefix(userId, bookId),
+      playbackRegisterPrefix("rate", userId, bookId),
       writerId,
       server.playbackRate,
       server.playbackRateOccurredAt,
@@ -390,7 +336,7 @@ export function applyAuthoritativePlaybackStateWithStatus(
   const completionPersisted =
     !replaceCompleted ||
     persistAuthoritativeLocalRegister(
-      completedRegisterPrefix(userId, bookId),
+      playbackRegisterPrefix("completed", userId, bookId),
       writerId,
       server.completed,
       server.completedOccurredAt,
@@ -603,15 +549,6 @@ function momentThisPositionWasReached(
     : now;
 }
 
-export function saveLocalPosition(
-  userId: string,
-  bookId: string,
-  positionMs: number,
-  occurredAt = Date.now(),
-): void {
-  saveLocalPlaybackState(userId, bookId, { positionMs, occurredAt });
-}
-
 export function clearLocalPlaybackState(userId: string, bookId: string): void {
   pendingPlaybackNormalizations.delete(localPositionKey(userId, bookId));
   const remove = (key: string) => {
@@ -624,9 +561,9 @@ export function clearLocalPlaybackState(userId: string, bookId: string): void {
   };
   remove(localPositionKey(userId, bookId));
   const registerPrefixes = [
-    positionRegisterPrefix(userId, bookId),
-    rateRegisterPrefix(userId, bookId),
-    completedRegisterPrefix(userId, bookId),
+    playbackRegisterPrefix("position", userId, bookId),
+    playbackRegisterPrefix("rate", userId, bookId),
+    playbackRegisterPrefix("completed", userId, bookId),
   ];
   const registerKeys = new Set<string>();
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -643,10 +580,6 @@ export function clearLocalPlaybackState(userId: string, bookId: string): void {
   registerKeys.forEach(remove);
   remove(lastPausedKey(userId, bookId));
   remove(suspensionDismissedKey(userId, bookId));
-}
-
-export function readLocalPosition(userId: string, bookId: string): number | null {
-  return readLocalProgress(userId, bookId)?.positionMs ?? null;
 }
 
 export function readLocalProgress(userId: string, bookId: string): LocalPosition | null {
@@ -852,17 +785,6 @@ export function localWinsOver(
   return !Number.isFinite(serverTime) || local.occurredAt > serverTime;
 }
 
-export function freshestPosition(input: {
-  local: LocalPosition | null;
-  serverPositionMs: number;
-  serverOccurredAt: string | null;
-}): number {
-  const { local } = input;
-  return local && localWinsOver(local, input.serverOccurredAt)
-    ? local.positionMs
-    : input.serverPositionMs;
-}
-
 export function bootstrapPlaybackState(
   userId: string,
   serverBook: PlayerBook,
@@ -973,43 +895,20 @@ export function markPausedNow(userId: string, bookId: string): void {
   } catch {}
 }
 
-export function getDeviceId(): string {
-  try {
-    const existing = localStorage.getItem("chapterline:device-id");
-    if (existing) return existing;
-    const created = crypto.randomUUID();
-    localStorage.setItem("chapterline:device-id", created);
-    return created;
-  } catch {
-    return sessionDeviceId();
-  }
-}
-
 function lastPausedKey(userId: string, bookId: string): string {
   return `chapterline:last-paused-at:${userId}:${bookId}`;
-}
-
-let ephemeralDeviceId: string | null = null;
-
-function sessionDeviceId(): string {
-  if (!ephemeralDeviceId) ephemeralDeviceId = `ephemeral:${crypto.randomUUID()}`;
-  return ephemeralDeviceId;
 }
 
 function localPositionKey(userId: string, bookId: string): string {
   return `chapterline:position:${userId}:${bookId}`;
 }
 
-function positionRegisterPrefix(userId: string, bookId: string): string {
-  return `chapterline:playback-position:${userId}:${bookId}:`;
-}
-
-function rateRegisterPrefix(userId: string, bookId: string): string {
-  return `chapterline:playback-rate:${userId}:${bookId}:`;
-}
-
-function completedRegisterPrefix(userId: string, bookId: string): string {
-  return `chapterline:playback-completed:${userId}:${bookId}:`;
+function playbackRegisterPrefix(
+  field: "position" | "rate" | "completed",
+  userId: string,
+  bookId: string,
+): string {
+  return `chapterline:playback-${field}:${userId}:${bookId}:`;
 }
 
 type LocalPlaybackRegister = {
@@ -1213,12 +1112,12 @@ function joinLocalPlaybackRegisters(
   bookId: string,
   legacy: LocalPosition | null,
 ): LocalPosition | null {
-  const position = readNewestLocalRegister(positionRegisterPrefix(userId, bookId));
+  const position = readNewestLocalRegister(playbackRegisterPrefix("position", userId, bookId));
   const registeredPosition =
     position && typeof position.value === "number" && position.value >= 0 ? position : null;
-  const rate = readNewestLocalRegister(rateRegisterPrefix(userId, bookId));
+  const rate = readNewestLocalRegister(playbackRegisterPrefix("rate", userId, bookId));
   const registeredRate = rate && typeof rate.value === "number" ? rate : null;
-  const completed = readNewestLocalRegister(completedRegisterPrefix(userId, bookId));
+  const completed = readNewestLocalRegister(playbackRegisterPrefix("completed", userId, bookId));
   const registeredCompleted = completed && typeof completed.value === "boolean" ? completed : null;
   if (!legacy && !registeredPosition && !registeredRate && !registeredCompleted) return null;
   const positionFromRegister =

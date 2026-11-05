@@ -15,7 +15,7 @@ import {
   readCachedPreferences,
   savePreferences,
 } from "./preferences";
-import { resolveStartPosition } from "./playback-core";
+import { resolveStartPosition } from "@/domain/player";
 
 beforeEach(() => {
   const store = new Map<string, string>();

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { PlayerBook, PlayerChapter } from "@/domain/player";
+import type { PlayerBook } from "@/domain/player";
 import { commitAccountSignOutFence } from "@/lib/account-deletion-fence";
 
 import {
@@ -10,20 +10,13 @@ import {
   clearLocalPlaybackState,
   detectSuspendedSession,
   dismissSuspensionGap,
-  freshestPosition,
-  isChapterEnding,
   localWinsOver,
   markPausedNow,
   readDismissedSuspensionGap,
   readLatestLocalPlayback,
-  readLocalPosition,
   readLocalProgress,
   readMsSinceLastPause,
-  resolveStartPosition,
-  rewindForAbsence,
   saveLocalPlaybackState,
-  saveLocalPosition,
-  selectCurrentChapter,
   SUSPENSION_GAP_FLOOR_MS,
   type LocalPosition,
 } from "./playback-core";
@@ -44,98 +37,6 @@ const serverBook: PlayerBook = {
   initialCompletedOccurredAt: "2026-07-09T20:05:00.000Z",
 };
 
-const chapters: PlayerChapter[] = [
-  { id: "a", position: 0, title: "One", startMs: 0, endMs: 20_000 },
-  { id: "b", position: 1, title: "Two", startMs: 20_000, endMs: 40_000 },
-  { id: "c", position: 2, title: "Three", startMs: 40_000, endMs: 60_000 },
-];
-
-describe("selectCurrentChapter", () => {
-  it("picks the containing chapter and treats boundaries as the next chapter", () => {
-    expect(selectCurrentChapter(chapters, 0)?.id).toBe("a");
-    expect(selectCurrentChapter(chapters, 19_999)?.id).toBe("a");
-    expect(selectCurrentChapter(chapters, 20_000)?.id).toBe("b");
-  });
-
-  it("keeps the final chapter for the sliver past its end", () => {
-    expect(selectCurrentChapter(chapters, 60_000)?.id).toBe("c");
-    expect(selectCurrentChapter(chapters, 60_029)?.id).toBe("c");
-  });
-
-  it("returns null before any chapter or with no chapters", () => {
-    expect(selectCurrentChapter([], 5_000)).toBeNull();
-    expect(selectCurrentChapter([{ ...chapters[1]! }], 1_000)).toBeNull();
-  });
-});
-
-describe("rewindForAbsence", () => {
-  it("scales with time away and handles junk", () => {
-    expect(rewindForAbsence(30_000)).toBe(0);
-    expect(rewindForAbsence(5 * 60_000)).toBe(5_000);
-    expect(rewindForAbsence(30 * 60_000)).toBe(15_000);
-    expect(rewindForAbsence(24 * 3_600_000)).toBe(30_000);
-    expect(rewindForAbsence(Number.NaN)).toBe(0);
-  });
-});
-
-describe("resolveStartPosition", () => {
-  it("restarts a book stored at its very end", () => {
-    expect(
-      resolveStartPosition({
-        storedPositionMs: 60_000,
-        durationMs: 60_056,
-        smartRewindEnabled: true,
-        msSinceLastPause: 3_600_000,
-      }),
-    ).toEqual({ startAtMs: 0, appliedRewindMs: 0 });
-  });
-
-  it("applies bounded smart rewind mid-book", () => {
-    expect(
-      resolveStartPosition({
-        storedPositionMs: 30_000,
-        durationMs: 60_000,
-        smartRewindEnabled: true,
-        msSinceLastPause: 5 * 60_000,
-      }),
-    ).toEqual({ startAtMs: 25_000, appliedRewindMs: 5_000 });
-  });
-
-  it("skips rewind when disabled or unprimed and never goes negative", () => {
-    expect(
-      resolveStartPosition({
-        storedPositionMs: 30_000,
-        durationMs: 60_000,
-        smartRewindEnabled: false,
-        msSinceLastPause: 3_600_000,
-      }).startAtMs,
-    ).toBe(30_000);
-    expect(
-      resolveStartPosition({
-        storedPositionMs: 30_000,
-        durationMs: 60_000,
-        smartRewindEnabled: true,
-        msSinceLastPause: null,
-      }).startAtMs,
-    ).toBe(30_000);
-    expect(
-      resolveStartPosition({
-        storedPositionMs: 2_000,
-        durationMs: 60_000,
-        smartRewindEnabled: true,
-        msSinceLastPause: 5 * 60_000,
-      }).startAtMs,
-    ).toBe(0);
-  });
-});
-
-describe("isChapterEnding", () => {
-  it("fires only inside the epsilon window", () => {
-    expect(isChapterEnding(chapters[0]!, 19_700)).toBe(true);
-    expect(isChapterEnding(chapters[0]!, 19_000)).toBe(false);
-  });
-});
-
 describe("local playback state", () => {
   beforeEach(() => {
     const store = new Map<string, string>();
@@ -151,16 +52,16 @@ describe("local playback state", () => {
   });
 
   it("round-trips positions per user and rejects junk", () => {
-    saveLocalPosition("user-a", "book-1", 1234.6, 2_000);
-    expect(readLocalPosition("user-a", "book-1")).toBe(1235);
-    expect(readLocalPosition("user-b", "book-1")).toBeNull();
+    saveLocalPlaybackState("user-a", "book-1", { positionMs: 1234.6, occurredAt: 2_000 });
+    expect(readLocalProgress("user-a", "book-1")?.positionMs ?? null).toBe(1235);
+    expect(readLocalProgress("user-b", "book-1")?.positionMs ?? null).toBeNull();
     localStorage.setItem("chapterline:position:user-a:book-1", "not-a-number");
     expect(
-      readLocalPosition("user-a", "book-1"),
+      readLocalProgress("user-a", "book-1")?.positionMs ?? null,
       "the independent position register survives a corrupted legacy snapshot",
     ).toBe(1235);
     localStorage.setItem("chapterline:position:user-c:book-1", "not-a-number");
-    expect(readLocalPosition("user-c", "book-1")).toBeNull();
+    expect(readLocalProgress("user-c", "book-1")?.positionMs ?? null).toBeNull();
   });
 
   it("writes no playback state after sign-out closes the account", () => {
@@ -195,31 +96,6 @@ describe("local playback state", () => {
     expect(readLocalProgress("user-a", "book-1")).toBeNull();
     expect(readMsSinceLastPause("user-a", "book-1")).toBeNull();
     expect(readDismissedSuspensionGap("user-a", "book-1")).toBeNull();
-  });
-
-  it("uses the freshest timestamped position and treats legacy local values as oldest", () => {
-    expect(
-      freshestPosition({
-        local: { positionMs: 1_000, occurredAt: 2_000 },
-        serverPositionMs: 8_000,
-        serverOccurredAt: new Date(3_000).toISOString(),
-      }),
-    ).toBe(8_000);
-    expect(
-      freshestPosition({
-        local: { positionMs: 9_000, occurredAt: 4_000 },
-        serverPositionMs: 8_000,
-        serverOccurredAt: new Date(3_000).toISOString(),
-      }),
-    ).toBe(9_000);
-    localStorage.setItem("chapterline:position:user-a:book-1", "7000");
-    expect(
-      freshestPosition({
-        local: { positionMs: readLocalPosition("user-a", "book-1")!, occurredAt: 0 },
-        serverPositionMs: 8_000,
-        serverOccurredAt: new Date(3_000).toISOString(),
-      }),
-    ).toBe(8_000);
   });
 
   it("hydrates a cold device with the server's field clocks instead of minting new ones", () => {
@@ -779,15 +655,24 @@ describe("local playback state", () => {
       const documentA = await import("./playback-core");
       vi.resetModules();
       const documentB = await import("./playback-core");
-      documentA.saveLocalPosition("user-a", "book-1", 0, 5_000);
+      documentA.saveLocalPlaybackState("user-a", "book-1", { positionMs: 0, occurredAt: 5_000 });
 
       beforeSet = (key) => {
         if (!key.includes(":writer-b:")) return;
         beforeSet = null;
-        documentA.saveLocalPosition("user-a", "book-1", 100_000, 30_000);
+        documentA.saveLocalPlaybackState("user-a", "book-1", {
+          positionMs: 100_000,
+          occurredAt: 30_000,
+        });
       };
-      documentB.saveLocalPosition("user-a", "book-1", 50_000, 20_000);
-      documentB.saveLocalPosition("user-a", "book-1", 60_000, 25_000);
+      documentB.saveLocalPlaybackState("user-a", "book-1", {
+        positionMs: 50_000,
+        occurredAt: 20_000,
+      });
+      documentB.saveLocalPlaybackState("user-a", "book-1", {
+        positionMs: 60_000,
+        occurredAt: 25_000,
+      });
 
       expect(documentB.readLocalProgress("user-a", "book-1")).toMatchObject({
         positionMs: 100_000,
@@ -1020,7 +905,7 @@ describe("local playback state", () => {
       removeItem: (key: string) => void values.delete(key),
     } as Storage);
 
-    saveLocalPosition("user-a", "book-1", 100_000, 20_000);
+    saveLocalPlaybackState("user-a", "book-1", { positionMs: 100_000, occurredAt: 20_000 });
 
     expect(values.has(peerKey)).toBe(true);
     expect(readLocalProgress("user-a", "book-1")).toMatchObject({
@@ -1046,13 +931,6 @@ describe("local playback state", () => {
       const afterFlush = readLocalProgress("user-a", "book-1")!;
       expect(afterFlush.occurredAt).toBe(10_000);
       expect(localWinsOver(afterFlush, serverOccurredAt)).toBe(false);
-      expect(
-        freshestPosition({
-          local: afterFlush,
-          serverPositionMs: 15_666,
-          serverOccurredAt,
-        }),
-      ).toBe(15_666);
 
       vi.setSystemTime(new Date(30_000));
       saveLocalPlaybackState("user-a", "book-1", { positionMs: 6_794 });
@@ -1275,14 +1153,7 @@ describe("durable write provenance", () => {
     expect(record).toStrictEqual({ positionMs: 42_000, occurredAt: 9_000 });
     expect(record.source).toBeUndefined();
     expect(record.writtenAt).toBeUndefined();
-    expect(
-      freshestPosition({
-        local: record,
-        serverPositionMs: 8_000,
-        serverOccurredAt: new Date(3_000).toISOString(),
-      }),
-      "a record with no provenance stopped winning against an older server position",
-    ).toBe(42_000);
+    expect(localWinsOver(record, new Date(3_000).toISOString())).toBe(true);
 
     localStorage.setItem("chapterline:position:user-a:book-2", "7000");
     expect(readLocalProgress("user-a", "book-2")).toStrictEqual({

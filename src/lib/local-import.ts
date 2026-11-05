@@ -18,7 +18,7 @@ import { storeLocalBookMedia, withLocalMediaSlot } from "@/lib/offline/media-sto
 import { projectLocalBookRegistration } from "@/lib/offline/local-import-mirror";
 import { commitImport } from "@/lib/offline/outbox";
 import { storeBookTranscript } from "@/lib/offline/transcript-store";
-import { getDeviceId } from "@/lib/playback-core";
+import { getDeviceId } from "@/lib/device-id";
 import { extractTranscript } from "@/lib/transcript-import";
 
 export type ParsedLocalMp3 = ParsedMp3 & {

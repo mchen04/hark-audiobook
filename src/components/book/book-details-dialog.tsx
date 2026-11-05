@@ -15,7 +15,7 @@ import {
   commitMetadataEdit,
   commitTagList,
 } from "@/lib/offline/outbox";
-import { getDeviceId } from "@/lib/playback-core";
+import { getDeviceId } from "@/lib/device-id";
 import { isCollectionPayload, readJson, type CollectionSummary } from "@/lib/wire";
 
 export type BookDetails = {

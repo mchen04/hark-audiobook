@@ -3,7 +3,7 @@ import { ClockCounterClockwise } from "@phosphor-icons/react";
 import type { PlaybackHistoryEntry } from "@/domain/playback-history";
 import type { PlayerChapter } from "@/domain/player";
 import { formatClock } from "@/lib/format-time";
-import { selectCurrentChapter } from "@/lib/playback-core";
+import { selectCurrentChapter } from "@/domain/player";
 
 export function HistoryList({
   history,

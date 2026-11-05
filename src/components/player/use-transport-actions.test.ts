@@ -4,7 +4,7 @@ import { renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { PlayerBook } from "@/domain/player";
-import { resolveStartPosition } from "@/lib/playback-core";
+import { resolveStartPosition } from "@/domain/player";
 
 import { createTimeStore } from "./playback-time-store";
 import { useTransportActions } from "./use-transport-actions";

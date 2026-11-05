@@ -7,17 +7,16 @@ import { RefObject, useEffect } from "react";
 import type { PlayerBook } from "@/domain/player";
 import type { PlayerPreferences } from "@/domain/preferences";
 
-import { pauseWithIntent } from "./pause-intent";
-
 export function useMediaSession(controls: {
   audioRef: RefObject<HTMLAudioElement | null>;
   book: PlayerBook | null;
   preferencesRef: RefObject<PlayerPreferences>;
   play: () => void;
+  pause: () => void;
   seek: (positionMs: number) => void;
   skip: (deltaMs: number) => void;
 }) {
-  const { audioRef, book, preferencesRef, play, seek, skip } = controls;
+  const { audioRef, book, preferencesRef, play, pause, seek, skip } = controls;
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -33,18 +32,8 @@ export function useMediaSession(controls: {
     };
     const handlers: Array<[MediaSessionAction, MediaSessionActionHandler]> = [
       ["play", play],
-      [
-        "pause",
-        () => {
-          if (audioRef.current) pauseWithIntent(audioRef.current);
-        },
-      ],
-      [
-        "stop",
-        () => {
-          if (audioRef.current) pauseWithIntent(audioRef.current);
-        },
-      ],
+      ["pause", pause],
+      ["stop", pause],
       [
         "seekbackward",
         (details) =>
@@ -103,7 +92,7 @@ export function useMediaSession(controls: {
         return;
       }
     };
-  }, [audioRef, book, play, preferencesRef, seek, skip]);
+  }, [audioRef, book, play, pause, preferencesRef, seek, skip]);
 }
 
 export function setMediaSessionMetadata(book: PlayerBook): void {

@@ -1,6 +1,6 @@
 import { replayQueuedMutations } from "@/lib/offline-sync";
 import { commitHistoryEvent } from "@/lib/offline/outbox";
-import { getDeviceId } from "@/lib/playback-core";
+import { getDeviceId } from "@/lib/device-id";
 
 const MIN_SESSION_MS = 5_000;
 

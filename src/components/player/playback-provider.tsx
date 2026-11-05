@@ -22,14 +22,8 @@ import {
   type UnloadPlayerDetail,
 } from "@/lib/app-keys";
 import { createListeningTracker, queueListeningSession } from "@/lib/listening-tracker";
-import {
-  bootstrapPlaybackState,
-  markPausedNow,
-  readMsSinceLastPause,
-  resolveStartPosition,
-  rewindForAbsence,
-  selectCurrentChapter,
-} from "@/lib/playback-core";
+import { bootstrapPlaybackState, markPausedNow, readMsSinceLastPause } from "@/lib/playback-core";
+import { resolveStartPosition, rewindForAbsence, selectCurrentChapter } from "@/domain/player";
 
 import { readAudioSession } from "./audio-session";
 import {
@@ -477,6 +471,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
     book,
     preferencesRef,
     play: transport.play,
+    pause: transport.pause,
     seek: transport.seek,
     skip: transport.skip,
   });
@@ -528,12 +523,6 @@ export function usePlaybackTime(): number {
   const store = useContext(PlaybackTimeContext);
   if (!store) throw new Error("usePlaybackTime must be used inside PlaybackProvider");
   return useSyncExternalStore(store.subscribe, store.read, readServerTime);
-}
-
-export function usePlaybackDerived<T extends string | number | boolean | null>(derive: () => T): T {
-  const store = useContext(PlaybackTimeContext);
-  if (!store) throw new Error("usePlaybackDerived must be used inside PlaybackProvider");
-  return useSyncExternalStore(store.subscribe, derive, derive);
 }
 
 export function usePlaybackTimeDerived<T extends string | number | boolean | null>(

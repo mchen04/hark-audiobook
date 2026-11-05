@@ -5,7 +5,7 @@ import { mediaTime, setMediaTime } from "./media-source";
 import { RefObject, useCallback, useEffect, useRef, useState } from "react";
 
 import type { PlayerChapter } from "@/domain/player";
-import { CHAPTER_END_EPSILON_MS, selectCurrentChapter } from "@/lib/playback-core";
+import { CHAPTER_END_EPSILON_MS, selectCurrentChapter } from "@/domain/player";
 
 export type SleepMode =
   { kind: "time"; endsAt: number; minutes?: number } | { kind: "chapter" } | null;

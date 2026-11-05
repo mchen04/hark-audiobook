@@ -8,7 +8,8 @@ import { UNLOAD_PLAYER_EVENT, type UnloadPlayerDetail } from "@/lib/app-keys";
 import { replayQueuedMutations } from "@/lib/offline-sync";
 import { removeOfflineBook } from "@/lib/offline/deletion-journal";
 import { commitBookDeletion } from "@/lib/offline/outbox";
-import { clearLocalPlaybackState, getDeviceId } from "@/lib/playback-core";
+import { clearLocalPlaybackState } from "@/lib/playback-core";
+import { getDeviceId } from "@/lib/device-id";
 
 export function useDeleteBook(
   userId: string,
