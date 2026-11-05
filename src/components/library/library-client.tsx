@@ -438,7 +438,6 @@ export function LibraryClient({ userId: serverUserId }: LibraryClientProps) {
                   {filter.label}
                 </button>
               ))}
-              {}
               <button
                 type="button"
                 className="filter-chip filter-chip-device"
@@ -594,7 +593,6 @@ const BookItem = memo(function BookItem({
       className="book-item"
       title={record ? undefined : "Not on this device — attach its original file to listen"}
     >
-      {}
       <div className="book-cover-controls">
         <Link
           href={`/books/${book.id}`}
@@ -637,7 +635,6 @@ const BookItem = memo(function BookItem({
             <span>Not on this device — attach its original file to listen</span>
           </p>
         )}
-        {}
         <div className="book-progress-copy">
           <span className="book-progress-status">
             {book.durationMs ? `${formatDurationRounded(book.durationMs)} • ` : ""}
@@ -648,7 +645,6 @@ const BookItem = memo(function BookItem({
               <span className="book-device-size">
                 <DownloadSimple size={13} aria-hidden="true" />
                 <span>{formatBytes(record.byteSize)}</span>
-                {}
                 <span className="visually-hidden">{" on this device"}</span>
               </span>
               <button

@@ -371,8 +371,6 @@ export function FullPlayer({
         onHistoryRestore={playback.restoreHistoryPosition}
         diagnostic={details?.chapterDiagnostic}
       />
-
-      {}
       {details && (
         <BookDetailsDialog
           details={details}

@@ -61,9 +61,7 @@ function AppHeader({ email, collapsible }: { email?: string; collapsible: boolea
   return (
     <header className={`app-header ${collapsible ? "app-header-collapsible" : ""}`}>
       <BrandMark />
-      {}
       <div className="app-actions">
-        {}
         <Link href="/library?device=1" className="icon-text-button" prefetch={false}>
           <DownloadSimple size={19} aria-hidden="true" />
           <span>Downloads</span>
