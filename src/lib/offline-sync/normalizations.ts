@@ -108,9 +108,6 @@ export async function applyPendingProgressNormalizations(
     installPendingPlaybackNormalizations(userId, bookId, null);
     return 0;
   }
-  // The common path is a read-only miss and needs no account-wide lock. A hit
-  // is re-read inside the lock: purge either waits for this mutation and then
-  // removes it, or fences it before it can recreate the departed account.
   return withAccountWriteLock(userId, () => drainProgressNormalization(userId, bookId));
 }
 
@@ -123,9 +120,6 @@ async function drainProgressNormalization(userId: string, bookId: string): Promi
     return 0;
   }
 
-  // Keep the projection installed across every await below. A synchronous
-  // player read in another microtask may be provisional, but it must never see
-  // the raw acknowledged tuple while this realm is draining the durable row.
   installPendingPlaybackNormalizations(userId, bookId, row.normalization);
   const result = applyNormalization(userId, bookId, row.normalization);
   const transaction = db.transaction("normalizations", "readwrite");
@@ -185,11 +179,6 @@ export async function listProgressNormalizations(
 export async function listProgressNormalizationUserIds(): Promise<string[]> {
   const db = await database();
   const transaction = db.transaction("normalizations", "readonly");
-  // WebKit can reject an index key cursor opened immediately after this
-  // database's first upgrade with `UnknownError: Unable to open cursor`. The
-  // request rejection is observed by the caller, but `idb` also exposes the
-  // resulting transaction abort through `done`; claim that promise now so it
-  // cannot surface later as an unrelated unhandled `AbortError`.
   const done = transaction.done;
   void done.catch(() => undefined);
   const users = new Set<string>();

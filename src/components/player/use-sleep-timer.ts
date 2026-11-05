@@ -12,7 +12,6 @@ export type SleepMode =
 
 import { pauseWithIntent } from "./pause-intent";
 
-/** Sleep timer state machine: fixed durations plus stop-at-chapter-end. */
 export function useSleepTimer(audioRef: RefObject<HTMLAudioElement | null>) {
   const [sleepMode, setSleepMode] = useState<SleepMode>(null);
   const sleepModeRef = useRef<SleepMode>(null);
@@ -65,7 +64,6 @@ export function useSleepTimer(audioRef: RefObject<HTMLAudioElement | null>) {
     [setSleepAtChapterEnd],
   );
 
-  /** Called from the audio timeupdate loop; pauses exactly once at the boundary. */
   const onTimeUpdate = useCallback(
     (audio: HTMLAudioElement) => {
       const mode = sleepModeRef.current;

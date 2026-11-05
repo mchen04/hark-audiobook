@@ -77,7 +77,6 @@ it("does not unfinish a remotely completed book when a stale device only changes
     {
       positionMs: 15_000,
       playbackRate: 2,
-      // `setPlaybackRate` carries the stale activeBook.completed value.
       completed: false,
       eventOccurredAt: new Date("2026-07-09T19:58:00.000Z"),
       playbackRateOccurredAt: new Date("2026-07-09T20:00:00.000Z"),
@@ -199,8 +198,5 @@ it("retains combined-tuple semantics when a legacy client supplies only one stat
     600_000,
   );
 
-  // With no per-field clock, the server cannot distinguish a rate-only write
-  // from an intentional restart. Treating the old clock as a tuple preserves
-  // both legacy operations; independent clients no longer have this ambiguity.
   expect(result.merged).toMatchObject({ positionMs: 600_000, playbackRate: 2, completed: false });
 });

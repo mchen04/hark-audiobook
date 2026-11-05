@@ -67,7 +67,6 @@ describe("extractTranscript", () => {
   });
 
   it("rejects decompression bombs at the duration-scaled cap", async () => {
-    // ~40MB of zeros compresses to ~40KB; a 1-second book caps around 1MB.
     const bomb = gzipSync(Buffer.alloc(40 * 1024 * 1024));
     const metadata = metadataWithGeob(geobFrame(new Uint8Array(bomb)));
     await expect(extractTranscript(metadata, 1000)).rejects.toThrow(/exceeds the cap/);

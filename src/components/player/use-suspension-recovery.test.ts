@@ -11,16 +11,6 @@ const DURATION_MS = 3_600_000;
 const KEY = "chapterline:position:user-a:book-1";
 const DISMISSED_KEY = "chapterline:suspension-dismissed:user-a:book-1";
 
-/**
- * The player-side half of the recovery path: what the user is offered, once,
- * and what happens to the offer when they answer it.
- *
- * The detection rule and the projection maths are `playback-core.test.ts`; the
- * end-to-end behaviour in WebKit is `tests/resume/suspension-recovery.spec.ts`.
- * This covers the part neither can see — that the offer survives the render and
- * that a dismissal STICKS, which is a promise about the next launch and so
- * cannot be kept in memory.
- */
 describe("useSuspensionRecovery", () => {
   beforeEach(() => {
     cleanup();
@@ -41,7 +31,6 @@ describe("useSuspensionRecovery", () => {
     vi.unstubAllGlobals();
   });
 
-  /** A hide-edge record written `agoMs` ago with the book still playing. */
   function seedSuspension(agoMs: number, positionMs = 1_800_000): number {
     const writtenAt = Date.now() - agoMs;
     vi.setSystemTime(new Date(writtenAt));
@@ -85,8 +74,6 @@ describe("useSuspensionRecovery", () => {
 
   it("offers nothing when the last write was a cadence writer", async () => {
     seedSuspension(300_000);
-    // Something DID write after the hide edge, so there is no unrecorded
-    // stretch. The record is otherwise identical.
     saveLocalPlaybackState("user-a", "book-1", {
       positionMs: 1_900_000,
       source: "cadence-timer",
@@ -97,12 +84,6 @@ describe("useSuspensionRecovery", () => {
     expect(result.current.gap).toBeNull();
   });
 
-  /**
-   * A dismissal is a promise about the NEXT launch, so it has to outlive the
-   * component. Kept in state it would come straight back the next time the user
-   * tapped the book, which is the annoyance this whole affordance is trying not
-   * to be.
-   */
   it("keeps a dismissal across a fresh mount of the same gap", async () => {
     const writtenAt = seedSuspension(300_000);
     const first = mount();
@@ -121,10 +102,6 @@ describe("useSuspensionRecovery", () => {
     ).toBeNull();
   });
 
-  /**
-   * The answer was about one unrecorded stretch, not about the book. A second
-   * suspension is a second loss and the user has said nothing about it.
-   */
   it("offers a later gap even after an earlier one was dismissed", async () => {
     seedSuspension(300_000);
     const first = mount();

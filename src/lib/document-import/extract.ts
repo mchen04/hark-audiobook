@@ -35,7 +35,6 @@ export function detectDocument(file: Pick<File, "name" | "size">) {
   return format;
 }
 
-/** Routes each source to its lazy format adapter; source bytes never leave this device. */
 export async function extractDocument(
   file: File,
   signal?: AbortSignal,

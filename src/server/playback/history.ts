@@ -54,8 +54,6 @@ export async function savePlaybackAction(userId: string, input: PlaybackActionIn
       )[0];
     if (!inserted) return saved || false;
 
-    // Conflict-safe so a device replaying an action whose receipt aged out
-    // below can never crash on the primary key.
     await transaction
       .insert(playbackActions)
       .values({
@@ -78,9 +76,6 @@ export async function savePlaybackAction(userId: string, input: PlaybackActionIn
       )
     `);
 
-    // Receipts guard idempotent replay from long-offline devices; a year
-    // covers any realistic retry horizon, so older rows are swept here — an
-    // indexed lookup that almost always deletes nothing.
     await transaction
       .delete(playbackActionReceipts)
       .where(

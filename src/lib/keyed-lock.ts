@@ -1,8 +1,3 @@
-/**
- * Cross-tab critical section named by `name`: Web Locks where available,
- * otherwise a same-tab FIFO promise queue. Runners see each other's writes;
- * failures release the lock and propagate to the caller only.
- */
 const fallbackQueues = new Map<string, Promise<unknown>>();
 
 export async function withKeyedLock<T>(name: string, operation: () => Promise<T>): Promise<T> {

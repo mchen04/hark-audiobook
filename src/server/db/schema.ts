@@ -23,7 +23,6 @@ const timestamps = {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 };
 
-// Better Auth core tables. Property names intentionally match its adapter contract.
 export const user = pgTable(
   "user",
   {
@@ -125,7 +124,6 @@ export const books = pgTable(
   },
   (table) => [
     index("books_owner_created_id_idx").on(table.ownerId, table.createdAt, table.id),
-    // The sync pull cursor scans (owner, updatedAt, id) in that exact order.
     index("books_owner_updated_id_idx").on(table.ownerId, table.updatedAt, table.id),
     index("books_owner_title_id_idx").on(table.ownerId, sql`lower(${table.title})`, table.id),
     index("books_owner_author_id_idx").on(table.ownerId, sql`lower(${table.author})`, table.id),
@@ -137,19 +135,6 @@ export const books = pgTable(
   ],
 );
 
-/**
- * Deleted books, kept as explicit tombstones.
- *
- * A hard delete is invisible to an incremental pull: absence from a page cannot
- * be distinguished from "not in this page" (`docs/local-first.md` section 6).
- * Without this table the only honest deletion signal is a complete, unpaged list
- * of every live book id on every sync, which does not scale with a library.
- *
- * The row is written in the same transaction as the delete, so a deletion the
- * user saw succeed can never exist without its tombstone. There is no foreign
- * key to `books` — the whole point is that the book is gone — and no media
- * column, because the audio never reached the server to begin with.
- */
 export const bookTombstones = pgTable(
   "book_tombstones",
   {
@@ -160,8 +145,6 @@ export const bookTombstones = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    // The pull cursor scans (owner, deletedAt, bookId) in that exact order, the
-    // same shape as the book cursor index.
     index("book_tombstones_owner_deleted_idx").on(table.ownerId, table.deletedAt, table.bookId),
   ],
 );
@@ -192,9 +175,6 @@ export const mediaAssets = pgTable(
   },
   (table) => [
     uniqueIndex("media_assets_book_unique").on(table.bookId),
-    // Expand/contract rollout guard: the production build migrates before the
-    // new server replaces every old instance. Keep the old arbiter until a
-    // later release can safely contract it away.
     uniqueIndex("media_assets_owner_sha256_unique")
       .on(table.ownerId, table.fingerprintKind, table.fingerprint)
       .where(sql`${table.fingerprintKind} = 'sha256-v1'`),
@@ -219,8 +199,6 @@ export const chapters = pgTable(
     endMs: bigint("end_ms", { mode: "number" }).notNull(),
   },
   (table) => [
-    // All chapter reads filter by book and order by position; time lookups
-    // binary-search in memory client-side, so no startMs index is needed.
     uniqueIndex("chapters_book_position_unique").on(table.bookId, table.position),
     check("chapters_position_nonnegative", sql`${table.position} >= 0`),
     check(
@@ -247,7 +225,6 @@ export const playbackStates = pgTable(
     eventOccurredAt: timestamp("event_occurred_at", { withTimezone: true }).notNull(),
     playbackRateOccurredAt: timestamp("playback_rate_occurred_at", { withTimezone: true }),
     completedOccurredAt: timestamp("completed_occurred_at", { withTimezone: true }),
-    /** Combined legacy clock retained for rolling deploys and older clients. */
     stateOccurredAt: timestamp("state_occurred_at", { withTimezone: true }),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -324,8 +301,6 @@ export const playbackActions = pgTable(
   ],
 );
 
-// Durable idempotency ledger kept independently of the capped history
-// projection; rows older than the replay horizon are swept on history writes.
 export const playbackActionReceipts = pgTable(
   "playback_action_receipts",
   {
@@ -349,7 +324,6 @@ export const playbackActionReceipts = pgTable(
   ],
 );
 
-// Export-only preservation for bookmarks created before playback history replaced the feature.
 export const legacyBookmarks = pgTable(
   "legacy_bookmarks",
   {
@@ -455,9 +429,6 @@ export const listeningSessions = pgTable(
     listenedMs: bigint("listened_ms", { mode: "number" }).notNull(),
   },
   (table) => [
-    // The export stream pages by (userId, id); the recent-sessions panel
-    // reads (userId, bookId, startedAt). No other read paths exist, so these
-    // two indexes are the complete set for this append-heavy table.
     index("listening_sessions_user_id_idx").on(table.userId, table.id),
     index("listening_sessions_user_book_started_idx").on(
       table.userId,
@@ -473,7 +444,6 @@ export const listeningSessions = pgTable(
   ],
 );
 
-// Skip bounds mirror SKIP_BOUNDS_MS in `lib/preferences.ts`; keep in lockstep.
 export const userPreferences = pgTable(
   "user_preferences",
   {
@@ -499,9 +469,6 @@ export const userPreferences = pgTable(
   ],
 );
 
-// Preferences are not outbox rows, but their local-first PATCH still needs a
-// durable server receipt: a response can be lost after commit, and replaying
-// that old intent after another device writes would otherwise move state back.
 export const preferenceWriteReceipts = pgTable(
   "preference_write_receipts",
   {

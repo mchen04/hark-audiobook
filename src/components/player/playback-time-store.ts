@@ -1,8 +1,3 @@
-/**
- * The playback position ticks at timeupdate frequency (4–60 Hz). It lives in
- * this tiny external store instead of React state so the ticking clock never
- * re-renders the player tree; only usePlaybackTime subscribers update.
- */
 export type PlaybackTimeStore = {
   subscribe: (onChange: () => void) => () => void;
   read: () => number;

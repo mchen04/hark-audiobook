@@ -25,7 +25,6 @@ describe("activeCueIndex", () => {
   });
 
   it("keeps a cue active through the gap before its successor", () => {
-    // Sentence ends at 1800 but the next starts at 2500: stay on it.
     expect(activeCueIndex(cues, 2200)).toBe(1);
   });
 

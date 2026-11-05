@@ -14,9 +14,6 @@ export function MiniPlayer() {
   const pathname = usePathname();
   const { book, isPlaying, toggle, skip } = usePlayback();
   const { preferences } = usePreferences();
-  // A book route does not necessarily own the audio element. Opening book B
-  // without its local MP3 leaves book A playing in the persistent provider; in
-  // that state this is the only in-app transport for A and must stay visible.
   const showingActiveBook =
     !!book && (pathname === `/books/${book.id}` || pathname === `/books/${book.id}/`);
   if (!book || showingActiveBook) return null;

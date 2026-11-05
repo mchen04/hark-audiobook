@@ -1,27 +1,12 @@
-# Setup and contributing
+# Development
 
-## Prerequisites
+Use Node 22, pnpm 9.6.0, Docker Compose, and FFmpeg.
 
-- Node 22 is the GitHub Actions runtime; pnpm is pinned to 9.6.0. The package
-  minimum is Node 20.19. Prefer Node 22 for the commands below.
-- Docker with Compose for the disposable test database.
-- FFmpeg on `PATH` for generated browser audio fixtures.
-- Playwright WebKit and Chromium for browser suites.
+## Start locally
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm exec playwright install webkit chromium
-```
-
-On Linux, use `pnpm exec playwright install --with-deps webkit chromium` to also
-install browser system dependencies. See [package scripts](../package.json) and
-[CI workflow](../.github/workflows/ci.yml) for the executable command definitions.
-
-## Local test environment
-
-For a **new** disposable setup:
-
-```sh
 test -f .env.test || cp .env.test.example .env.test
 pnpm db:test:up
 set -a
@@ -30,285 +15,64 @@ set +a
 pnpm dev
 ```
 
-Open [localhost:3000](http://localhost:3000). `db:test:up` starts the Compose
-Postgres service at `127.0.0.1:54329`, checks `pg_trgm`, applies ordered migrations,
-and seeds the account named in `.env.test`. It fills only blank signing secrets
-and test passwords. Keep this ignored env file with its matching retained database.
+Open <http://localhost:3000>. The bootstrap starts PostgreSQL at `127.0.0.1:54329`, applies migrations, and seeds the test account.
+It generates only blank test credentials. Retain the environment file with its database.
 
-Exporting the file passes its values to pnpm and child processes.
-`pnpm dev` and `pnpm build` run their asset preparation hooks.
-CI uses Node 22 and copies the generated test environment to `.env.local`.
+For a separate development database, configure `.env.local` from `.env.example` and run `pnpm db:migrate`.
+Do not overwrite an existing environment file.
 
-For a separate development database, copy `.env.example` to `.env.local` **only if
-that file does not already exist**, set its database URL and fresh auth secret,
-then use `pnpm db:migrate` and `pnpm dev`. Next and Drizzle normally load Next env
-files. Browser/test tooling explicitly reads `.env.test`, or `HARK_ENV_FILE` when
-set, and rejects nonlocal database hosts. Existing process env values take
-precedence over file values: do not run test tooling with a production
-`DATABASE_URL` exported in the shell.
-
-### Retained fixtures and credentials
-
-The browser suites use disposable identities and stable suite-specific loopback
-IP headers. Retained-workflow runs reuse their account; deletion tests still use
-a separate disposable identity. Real auth limits remain enabled. Budget helpers
-read the actual bucket, make at most one bounded wait, and recheck; they do not
-clear rate limits or rotate IPs to evade them. Run suites serially on a shared
-fixture database. The maximum wait follows the real window (one minute for
-sign-in, ten minutes for signup), plus scheduling slack; an inconsistent or
-still-busy bucket fails with a diagnostic.
-
-A retained-workflow preflight distinguishes:
-
-| Failure                                       | Safe next step                                                                                                                              |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| No retained identity                          | The harness can create its disposable fixture normally.                                                                                     |
-| Identity exists without a password credential | Inspect that disposable identity's provisioning; an env backup alone cannot create the missing credential.                                  |
-| Password mismatch                             | Restore the env file that matches the retained test database, or point `HARK_ENV_FILE` at a separately provisioned new disposable database. |
-| Database/crypto/budget operation failed       | Check the reported category, local connection, migrations, and runtime; it is not evidence of a password mismatch.                          |
-
-Do not reset an existing database/volume or replace credentials to make a test
-pass. Diagnostics omit passwords, hashes, and raw driver text. `db:test:seed` is
-an explicit **write**: it replaces the configured seeded account's password;
-it is not a repair for the separate retained-workflow identity.
-
-### Database commands
-
-| Command                                          | Effect                                                                                    |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------- |
-| `pnpm db:test:up`                                | Start local Compose service, migrate, and seed.                                           |
-| `pnpm db:test:migrate`                           | Apply migrations using the named test env.                                                |
-| `pnpm db:test:seed`                              | Seed/update the configured disposable account.                                            |
-| `pnpm db:test:guard`                             | Exercise the local-host guard.                                                            |
-| `pnpm db:test:down`                              | Stop the Compose service and retain its volume.                                           |
-| `pnpm db:test:reset`                             | Destroy the test volume and rebuild; only for a fixture you explicitly intend to discard. |
-| `node scripts/test-db.mjs psql -- -c 'select 1'` | Run a query inside the local Compose service.                                             |
-
-There is no `db:test:psql` package script. An env override does not provision a
-separate Compose service: the checked-in Compose file has a fixed container and
-port. Provision a separate disposable database deliberately before selecting it.
-
-## Checks
-
-After local test setup:
+## Verify changes
 
 ```sh
-set -a
-. ./.env.test
-set +a
 pnpm verify:quick
 pnpm verify:browser
 ```
 
-`verify:quick` runs Prettier, ESLint, TypeScript, all Vitest suites, and the
-production build. `verify:browser` runs all six CI browser projects in order: iPhone WebKit,
-desktop WebKit, parity, sync, resume durability, and launch. Workers stay at one.
-For a focused run:
+The quick check runs formatting, lint, types, unit tests, and a production build.
+The browser check runs iPhone WebKit, desktop WebKit, parity, sync, resume durability, and launch tests.
+On Node 26, use `NODE_OPTIONS=--no-experimental-webstorage pnpm verify:quick`.
+
+Browser tooling reads `.env.test` or `HARK_ENV_FILE` and refuses hosted databases.
+Exported variables take precedence, so never run tests with a production `DATABASE_URL`.
+The runner builds and starts its own server. Use `HARK_REUSE_SERVER=1` only for a verified server you own.
+FFmpeg generates fixture audio. Each browser uses a separate automation profile.
+Run suites serially against a shared fixture database.
+
+Retained accounts and authentication limits remain active.
+If credentials fail, restore the matching environment or provision a separate test database.
+Do not reset retained data or change passwords to bypass a test failure.
+`db:test:seed` replaces the configured seed account's password.
+`db:test:down` retains the volume. `db:test:reset` destroys it.
+
+## Focused checks
 
 ```sh
-pnpm test
 pnpm test:idb-migrate
-pnpm test:e2e:ios
-pnpm test:e2e:desktop
-pnpm test:e2e:parity
-pnpm test:sync
-pnpm test:resume:ci
-pnpm test:e2e:launch
-```
-
-**Node 26:** its experimental native `localStorage` interferes with the unit
-suite's storage doubles. Disable it for these commands:
-
-```sh
-NODE_OPTIONS=--no-experimental-webstorage pnpm test
-NODE_OPTIONS=--no-experimental-webstorage pnpm verify:quick
-```
-
-This flag is a unit runtime requirement on Node 26, not an app storage setting.
-Node 22 CI uses no such flag. Do not treat a different runtime/options combination
-as the same test run.
-
-Run resume files separately after exporting the test environment:
-
-```sh
+pnpm exec playwright test --project=iphone-webkit --project=desktop-webkit tests/e2e/media-session-resume.spec.ts
 pnpm test:resume:position-drift
 pnpm test:resume:suspension-recovery
 pnpm test:resume:uncovered-axes
 ```
 
-Position drift has a 60-minute total limit; the other two commands have 30 minutes.
-All three exclude only the two T1 hidden cases, matching CI.
-Position drift covers termination, repeated opens, and
-smart rewind. Suspension recovery covers saved-position recovery and estimates.
-Uncovered axes covers isolated persistence writers, write rate, queued rewind,
-and two-device conflicts. These commands preserve the oracle's assertions.
-Process checks stop when browser ownership is missing or ambiguous.
+The resume commands exclude two unsupported native hidden-state cases, as CI does.
+See [WebKit testing](ios-pwa-testing.md) for their limits.
+Unit tests report test counts, not line coverage. No coverage provider is installed.
 
-Each measured journey uses a fresh browser from prepared cookies, localStorage,
-and IndexedDB. Its kill and reopen steps share that context. Tracing stays enabled
-with `retain-on-failure`. This bounds the tracing slowdown from sharing crashed
-pages across tests. Page evaluations and launch or relaunch page creation have
-a 30-second diagnostic deadline. Settled-position reads have a 15-second total deadline.
-
-The oracle restores and verifies fixture media after the
-[WebKit storage failure](#benchmark). It does not replace progress records after
-a measured kill. These rows do not prove native cache preservation across process death.
-
-Run the individual controls against any served production build. Start that build's
-`scripts/run-standalone.mjs` with the test environment first. Match `BETTER_AUTH_URL`
-to its origin. Set an absolute `HARK_ENV_FILE` when serving from another directory.
+## Benchmarks and updates
 
 ```sh
-export HARK_REUSE_SERVER=1
-export PLAYWRIGHT_BASE_URL=http://127.0.0.1:3400
-HARK_RESUME_LEDGER="$TMPDIR/c4.jsonl" pnpm test:resume:c4 --output "$TMPDIR/c4-results"
-HARK_RESUME_LEDGER="$TMPDIR/s1.jsonl" pnpm test:resume:s1 --output "$TMPDIR/s1-results"
+pnpm bench prepare --ref HEAD --dir "$TMPDIR/hark-candidate"
+pnpm bench run --a "$TMPDIR/hark-base" --b "$TMPDIR/hark-candidate" --label comparison --out "$TMPDIR/comparison.json"
+pnpm test:update --previous <git-ref> --out "$TMPDIR/update.json"
 ```
 
-C4 checks five online post-kill opens with 65-minute absence markers and a real 65-second listen.
-Its command has a four-minute limit. S1 earns a heartbeat offline, rewinds, and kills
-before the queued write changes. It checks server, player, and library positions
-after replay. Its command has a three-minute limit. Both preserve the original assertions.
-An unarmed S1 trap fails as `UNCOVERED`.
-Each run prints the build ID from the served `/offline` document.
-Use separate ledger and output paths for each build and repetition.
-Keep results outside the checkout; failures retain their Playwright trace.
+Prepare both benchmark revisions with the same environment. `prepare` includes committed changes only.
+Use identical builds for an A/A noise control and pass the result with `--noise`.
+`--reps 1` checks functionality but cannot support a speed claim.
+The launch gate checks six runs per profile, p95 at most 500 ms, and profile spread at most 150 ms.
+The executable assertions in `tests/perf/launch-benchmark.spec.ts` define the contract.
+The update check exercises cache rollover and playback on one origin.
 
-Vitest has coverage reporters configured, but no coverage provider is installed
-in the pinned dependencies. `pnpm test` reports outcomes and timing, not line or
-branch coverage. Report coverage as unmeasured unless a compatible provider was
-actually used; passing test counts are not coverage percentages.
-
-Playwright builds the production bundle and starts `scripts/run-standalone.mjs`
-using the explicitly selected test env and a local-database guard. It normally
-refuses a port already in use. `HARK_REUSE_SERVER=1` is an opt-in for a server
-you own whose source, build, origin, and disposable database you have verified;
-a dev server or stale production build is not valid evidence for a new commit.
-Failure traces/screenshots go to `test-results/`. Do not run against a personal
-library. See [iPhone coverage](ios-pwa-testing.md), [resume limits](resume-durability-device-check.md),
-and the [launch protocol](../tests/perf/BASELINE.md).
-
-`pnpm test:resume` includes two hidden-state cases that can report `UNCOVERED`
-when the browser cannot reproduce real iOS suspension. CI uses `test:resume:ci`
-to exclude those cases explicitly; that exclusion is not a physical-device pass.
-
-## CI
-
-The workflow runs on pull requests, pushes to `main`, and manual dispatches:
-
-- `Verify quick`
-- `Browser (iPhone WebKit)`
-- `Browser (Desktop WebKit)`
-- `Browser (Offline parity)`
-- `Browser (Sync integrity)`
-- `Browser (Resume durability)`
-- `Browser (Launch performance)`
-
-Each job uses Node 22, a frozen pnpm install, and its own local Postgres fixture.
-Browser jobs build the app and retain failure artifacts. Local mail capture is
-enabled for password-reset checks. The generated test environment must keep
-`ALLOW_LOCAL_MAIL_CAPTURE=true` for equivalent local browser runs.
-Acceptance must inspect
-all seven conclusions for the candidate being merged; an earlier branch run is not
-proof for a changed head. Repository protection is configured on GitHub, not by
-this document. Recheck it before publication. Also inspect hosting integrations:
-a push or merge can trigger deployment independently of GitHub Actions.
-
-## Contributing
-
-Keep changes scoped to the private audiobook workflow. Preserve account
-ownership, local media, rendition identity, receipt ordering, and migration
-compatibility. Add regression coverage where behavior changes and run the
-relevant browser project as well as the quick gate. Describe what ran, its source
-commit/runtime, and any failures or unexercised paths.
-
-Update these docs and [CHANGELOG](../CHANGELOG.md) when behavior changes.
-When pruning tests, retain regressions, unique boundaries, and failing cases.
-Prove suspected redundancy with targeted mutations and verify the surviving
-suite still detects them. Restore each mutation before continuing. Keep justified
-deletions in a separate commit and compare the same commands before and after,
-including runtime, counts, and any available coverage. No deletion is preferable
-to removing protection whose redundancy has not been demonstrated.
-
-`pnpm format:check` checks formatting; `pnpm exec prettier --write <changed-files>`
-formats a scoped edit. Check relative links against tracked files and anchors,
-and external links for reachability; the repo has no dedicated link-check script.
-
-Keep `drizzle/meta/*.json`, ordered SQL migrations, pinned assets, fixtures, and
-`pnpm-lock.yaml`: they are required inputs. `public/sw.js` is authored source.
-Do not commit `.next`, dependencies, env secrets, user files, mail captures,
-Playwright output, coverage, or generated review/cleanup reports. Keep process
-receipts outside the repository.
-
-Reusable measurement helpers remain available: `scripts/measure-source.mjs`
-counts application TS/TSX and the service worker separately from tests, CSS, and
-migration snapshots; `pnpm bench run` measures live browser work under the fixed protocol.
-Source measurements require a build and their own output path. Build-wide asset
-size is not initial transfer size. Preserve the measured commit and command;
-do not relabel old browser measurements after a source change.
-
-### Benchmark
-
-Use a quiet Mac, FFmpeg, and the local test database. Export `TMPDIR` to a writable
-scratch directory outside the repository. Build before measuring:
-
-```sh
-pnpm bench prepare --ref e4525ac70dd5bc3113ce3c8a76b97dcdd2d47858 --dir "$TMPDIR/builds/base-e4525ac"
-pnpm bench prepare --ref HEAD --dir "$TMPDIR/builds/candidate"
-pnpm bench run --a "$TMPDIR/builds/base-e4525ac" --b "$TMPDIR/builds/candidate" --label comparison --out "$TMPDIR/comparison.json"
-pnpm bench record --build-dir "$TMPDIR/builds/candidate" --out "$TMPDIR/recordings"
-```
-
-`prepare` archives a Git ref, installs the frozen lockfile, and builds with the test
-environment. It does not include uncommitted changes. Build directories stay under
-`TMPDIR`; reports stay outside the repository. Servers use ports 3100/3200, and
-the recorder's delay/offline proxy uses 3300. Only owned processes are closed.
-
-Use the base directory for both variants to create an A/A noise result. Pass it
-with `--noise "$TMPDIR/aa.json"`. `--reps 1` checks functionality; its timings are
-not performance evidence. JSON retains samples, failures, aggregates, and the
-comparison rule. Without A/A input, the table reports `noise band unknown`.
-Recordings contain one video and frame log per scenario plus `summary.json`.
-
-The fixed protocol marks WebKit cold start, cold RSS, and JS heap unavailable.
-Its reports describe the pinned engine's Cache Storage/process failures.
-The resume oracle repairs fixture bytes, which limits native-retention claims.
-Chromium relaunch measurements are labelled Chromium. WebKit playback starts from
-a warm library. See the [protocol](../tests/perf/BASELINE.md#benchmark-protocol-v11)
-for definitions, repetitions, and acceptance.
-
-### Update and playback checks
-
-```sh
-pnpm test:update --previous e4525ac70dd5bc3113ce3c8a76b97dcdd2d47858 --out "$TMPDIR/update.json"
-pnpm exec playwright test --project=iphone-webkit tests/e2e/launch-flicker.spec.ts tests/e2e/media-session-resume.spec.ts
-pnpm exec vitest run tests/perf/frame-sampler.test.ts
-```
-
-The update command prepares the previous ref and exports the current worktree,
-including uncommitted changes, into its own temporary build. `--next-dir <build>`
-reuses a prepared build. Reports stay outside the repository. Both builds use
-one origin on port 3400. WebKit keeps one live page process; Chromium uses a
-persistent profile and browser relaunches. The report asserts build IDs, chunk
-hashes, cache cleanup, exact progress, and offline 206 ranges in both engines.
-
-The flicker spec checks the shared recorder and proves all five event kinds with
-a synthetic control. The Media Session spec invokes the app's native action
-handlers and checks preferences, exact persistence, offline reload, history,
-and Range delivery. Its JSON report is attached to the Playwright result.
-
-### WebKit evidence tiers
-
-`desktop-webkit` uses Playwright's Desktop Safari profile and runs playback,
-library resume, session bootstrap, interruption, and the shared PWA core flow.
-`iphone-webkit` also runs a standalone-emulation flow and manifest/Apple contract.
-The standalone flow stubs web-facing flags; it does not create an installed host.
-Its offline oracle checks a cut socket, failed control request, zero upstream
-hits, and response equality with the cached shell. Emulation does not create
-native safe-area insets; bounds checks cannot prove installed-host layout.
-
-Synthetic pause/lifecycle events and Audio Session stubs prove the app's response,
-not native OS delivery. No physical device, Simulator, Xcode, or manual checklist
-is required. See [WebKit testing](ios-pwa-testing.md) and
-[optional field observations](resume-durability-device-check.md). Record each
-result with its commit, runtime, command, counts, duration, and evidence tier.
+Keep reports, screenshots, traces, generated builds, and recordings outside the checkout.
+Retain ordered SQL, migration snapshots, pinned assets, fixtures, and the lockfile.
+`public/sw.js` is authored source. Never commit environment files or local user data.

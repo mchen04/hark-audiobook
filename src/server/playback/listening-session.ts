@@ -15,16 +15,6 @@ export type ListeningStretch = {
 
 export type ListeningSessionOutcome = "recorded" | "duplicate" | "unknown-book" | "rejected";
 
-/**
- * Records one contiguous listening stretch.
- *
- * Shared by the two routes that can receive one: `POST /api/books/:id/sessions`,
- * which the player used before the outbox existed and the parity suite still
- * calls directly, and `POST /api/books/:id/history`, which is where the outbox
- * replays every `history` mutation. Both must apply the same validity rules and
- * claim the same receipt, or the durable path and the direct path would disagree
- * about what counts as a listen.
- */
 export async function recordListeningSession(
   userId: string,
   bookId: string,
@@ -47,10 +37,6 @@ export async function recordListeningSession(
   }
   const listenedMs = endedAt.getTime() - startedAt.getTime();
 
-  // Listening sessions are append-only, so a replayed insert is a duplicate
-  // row rather than a harmless no-op. The receipt claim and the insert share
-  // one transaction: either the session exists and is recorded as applied, or
-  // neither is true and the outbox retries.
   const duplicate = await db.transaction(async (transaction) => {
     if (mutationId) {
       const receipt = await claimMutationReceipt(transaction, { mutationId, userId, bookId });
@@ -70,7 +56,6 @@ export async function recordListeningSession(
   return duplicate ? "duplicate" : "recorded";
 }
 
-/** The one wire answer for a listening stretch, whichever route received it. */
 export function listeningSessionResponse(outcome: ListeningSessionOutcome): Response {
   switch (outcome) {
     case "unknown-book":

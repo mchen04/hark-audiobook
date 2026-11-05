@@ -5,7 +5,6 @@ export type QueuedMediaRegistrationIdentity = {
   renditionKey: string;
 };
 
-/** Legacy queued rows predate rendition keys and always describe source MP3 bytes. */
 const queuedRenditionKey = (mutation: QueuedMutation) =>
   typeof mutation.payload.renditionKey === "string" ? mutation.payload.renditionKey : "source-v1";
 

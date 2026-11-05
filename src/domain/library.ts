@@ -24,7 +24,6 @@ export type LibraryQuery = {
   sort?: LibrarySort;
 };
 
-/** The same rules apply to mirrored books and imports not yet seen by sync. */
 export function filterLibraryBooks(books: LibraryBook[], input: LibraryQuery): LibraryBook[] {
   const needle = input.query?.trim().toLowerCase();
   return books

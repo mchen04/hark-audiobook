@@ -7,18 +7,12 @@ import {
 const ACTIVE_USER_CHANGED_EVENT = "chapterline:active-user-changed";
 let bootstrappedServerUserId: string | null = null;
 
-/** The account this browser profile currently authorizes device-local data for. */
 export function readActiveUserId(): string | null {
   if (typeof localStorage === "undefined") return null;
   const userId = localStorage.getItem(ACTIVE_USER_KEY);
   return userId && !isAccountDeletionFenced(userId) ? userId : null;
 }
 
-/**
- * One external-store subscription for both same-tab and cross-tab changes.
- * Browsers emit `storage` only in peer documents, so writers dispatch the
- * custom event for their own document as the matching half of the contract.
- */
 export function subscribeActiveUser(onChange: () => void): () => void {
   if (typeof window === "undefined") return () => undefined;
   const onStorage = (event: StorageEvent) => {
@@ -42,7 +36,6 @@ export function rememberActiveUserId(userId: string): void {
   notifyThisDocument();
 }
 
-/** A server identity is only a bootstrap source once per mounted document. */
 export function serverUserNeedsBootstrap(userId: string): boolean {
   return !isAccountDeletionFenced(userId) && bootstrappedServerUserId !== userId;
 }

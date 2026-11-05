@@ -39,16 +39,6 @@ export class InvalidMp3Error extends Error {
   }
 }
 
-/**
- * Pure interpretation of a parsed MP3: format validation, metadata cleanup,
- * chapter normalization, artwork sniffing. Shared by the server import parser
- * and the in-browser parser for device-local books.
- *
- * `fallbackDurationMs` covers files whose duration the tag parse cannot see
- * cheaply (VBR without a Xing header) — a full frame scan of a multi-gigabyte
- * audiobook is not viable in the browser, so the caller probes the duration
- * through the platform's audio decoder instead.
- */
 export function interpretMp3Metadata(
   metadata: IAudioMetadata,
   fallbackTitle: string,
@@ -71,8 +61,6 @@ export function interpretMp3Metadata(
   const title =
     firstCleanText([metadata.common.title, metadata.common.album, fallbackTitle], 300) ||
     "Untitled audiobook";
-  // Audiobooks frequently carry the author in TPE2 (album artist) instead of
-  // TPE1, so both are honored before giving up.
   const author =
     firstCleanText([metadata.common.artist, metadata.common.albumartist], 240) || "Unknown author";
   const composer = metadata.common.composer;
@@ -107,8 +95,6 @@ export function interpretMp3Metadata(
   return { title, author, narrator, durationMs, chapters, chapterDiagnostic: null, artwork };
 }
 
-// Embedded artwork is only trusted when its actual bytes match a known raster
-// signature; declared MIME alone is not enough.
 function extractArtwork(
   pictures: Array<{ format?: string; data: Uint8Array }> | undefined,
 ): ParsedArtwork | null {
@@ -220,12 +206,6 @@ function chapterSequenceCoversDuration(
   );
 }
 
-/**
- * Validates an already-normalized chapter list: contiguous positions from 0,
- * sane bounds, no overlap, and every chapter inside the book's duration. The
- * registration endpoint re-checks client-parsed chapters with this before
- * trusting them into the database.
- */
 export function isValidChapterSequence(chapterList: ParsedChapter[], durationMs: number): boolean {
   if (chapterList.length === 0) return false;
   for (let index = 0; index < chapterList.length; index += 1) {

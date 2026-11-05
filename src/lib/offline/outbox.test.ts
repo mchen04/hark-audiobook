@@ -35,11 +35,6 @@ const USER = "user-a";
 const BOOK = "book-1";
 const OTHER_BOOK = "book-2";
 const COLLECTION = "collection-1";
-/**
- * Tests drive the production mutation API, never a hand-written key. A test
- * that supplies its own key silently stops exercising the key builder, and the
- * key builder is what actually enforces the never-coalesce rule.
- */
 const DEVICE = { userId: USER, deviceId: "device-1" };
 
 beforeEach(() => {
@@ -88,15 +83,10 @@ async function seedBook(overrides: Record<string, unknown> = {}) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Coalescing — the table in `docs/local-first.md` section 5, rule 3
-// ---------------------------------------------------------------------------
-
 describe("outbox coalescing", () => {
   it("collapses progress per book and device to the highest device sequence", async () => {
     await queueProgress(progress(1, 1_000));
     await queueProgress(progress(3, 3_000));
-    // Out of order: an older event must not overwrite a newer one.
     await queueProgress(progress(2, 2_000));
 
     const queued = await listQueuedMutations(USER);
@@ -105,14 +95,6 @@ describe("outbox coalescing", () => {
     expect(queued[0]!.payload.positionMs).toBe(3_000);
   });
 
-  /**
-   * `deviceSequence` is a per-(user, book, DEVICE) counter. The mirror guard
-   * used to compare it across devices, which is comparing two unrelated
-   * integers: a phone that has opened a book forty times outranked a laptop
-   * opening it for the first time, so the laptop's genuinely newer position was
-   * dropped from the shelf on the way past. Across devices the only ordering
-   * the two share is the event time the server stamps.
-   */
   it("projects a newer event over another device's higher sequence", async () => {
     await mirrorProgress({
       ...progress(9, 15_245),
@@ -174,7 +156,6 @@ describe("outbox coalescing", () => {
 
   it("still orders one device's own events by its sequence", async () => {
     await mirrorProgress(progress(3, 3_000));
-    // Same device, lower sequence: out of order, and the clock is not consulted.
     await mirrorProgress({ ...progress(2, 2_000), eventOccurredAt: "2026-07-06T00:00:00.000Z" });
 
     expect((await mirroredState())?.positionMs).toBe(3_000);
@@ -246,17 +227,6 @@ describe("outbox coalescing", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// The three kinds that must never coalesce
-// ---------------------------------------------------------------------------
-
-/**
- * These drive the production mutation API end to end — queue, then replay —
- * because the policy table and the key builder are two layers that both have to
- * hold, and asserting either one's value in isolation leaves the invariant
- * untested when the other silently stops doing its job. Dropping the
- * `mutationId` from the key makes every one of these red.
- */
 describe("distinct events never coalesce", () => {
   const EVENTS: {
     kind: "import" | "delete" | "history";
@@ -265,7 +235,6 @@ describe("distinct events never coalesce", () => {
   }[] = [
     {
       kind: "history",
-      // play, pause, seek on one book: routine, and three separate writes.
       queue: (index) =>
         commitHistoryEvent(DEVICE, BOOK, {
           action: ["play", "pause", "seek"][index],
@@ -323,8 +292,6 @@ describe("distinct events never coalesce", () => {
   });
 
   it("keeps two history events distinct even when their payloads are identical", async () => {
-    // Two identical seeks a second apart are two real events. Nothing about the
-    // payload may be used to decide they are "the same" write.
     const event = { action: "seek", positionMs: 5_000, playbackRate: 1 };
     await commitHistoryEvent(DEVICE, BOOK, event);
     await commitHistoryEvent(DEVICE, BOOK, event);
@@ -332,12 +299,6 @@ describe("distinct events never coalesce", () => {
     expect(await listQueuedMutations(USER)).toHaveLength(2);
   });
 
-  /**
-   * The other half of the invariant. The key stops two *different* events from
-   * colliding; the `never` policy is what stops a re-queue of the *same* event
-   * id from overwriting the row mid-replay and resetting its attempt count.
-   * Both layers are load-bearing, so both are driven for all three kinds.
-   */
   it.each(EVENTS)(
     "treats a re-queue of one $kind event id as the same single event",
     async ({ queue }) => {
@@ -352,16 +313,11 @@ describe("distinct events never coalesce", () => {
   );
 });
 
-// ---------------------------------------------------------------------------
-// Journal intent before acting
-// ---------------------------------------------------------------------------
-
 describe("journal intent before acting", () => {
   it("makes the outbox row durable before the mirror is patched", async () => {
     await seedBook();
     let queuedDuringPatch: QueuedMutation[] = [];
 
-    // The patch observes the outbox as it stood when the projection began.
     await commitMutation(buildMutation(renameDraft(BOOK, "Renamed")), async () => {
       queuedDuringPatch = await listQueuedMutations(USER);
     });
@@ -384,8 +340,6 @@ describe("journal intent before acting", () => {
       }),
     ).rejects.toBe(boom);
 
-    // The user's intent survives even though its local projection did not:
-    // replay still delivers it, and the next pull re-mirrors the result.
     expect(await keys()).toStrictEqual([metadataMutationKey(USER, BOOK)]);
     const db = await database();
     expect((await db.get("books", mirrorKey(USER, BOOK)))!.title).toBe("Original Title");
@@ -430,10 +384,6 @@ describe("journal intent before acting", () => {
     expect(result.queued.deviceSequence).toBe(5);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Optimistic projections
-// ---------------------------------------------------------------------------
 
 describe("optimistic mirror projection", () => {
   it("bumps the parent book when only a tag edge changed", async () => {
@@ -502,15 +452,9 @@ describe("optimistic mirror projection", () => {
       bookId: BOOK,
       clearPlaybackHistory: true,
     });
-    // The audio is the only copy that exists anywhere; sync bookkeeping must
-    // never be what removes it.
     expect(await db.get("downloads", `${USER}:${BOOK}`)).toBeDefined();
   });
 });
-
-// ---------------------------------------------------------------------------
-// Idempotent replay
-// ---------------------------------------------------------------------------
 
 describe("idempotent replay", () => {
   it("repairs a missing permanent deletion fence before sending a queued delete", async () => {
@@ -555,8 +499,6 @@ describe("idempotent replay", () => {
 
   it("replays an already-applied mutation as a no-op rather than a double apply", async () => {
     await commitBookDeletion(DEVICE, BOOK);
-    // The server has already applied this delete; the tombstone makes the
-    // replay answer 200 instead of 404.
     const applied = vi.fn(async () =>
       Response.json({ deleted: true, alreadyDeleted: true }, { status: 200 }),
     );
@@ -597,10 +539,6 @@ describe("idempotent replay", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
-
 function progress(deviceSequence: number, positionMs: number) {
   return {
     userId: USER,
@@ -614,11 +552,6 @@ function progress(deviceSequence: number, positionMs: number) {
   };
 }
 
-/**
- * Drafts for the few cases that need the raw mutation (injecting a failing
- * mirror patch, replaying a stale intent). Keys still come from the production
- * builders — a literal here would be a second implementation of the invariant.
- */
 function tagDraft(tagId: string, include: boolean): MutationDraft {
   return draft({
     key: tagMutationKey(USER, BOOK, tagId),

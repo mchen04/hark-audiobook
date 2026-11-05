@@ -35,18 +35,6 @@ import {
 } from "./db";
 import type { PullBatch, PulledBook } from "./sync-protocol";
 
-/**
- * The device-authoritative copy of the library.
- *
- * A pulled batch lands as one IndexedDB transaction across every affected
- * store, and the new pull cursor is part of that same commit. That is the
- * strongest form of "advance the cursor only after the batch is committed":
- * the cursor can never be observed ahead of the data it describes, so an
- * interrupted pull re-fetches and never skips.
- *
- * Reads never touch the network — they are the library UI's only source.
- */
-
 type MirrorStoreName =
   | "downloads"
   | "books"
@@ -86,28 +74,12 @@ export type MirrorPlayerBook = {
   sourceMimeType: string;
 };
 
-// ---------------------------------------------------------------------------
-// Writes
-// ---------------------------------------------------------------------------
-
-/**
- * Thrown when a batch that omitted `liveBookIds` meets a book set that changed
- * after the device sent its digest. Nothing is applied; pull again without one.
- */
 export class LiveBookSetChangedError extends Error {
   constructor() {
     super("The device's books changed while the pull was in flight.");
   }
 }
 
-/**
- * Applies one pulled batch. Either all of it lands — aggregates, tombstones
- * and the new cursor — or none of it does.
- *
- * `digestedBookIds` are the ids whose digest the request carried. A complete
- * batch that omitted the id list on that basis applies only while the device
- * still holds exactly those ids; see `LiveBookSetChangedError`.
- */
 export async function applyPullBatch(
   userId: string,
   batch: PullBatch,
@@ -120,17 +92,10 @@ export async function applyPullBatch(
     if (isAccountDeletionFenced(userId)) abortQuietly(transaction);
   });
 
-  // A failing IndexedDB request aborts the transaction on its own, but a
-  // JavaScript throw between two requests — a malformed row that will not
-  // structured-clone, say — would otherwise let everything written so far
-  // commit. Aborting explicitly is what makes "all of it or none of it" true
-  // for both failure modes.
   try {
     await clearBookAggregates(transaction, userId, batch.books);
     await writeBookAggregates(transaction, userId, batch.books);
     await writePlaybackStates(transaction, userId, batch);
-    // The snapshot streams ride only the final page of a paged sync; applying
-    // an interim page's empty copies would wipe them until that page arrived.
     if (batch.complete) {
       await replaceTags(transaction, userId, batch);
       await replaceCollections(transaction, userId, batch);
@@ -158,23 +123,12 @@ export async function applyPullBatch(
 }
 
 function abortQuietly(transaction: MirrorTransaction): void {
-  // The caller already holds the real error, so `done`'s AbortError is noise —
-  // but an unclaimed rejection would surface as an unhandled one.
   void transaction.done.catch(() => undefined);
   try {
     transaction.abort();
-  } catch {
-    // A failing request already aborted it; same outcome.
-  }
+  } catch {}
 }
 
-/**
- * Each aggregate is replaced wholesale: a chapter or tag edge removed
- * server-side carries no tombstone of its own, and the parent's bumped
- * `updatedAt` is what conveys the change (design contract section 3). The
- * clear is scoped to one book's key range, which is what makes this
- * replacement rather than absence-as-deletion.
- */
 async function clearBookAggregates(
   transaction: MirrorTransaction,
   userId: string,
@@ -243,7 +197,6 @@ async function writeBookAggregates(
   );
 }
 
-/** Matches the server's `title || ' ' || author || ' ' || narrator || ' ' || series`. */
 function searchTextFor(book: PulledBook): string {
   return [book.title, book.author, book.narrator || "", book.series || ""].join(" ").toLowerCase();
 }
@@ -296,11 +249,6 @@ async function writePlaybackStates(
   );
 }
 
-/**
- * The tag vocabulary is small, user-level and pulled in full, so the batch is
- * the complete truth and a tag it omits is genuinely gone. This is not
- * absence-in-a-page: there are no pages here.
- */
 async function replaceTags(
   transaction: MirrorTransaction,
   userId: string,
@@ -323,7 +271,6 @@ async function replaceTags(
   ]);
 }
 
-/** Same full-pull reasoning as tags, plus each collection's whole membership. */
 async function replaceCollections(
   transaction: MirrorTransaction,
   userId: string,
@@ -377,7 +324,6 @@ async function writePreferences(
   await transaction.objectStore("preferences").put({ userId, ...batch.preferences });
 }
 
-/** Append-only and deduped by id, so replaying a batch is a no-op. */
 async function writeListeningSessions(
   transaction: MirrorTransaction,
   userId: string,
@@ -402,14 +348,6 @@ async function writeListeningSessions(
   );
 }
 
-/**
- * Two deletion signals, applied with one mechanism. `tombstones` carries the
- * per-row deletions since the requested cursor — the signal that scales with
- * deletions, not library size. `liveBookIds`, sent only on a complete first
- * sync, is the server's full statement of what still exists, and a locally
- * held book it omits is deleted explicitly. Everything hanging off a doomed
- * book goes with it.
- */
 async function applyTombstones(
   transaction: MirrorTransaction,
   userId: string,
@@ -419,8 +357,6 @@ async function applyTombstones(
   const doomedSet = new Set((batch.tombstones || []).map((tombstone) => tombstone.bookId));
   const localKeys = await transaction.objectStore("books").index("by-user").getAllKeys(userId);
   const localIds = localKeys.map(mirrorKeyTail);
-  // The server left the id list out because it matched the digested ids. That
-  // is only the same as applying it while this device still holds those ids.
   if (batch.complete && !batch.liveBookIds && digestedBookIds) {
     if (!sameIds(localIds, digestedBookIds)) throw new LiveBookSetChangedError();
   }
@@ -428,8 +364,6 @@ async function applyTombstones(
     const live = new Set(batch.liveBookIds);
     for (const bookId of localIds) if (!live.has(bookId)) doomedSet.add(bookId);
   }
-  // Tombstones may name books this device never held; deleting only what is
-  // local keeps the pass bounded and the deletes meaningful.
   const localIdSet = new Set(localIds);
   const doomed = [...doomedSet].filter((bookId) => localIdSet.has(bookId));
   if (!doomed.length) return;
@@ -442,8 +376,6 @@ async function applyTombstones(
   const collectionBooks = transaction.objectStore("collectionBooks");
   const listeningSessions = transaction.objectStore("listeningSessions");
 
-  // Collection membership is keyed `userId:collectionId:bookId`, so the doomed
-  // books are found by scanning the account's edges once rather than per book.
   const [edgeKeys, sessionKeyGroups] = await Promise.all([
     collectionBooks.index("by-user").getAllKeys(userId),
     Promise.all(
@@ -465,13 +397,6 @@ async function applyTombstones(
   ]);
 }
 
-/**
- * Removes every row belonging to one account from every mirror store. Each
- * store is reached through its `by-user` index — or, where the schema gives a
- * store only a compound index, through a prefix range over that index's
- * leading `userId` component — so this is bounded and provable rather than a
- * best-effort sweep.
- */
 export async function purgeUser(userId: string): Promise<void> {
   const db = await database();
   const transaction = db.transaction(MIRROR_STORES, "readwrite");
@@ -522,40 +447,11 @@ export async function purgeUser(userId: string): Promise<void> {
   await transaction.done;
 }
 
-// ---------------------------------------------------------------------------
-// Reads — local only, no network, no fallback
-// ---------------------------------------------------------------------------
-
 export async function getSyncMeta(userId: string): Promise<MirrorSyncMeta | undefined> {
   const db = await database();
   return db.get("syncMeta", userId);
 }
 
-/**
- * Brings the shelf up to date with what this device actually knows.
- *
- * The library card renders from `playbackStates`, and the only writer of that
- * store used to be a server pull. So the position the player had written
- * durably to `localStorage` a fraction of a second before the app was killed
- * was invisible on the shelf: the card said "Not started" for a book the user
- * had just listened to, which is the complaint in its own right.
- *
- * The player now projects each progress event as it happens, but it cannot
- * project the LAST one — a process killed with no callback wrote its final
- * position synchronously to `localStorage` and never got a task in which to
- * open an IndexedDB transaction. This closes that gap on the read side: one
- * pass over this account's local position keys, writing only the rows whose
- * local record describes a strictly later moment than the mirror holds.
- *
- * Timestamps decide, not device sequences. A sequence orders two events from
- * one device against the SERVER's record of that device; it says nothing about
- * a local write that was never sent. The existing sequence is carried through
- * untouched so a later real progress mutation still orders correctly against it.
- *
- * Also refreshes the `downloads` record, because a book this device holds but
- * the mirror has not seen yet renders its card from there instead — and the two
- * surfaces disagreeing is its own bug.
- */
 export async function healMirrorPlaybackFromLocal(userId: string): Promise<number> {
   assertAccountWritable(userId);
   await applyPendingProgressNormalizationsForUser(userId);
@@ -665,7 +561,6 @@ function laterClock(left: string, right: string): string {
   return Date.parse(left) >= Date.parse(right) ? left : right;
 }
 
-/** The book ids this device holds for one account, and their digest; see `live-book-digest.ts`. */
 export async function localLiveBooks(userId: string): Promise<{ ids: string[]; digest: string }> {
   const db = await database();
   const ids = (await db.getAllKeysFromIndex("books", "by-user", userId)).map(mirrorKeyTail);
@@ -678,7 +573,6 @@ function sameIds(left: readonly string[], right: readonly string[]): boolean {
   return [...left].sort().every((id, index) => id === sortedRight[index]);
 }
 
-/** One coherent account snapshot per library refresh. Filters need no IDB reads. */
 export async function readMirrorLibrary(userId: string): Promise<{
   books: LibraryBook[];
   tags: string[];
@@ -743,12 +637,6 @@ function toLibraryBook(
   };
 }
 
-/**
- * The metadata needed to render a cold offline `/books/:id` route, even when
- * this device does not hold the audio. This lookup is deliberately independent
- * of library filters: a deep link to an archived or filtered-out book still
- * names that book and must not fall through to unrelated library chrome.
- */
 export async function getMirrorPlayerBook(
   userId: string,
   bookId: string,
@@ -799,15 +687,6 @@ export async function getMirrorPlayerBook(
   };
 }
 
-/**
- * This account's collections, with the membership of one book marked.
- *
- * The details dialog used to ask `/api/collections` for exactly this, which
- * made the whole section unusable with the network off — the list, and
- * therefore every checkbox in it, simply did not render. The pull already
- * delivers the collection list in full on every sync, so the device holds the
- * same answer the route would have given.
- */
 export async function listMirrorCollections(
   userId: string,
   bookId: string,

@@ -2,8 +2,6 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-// The service worker implements range parsing in plain JS because it cannot
-// import TypeScript modules; these golden vectors pin its semantics.
 const source = readFileSync(new URL("../../public/sw.js", import.meta.url), "utf8");
 const parseRangeSource = source.match(/function parseRange\([\s\S]*?\n\}/)?.[0];
 if (!parseRangeSource) throw new Error("public/sw.js no longer defines parseRange");

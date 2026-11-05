@@ -12,7 +12,6 @@ import {
   subscribeAccountDeletionFence,
 } from "@/lib/account-deletion-fence";
 
-/** Resumes the prepared → purge → commit → final-purge journal after a crash. */
 export function PendingAccountDeletionRunner() {
   const [pending, setPending] = useState(() => readPendingAccountDeletion() !== null);
   const [result, setResult] = useState<AccountDeletionResult | null>(null);

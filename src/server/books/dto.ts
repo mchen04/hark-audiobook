@@ -5,10 +5,6 @@ import type { PlaybackHistoryEntry } from "@/domain/playback-history";
 import type { listBooksPage } from "@/server/books/queries";
 import type { playbackActions } from "@/server/db/schema";
 
-/**
- * Wire shapes the client consumes. Serializing here keeps the domain types the
- * single source of truth instead of ad-hoc casts on both sides.
- */
 export function toPlaybackHistoryDto(
   row: Pick<
     typeof playbackActions.$inferSelect,

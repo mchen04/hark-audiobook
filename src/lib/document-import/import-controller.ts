@@ -6,18 +6,9 @@ export type ImportState = {
   title: string;
   percent: number;
   stage: string;
-  /** Documents become playable only after their complete audio is committed. */
   narrated: boolean;
 };
 
-/**
- * The running import, owned outside React.
- *
- * Navigation within the app may continue while a book is imported. Explicit
- * cancellation and the account write fence stop all work and partial storage.
- *
- * One import at a time in this page. Starting another replaces it.
- */
 let state: ImportState | null = null;
 let controller: AbortController | null = null;
 let ownerId: string | null = null;
@@ -37,12 +28,10 @@ export function importSnapshot(): ImportState | null {
   return state;
 }
 
-/** Server render has no import in flight, and must not read the live one. */
 export function emptyImportSnapshot(): ImportState | null {
   return null;
 }
 
-/** Abandons the running import without touching completed books. */
 export function abortImport(): void {
   controller?.abort();
   controller = null;
@@ -77,8 +66,6 @@ export async function runImport(
 
   const report = (percent: number, stage: string) => {
     if (controller !== own || own.signal.aborted) return;
-    // Download readers can report many chunks within the same percent. Do not
-    // re-render the library when the visible progress has not changed.
     if (state?.percent === percent && state.stage === stage) return;
     publish({
       filename: file.name,

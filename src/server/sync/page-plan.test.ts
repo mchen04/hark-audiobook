@@ -4,7 +4,6 @@ import { planBookPage } from "./page-plan";
 
 const FLOOR = "1970-01-01T00:00:00.000000Z";
 
-/** Microsecond-precision UTC text, exactly as the pull query formats it. */
 function at(micros: number) {
   return `2026-07-24T06:18:47.${String(micros).padStart(6, "0")}Z`;
 }
@@ -43,8 +42,6 @@ describe("planBookPage", () => {
   });
 
   it("never leaves a watermark that a skipped row could re-satisfy", () => {
-    // The regression: a watermark equal to a row that was not carried makes
-    // `updatedAt > watermark` re-select it, and the pull never terminates.
     const cursors = [at(1), at(1), at(2), at(2), at(2)];
     const plan = planBookPage(cursors, FLOOR, 4);
     expect(plan.kind).toBe("partial");
@@ -56,8 +53,6 @@ describe("planBookPage", () => {
   });
 
   it("keeps millisecond-identical rows apart by their microseconds", () => {
-    // Truncating these to milliseconds collapses them to one value, which is
-    // exactly how a Date-based cursor stalls.
     const cursors = [at(123_000), at(123_400), at(123_800), at(999_000)];
     const plan = planBookPage(cursors, FLOOR, 3);
     expect(plan).toStrictEqual({ kind: "partial", take: 3, watermark: at(123_800) });

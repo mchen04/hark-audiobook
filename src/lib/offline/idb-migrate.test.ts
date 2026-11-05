@@ -5,30 +5,11 @@ import { openDB, type IDBPDatabase } from "idb";
 
 import { database as openOfflineDatabase } from "./db";
 
-/**
- * Migration ground truth for both on-device IndexedDB databases.
- *
- * Every historical schema version is rebuilt here as a raw fixture — exactly
- * the stores and indexes that version shipped with, never a shape it never
- * had — populated with representative rows, then opened by the production
- * `database()` helpers and checked for lossless upgrade, index reachability,
- * idempotency, and safety after an interrupted upgrade.
- *
- * ADDING A VERSION: append one entry to `OFFLINE_HISTORY` (or `SYNC_HISTORY`)
- * and, if the new version adds a store or index, one entry to the matching
- * `CURRENT_*_SCHEMA`. The `covers every shipped schema version` guard fails
- * until you do.
- */
-
 const OFFLINE_DATABASE = "chapterline-offline-v1";
 const SYNC_DATABASE = "chapterline-sync-v1";
 const USER_A = "user-a";
 const USER_B = "user-b";
 const INTERRUPTED_KEY = "interrupted-upgrade-row";
-
-// ---------------------------------------------------------------------------
-// Raw fixture plumbing (no production code — this is what the browser had)
-// ---------------------------------------------------------------------------
 
 type IndexShape = Record<string, string | string[]>;
 type StoreShape = { keyPath: string; indexes: IndexShape };
@@ -36,9 +17,7 @@ type SchemaShape = Record<string, StoreShape>;
 
 type LegacyVersion = {
   version: number;
-  /** Stores/indexes exactly as this version created them. */
   schema: SchemaShape;
-  /** Representative rows this version could legitimately hold. */
   rows: Record<string, Record<string, unknown>[]>;
 };
 
@@ -80,10 +59,6 @@ function buildFixture(name: string, fixture: LegacyVersion): Promise<void> {
   });
 }
 
-/**
- * Runs a version-change transaction that does part of the work and then dies,
- * standing in for a tab that is killed (or a device that sleeps) mid-upgrade.
- */
 function interruptUpgrade(name: string, version: number, schema: SchemaShape): Promise<void> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(name, version);
@@ -106,7 +81,6 @@ function interruptUpgrade(name: string, version: number, schema: SchemaShape): P
       }
       transaction.abort();
     };
-    // An aborted version-change transaction surfaces as an open error.
     request.onerror = () => resolve();
     request.onblocked = () => reject(new Error(`interrupted upgrade of ${name} was blocked`));
     request.onsuccess = () => {
@@ -155,7 +129,6 @@ async function assertSchema(db: IDBPDatabase, schema: SchemaShape) {
   await transaction.done;
 }
 
-/** Every row must be reachable by primary key AND through each index. */
 async function assertReachable(
   db: IDBPDatabase,
   schema: SchemaShape,
@@ -182,7 +155,6 @@ async function assertReachable(
             .filter((candidate) =>
               paths.every((path, position) => candidate[path] === indexKey[position]),
             )
-            // Index reads come back in primary-key order within an index key.
             .sort((left, right) =>
               String(left[shape.keyPath]).localeCompare(String(right[shape.keyPath])),
             ),
@@ -192,17 +164,11 @@ async function assertReachable(
   }
 }
 
-// ---------------------------------------------------------------------------
-// chapterline-offline-v1 history
-// ---------------------------------------------------------------------------
-
 const OFFLINE_STORE = {
   downloads: { keyPath: "key", indexes: BY_USER } satisfies StoreShape,
   deletions: { keyPath: "key", indexes: BY_USER } satisfies StoreShape,
   cacheEntries: { keyPath: "url", indexes: BY_USER } satisfies StoreShape,
   transcripts: { keyPath: "key", indexes: BY_USER } satisfies StoreShape,
-  // The version-7 mirror. Every store leads with `userId` so an account purge
-  // is a bounded key range rather than a scan.
   books: {
     keyPath: "key",
     indexes: { "by-user": "userId", "by-user-updated": ["userId", "updatedAt"] },
@@ -224,7 +190,6 @@ const OFFLINE_STORE = {
   syncMeta: { keyPath: "userId", indexes: {} } satisfies StoreShape,
 };
 
-/** Stores added by version 7; every earlier fixture must gain them empty. */
 const MIRROR_STORE_NAMES = [
   "books",
   "chapters",
@@ -263,11 +228,6 @@ function playerBook(id: string) {
   };
 }
 
-/**
- * Cover thumbnails only exist from v5 onward (added while the schema sat at
- * version 5); legacy `bookmarks` projections only exist before v5, which is
- * where the cursor sweep strips them.
- */
 function offlineDownloads(version: number): Record<string, unknown>[] {
   const legacy = version < 5;
   const thumbs = version >= 5;
@@ -305,7 +265,6 @@ function offlineDownloads(version: number): Record<string, unknown>[] {
   if (legacy) {
     plain.bookmarks = [{ id: "legacy-1", positionMs: 10, note: "gone" }];
     covered.bookmarks = [];
-    // `other` keeps no bookmarks key: mixed shapes must both survive.
   }
   return [plain, covered, other];
 }
@@ -384,12 +343,6 @@ function offlineTranscripts(): Record<string, unknown>[] {
   ];
 }
 
-/**
- * Version-7 mirror rows: a two-account device holding a full book aggregate
- * (metadata, embedded media, chapters, tag edges), progress, a collection with
- * membership, preferences, a listening session and a pull cursor. Audio bytes
- * and transcript cues are deliberately absent — the mirror never holds either.
- */
 function mirrorRows(): Record<string, Record<string, unknown>[]> {
   const searchText = (title: string, author: string, narrator = "", series = "") =>
     [title, author, narrator, series].join(" ").toLowerCase();
@@ -633,7 +586,6 @@ function offlineFixture(version: number): LegacyVersion {
   return { version, schema, rows };
 }
 
-/** Post-upgrade expectation: identical rows minus the stripped legacy field. */
 function expectedOffline(fixture: LegacyVersion): Record<string, Record<string, unknown>[]> {
   const expected: Record<string, Record<string, unknown>[]> = {};
   for (const store of Object.keys(CURRENT_OFFLINE_SCHEMA)) {
@@ -647,13 +599,7 @@ function expectedOffline(fixture: LegacyVersion): Record<string, Record<string, 
   return expected;
 }
 
-// Versions 1..7 as db.ts's upgrade path defines them. v3 never differed from
-// v2 (the `oldVersion < 4` branch creates cacheEntries for both).
 const OFFLINE_HISTORY: LegacyVersion[] = [1, 2, 3, 4, 5, 6, 7].map(offlineFixture);
-
-// ---------------------------------------------------------------------------
-// chapterline-sync-v1 history
-// ---------------------------------------------------------------------------
 
 const CURRENT_SYNC_SCHEMA: SchemaShape = {
   mutations: { keyPath: "key", indexes: { "by-user": "userId", "by-user-key": ["userId", "key"] } },
@@ -666,7 +612,6 @@ function progressKey(userId: string, bookId: string) {
   return `${userId}:progress:${bookId}:device-1`;
 }
 
-/** The v1–v3 record: a `kind` and an opaque `entry`. */
 function progressMutation(userId: string, bookId: string, deviceSequence: number) {
   return {
     key: progressKey(userId, bookId),
@@ -685,16 +630,6 @@ function progressMutation(userId: string, bookId: string, deviceSequence: number
   };
 }
 
-/**
- * The same intent after the v4 generalization. Every field the legacy row
- * carried is still present and still exact — book, device, sequence, position,
- * rate, completion and event time — because each of these rows is a user write
- * that has not reached the server yet.
- *
- * `mutationId` is derived from the legacy identity rather than minted fresh, so
- * the migration is deterministic and re-runnable; `queuedAt` is 0 because the
- * legacy record never stored one and inventing a time would be a lie.
- */
 function migratedProgressMutation(userId: string, bookId: string, deviceSequence: number) {
   const key = progressKey(userId, bookId);
   return {
@@ -730,12 +665,6 @@ const MIGRATED_MUTATIONS = LEGACY_PROGRESS.map(([userId, bookId, sequence]) =>
   migratedProgressMutation(userId, bookId, sequence),
 );
 
-/**
- * Rows a build already running version 4 would have written: a real uuid
- * `mutationId`, a real `queuedAt`, and the three kinds that must never coalesce
- * (`import`, `delete`, `history`), each keyed by its own `mutationId` so no two
- * of them can collapse into one.
- */
 const NATIVE_V4_MUTATIONS = [
   {
     key: `${USER_A}:metadata:book-covered`,
@@ -775,11 +704,6 @@ const NATIVE_V4_MUTATIONS = [
   },
 ];
 
-/**
- * Device-sequence high-water marks. Losing or resetting a row here silently
- * reorders or discards replayed progress writes, so they are asserted by
- * exact value.
- */
 const SEQUENCE_ROWS = [
   { key: "book-plain", value: 3 },
   { key: "book-covered", value: 41 },
@@ -788,20 +712,16 @@ const SEQUENCE_ROWS = [
 ];
 
 function syncFixture(version: number): LegacyVersion {
-  // v1 and v2 shipped with `by-user` only; `by-user-key` arrives in v3.
   const mutations: StoreShape = {
     keyPath: "key",
     indexes: version >= 3 ? CURRENT_SYNC_SCHEMA.mutations!.indexes : BY_USER,
   };
-  // v4 generalized the record shape, so a database already at v4 holds the new
-  // shape — including the kinds that only exist from v4 onward.
   const mutationRows: Record<string, unknown>[] =
     version >= 4 ? [...MIGRATED_MUTATIONS, ...NATIVE_V4_MUTATIONS] : [...SURVIVING_MUTATIONS];
   const rows: Record<string, Record<string, unknown>[]> = {
     mutations: mutationRows,
     sequences: [...SEQUENCE_ROWS],
   };
-  // Non-progress kinds could only exist before the v2 purge.
   if (version < 2) {
     mutationRows.push(
       {
@@ -828,12 +748,6 @@ function syncFixture(version: number): LegacyVersion {
   };
 }
 
-/**
- * Post-upgrade expectation. Every queued progress write survives — never
- * fewer, never reordered, never with a changed sequence — and `sequences` is
- * byte-identical, because those high-water marks order replay and resetting one
- * loses writes.
- */
 function expectedSync(fixture: LegacyVersion): Record<string, Record<string, unknown>[]> {
   return {
     mutations:
@@ -844,18 +758,7 @@ function expectedSync(fixture: LegacyVersion): Record<string, Record<string, unk
   };
 }
 
-/**
- * v5 changed no store, keyPath or index: it re-keys `sequences` from `bookId`
- * to `userId:bookId` so an account purge can sweep it. A v5 database on a
- * device that was signed out when it upgraded still holds the bare-key rows —
- * attribution is skipped rather than guessed — so the v5 fixture is the v4 one,
- * and the dedicated cases below cover the attributed shape.
- */
 const SYNC_HISTORY: LegacyVersion[] = [1, 2, 3, 4, 5].map(syncFixture);
-
-// ---------------------------------------------------------------------------
-// Production open helpers (the code under test)
-// ---------------------------------------------------------------------------
 
 async function upgradeOffline(): Promise<IDBPDatabase> {
   const db = await openOfflineDatabase();
@@ -864,8 +767,6 @@ async function upgradeOffline(): Promise<IDBPDatabase> {
 }
 
 async function upgradeSync(): Promise<IDBPDatabase> {
-  // `currentDeviceSequence` is the cheapest read-only entry point into the
-  // sync module's own `database()`, so the real upgrade path runs.
   const { currentDeviceSequence } = await import("../offline-sync");
   await currentDeviceSequence("migration-probe");
   return await openDB(SYNC_DATABASE);
@@ -889,8 +790,6 @@ const TARGETS = {
 } as const;
 
 beforeEach(() => {
-  // A brand new in-memory factory per test: no stale connections, no blocked
-  // deletes, no ordering coupling between cases.
   vi.stubGlobal("indexedDB", new FakeIDBFactory());
 });
 
@@ -948,10 +847,6 @@ describe.each(Object.entries(TARGETS))("%s database migrations", (_label, target
     it("recovers from an upgrade interrupted midway without loss or duplicates", async () => {
       await buildFixture(target.name, fixture);
 
-      // A version-change transaction that half-builds the new schema and then
-      // dies must roll all the way back. A fixture already at the current
-      // version is interrupted one version ahead, so the abort path is still
-      // exercised for it.
       const latest = target.history.at(-1)!.version;
       await interruptUpgrade(target.name, Math.max(latest, fixture.version + 1), target.schema);
       expect(await currentVersion(target.name)).toBe(fixture.version);
@@ -985,7 +880,6 @@ describe("chapterline-offline-v1 upgrade specifics", () => {
       for (const record of downloads as Record<string, unknown>[]) {
         expect(record).not.toHaveProperty("bookmarks");
       }
-      // The sweep must not damage anything else on the record.
       expect(await db.get("downloads", `${USER_A}:book-plain`)).toStrictEqual(
         expectedOffline(fixture).downloads!.find((row) => row.key === `${USER_A}:book-plain`),
       );
@@ -1056,8 +950,6 @@ describe("chapterline-offline-v1 upgrade specifics", () => {
         expect([...db.objectStoreNames], `${store} created`).toContain(store);
         expect(await db.getAll(store), `${store} starts empty`).toStrictEqual([]);
       }
-      // The pre-existing stores keep every row, byte for byte, apart from the
-      // legacy bookmark strip the v5 sweep already owned.
       const expected = expectedOffline(fixture);
       for (const store of ["downloads", "deletions", "cacheEntries", "transcripts"] as const) {
         const shape = CURRENT_OFFLINE_SCHEMA[store]!;
@@ -1077,8 +969,6 @@ describe("chapterline-offline-v1 upgrade specifics", () => {
 
     const db = await upgradeOffline();
 
-    // One representative lookup per mirror index, so a swapped or missing
-    // keyPath fails here rather than silently returning nothing at runtime.
     expect(
       (await db.getAllFromIndex("books", "by-user", USER_A)).map((row) => row.bookId),
     ).toStrictEqual(["book-archived", "book-covered"]);
@@ -1119,8 +1009,6 @@ describe("chapterline-offline-v1 upgrade specifics", () => {
   it("survives a stepwise upgrade that stops at an intermediate shipped version", async () => {
     await buildFixture(OFFLINE_DATABASE, offlineFixture(1));
 
-    // The user ran an older build that only knew about version 4 before
-    // updating to the current one.
     const intermediate = await openDB(OFFLINE_DATABASE, 4, {
       upgrade(db, oldVersion) {
         if (oldVersion < 2) {
@@ -1172,7 +1060,6 @@ describe("chapterline-sync-v1 upgrade specifics", () => {
       for (const row of SEQUENCE_ROWS) {
         expect(await db.get("sequences", row.key), `sequences[${row.key}]`).toStrictEqual(row);
       }
-      // The probe read must not have invented or reset a row.
       expect(await db.count("sequences")).toBe(SEQUENCE_ROWS.length);
       db.close();
     },
@@ -1211,21 +1098,17 @@ describe("chapterline-sync-v1 upgrade specifics", () => {
       const db = await upgradeSync();
 
       expect(db.version).toBe(5);
-      // Not one queued write may be dropped: each is a user write the server
-      // has never seen, so losing it here is indistinguishable from losing it.
       const mutations = (await db.getAll("mutations")) as Record<string, unknown>[];
       expect(mutations).toHaveLength(3);
       for (const migrated of MIGRATED_MUTATIONS) {
         expect(await db.get("mutations", migrated.key), migrated.key).toStrictEqual(migrated);
       }
-      // The legacy envelope is gone; the intent inside it is not.
       for (const row of mutations) {
         expect(row).not.toHaveProperty("entry");
         expect(typeof row.mutationId, "mutationId").toBe("string");
         expect(typeof row.attempts, "attempts").toBe("number");
         expect(typeof row.entityId, "entityId").toBe("string");
       }
-      // The high-water marks that order replay are untouched by the rewrite.
       expect(await db.getAll("sequences")).toStrictEqual(
         [...SEQUENCE_ROWS].sort((left, right) => left.key.localeCompare(right.key)),
       );
@@ -1256,16 +1139,6 @@ describe("chapterline-sync-v1 upgrade specifics", () => {
   });
 });
 
-/**
- * v4 → v5 re-keys `sequences` from `bookId` to `userId:bookId` so an account
- * purge can sweep it.
- *
- * These values order replay. A counter that comes back lower than what the
- * server already recorded in `playback_device_sequences` makes the server treat
- * this device's later writes as stale and discard them silently — the exact
- * lost-write class this project halts on. So every case here asserts the
- * counter's EXACT value, never merely that a row exists.
- */
 describe("chapterline-sync-v1 device sequence scoping", () => {
   const OWNER = "user-a";
 
@@ -1290,8 +1163,6 @@ describe("chapterline-sync-v1 device sequence scoping", () => {
     return rows;
   }
 
-  // v1→v5 … v4→v5. A database already at v5 has had its one attribution pass
-  // and is covered by the signed-out case below instead.
   it.each(SYNC_HISTORY.filter((fixture) => fixture.version < 5))(
     "carries every counter forward from version $version with an account signed in",
     async (fixture) => {
@@ -1302,7 +1173,6 @@ describe("chapterline-sync-v1 device sequence scoping", () => {
       expect(db.version).toBe(5);
       db.close();
 
-      // Exact values, under the scoped key, for every counter the device held.
       for (const row of SEQUENCE_ROWS) {
         expect(
           await (async () => {
@@ -1319,7 +1189,6 @@ describe("chapterline-sync-v1 device sequence scoping", () => {
           value: row.value,
         });
       }
-      // Re-keyed, not duplicated: the bare rows are gone and none was invented.
       expect((await sequenceRows()).map((row) => row.key).sort()).toStrictEqual(
         SEQUENCE_ROWS.map((row) => `${OWNER}:${row.key}`).sort(),
       );
@@ -1336,9 +1205,6 @@ describe("chapterline-sync-v1 device sequence scoping", () => {
       expect(db.version).toBe(5);
       db.close();
 
-      // Nothing to attribute the rows to, so nothing is guessed AND nothing is
-      // dropped: discarding them to make the migration tidy would reset this
-      // device's counters below the server's high-water mark.
       for (const row of SEQUENCE_ROWS) {
         expect(await (await openDB(SYNC_DATABASE)).get("sequences", row.key)).toStrictEqual(row);
       }
@@ -1351,11 +1217,8 @@ describe("chapterline-sync-v1 device sequence scoping", () => {
     stubActiveUser(null);
     const { nextDeviceSequence } = await import("../offline-sync");
 
-    // Signed out: falls back to the bare key and continues from 41, never 1.
     expect(await nextDeviceSequence("book-covered")).toBe(42);
 
-    // Signing in must not restart it either — the scoped row starts above the
-    // legacy value it supersedes, and the legacy row is folded away.
     stubActiveUser(OWNER);
     expect(await nextDeviceSequence("book-covered")).toBe(43);
     const rows = await sequenceRows();
@@ -1379,16 +1242,12 @@ describe("chapterline-sync-v1 device sequence scoping", () => {
 
     await purgeDeviceSequencesForUser(OWNER);
 
-    // Swept: nothing left names the departed account.
     const afterPurge = await sequenceRows();
     expect(afterPurge.filter((row) => String(row.key).startsWith(`${OWNER}:`))).toStrictEqual([]);
     expect(afterPurge.every((row) => row.userId === undefined && row.bookId === undefined)).toBe(
       true,
     );
 
-    // And the same account signing back in resumes ABOVE the value the server
-    // already holds, instead of restarting at 1 and having its next forty-two
-    // writes discarded as stale.
     expect(await nextDeviceSequence("book-covered")).toBe(999_999 + 1);
   });
 

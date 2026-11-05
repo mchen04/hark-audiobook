@@ -1,11 +1,5 @@
 const THUMB_LONGEST_EDGE = 256;
 
-/**
- * Downscales embedded cover art (accepted up to 5MB) once at import so the
- * library grid, mini player, and downloads list never decode a multi-megabyte
- * image to paint a thumbnail. Returns null when the source is already small
- * or the platform lacks OffscreenCanvas — callers fall back to the original.
- */
 export async function createCoverThumbnail(
   data: Uint8Array,
   mimeType: string,

@@ -8,8 +8,6 @@ import {
 
 describe("estimateNarrationSeconds", () => {
   it("predicts the two measured documents within a tolerance worth trusting", () => {
-    // The Lighthouse fixture: 2,375 characters over 4 heading-split chapters
-    // narrated to 151s. The demo MP3: 868 characters over 3 chapters to 52.5s.
     expect(estimateNarrationSeconds(2_375, 4)).toBeGreaterThan(140);
     expect(estimateNarrationSeconds(2_375, 4)).toBeLessThan(160);
     expect(estimateNarrationSeconds(868, 3)).toBeGreaterThan(48);
@@ -39,7 +37,7 @@ describe("createNarrationMeter", () => {
   it("withholds a reading until the one-time startup cost is behind it", () => {
     const meter = createNarrationMeter(1_000);
     expect(meter.remainingMs()).toBeNull();
-    meter.record(100, 4_000); // first chunk carries the model load
+    meter.record(100, 4_000);
     expect(meter.remainingMs()).toBeNull();
     meter.record(100, 1_000);
     expect(meter.remainingMs()).not.toBeNull();
@@ -49,7 +47,6 @@ describe("createNarrationMeter", () => {
     const meter = createNarrationMeter(1_000);
     meter.record(200, 2_000);
     meter.record(200, 2_000);
-    // 400 of 1,000 characters took 4s, so the remaining 600 should take 6s.
     expect(meter.remainingMs()).toBeCloseTo(6_000, 5);
   });
 

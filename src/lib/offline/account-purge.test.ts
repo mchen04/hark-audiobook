@@ -36,15 +36,6 @@ import {
 import { database, MEDIA_CACHE, mirrorKey } from "./db";
 import { commitMetadataEdit } from "./outbox";
 
-/**
- * Purge completeness — `docs/local-first.md` section 11.
- *
- * The assertion that matters is exhaustive rather than representative: after a
- * purge, *no* store may still hold a row for the departed account, and every
- * row belonging to the other account must be untouched. A store added later and
- * forgotten shows up here as a leaked row.
- */
-
 const USER_A = "user-a";
 const USER_B = "user-b";
 const SHELL_CACHE = "chapterline-shell-v5";
@@ -112,7 +103,6 @@ beforeEach(() => {
   vi.stubGlobal("localStorage", storage);
 });
 
-/** Every store that can hold user data, seeded for one account. */
 async function seedAccount(userId: string) {
   const db = await database();
   const mediaUrl = `/offline-media/${userId}-book`;
@@ -127,8 +117,6 @@ async function seedAccount(userId: string) {
   });
   await db.put("cacheEntries", { url: mediaUrl, userId, bookId: "book" });
   await db.put("cacheEntries", { url: `${mediaUrl}/chunk/0`, userId, bookId: "book" });
-  // A completed deletion-journal row, exactly as `removeOfflineBook` leaves it:
-  // it names the account and the books it deleted, and it outlives the download.
   await db.put("deletions", {
     key: `${userId}:removed-book`,
     userId,
@@ -233,23 +221,10 @@ async function seedAccount(userId: string) {
   await media.put(mediaUrl, new Response("audio"));
   await media.put(`${mediaUrl}/chunk/0`, new Response("chunk"));
   storage.setItem(`chapterline:position:${userId}`, "1");
-  // The answer this account gave to a recovery offer. It names the account and
-  // one of its books, so it is residue in its own right — and the sweep below
-  // finds it by key shape rather than by anything that knows it exists, which
-  // is only worth relying on if the fixture actually contains one.
   storage.setItem(`chapterline:suspension-dismissed:${userId}:book`, "1700000000000");
-  // A replay counter for this account, scoped `userId:bookId`.
   await nextDeviceSequence("book", userId);
 }
 
-/**
- * The stores `seedAccount` populates. This is a fixture manifest, not the list
- * the assertions iterate: `rowsFor` reads the *live* `objectStoreNames`, so a
- * store added to `db.ts` and forgotten by `purgeUser` leaks a row and fails —
- * and a store added but never seeded fails the guard below instead of silently
- * being excused. A hand-maintained list that the assertions also iterate would
- * make both of those invisible.
- */
 const SEEDED_STORES = [
   "downloads",
   "cacheEntries",
@@ -269,7 +244,6 @@ const SEEDED_STORES = [
 
 type LiveStore = (typeof SEEDED_STORES)[number];
 
-/** The device's actual stores, not a list this file maintains in parallel. */
 async function liveStores(): Promise<LiveStore[]> {
   const db = await database();
   return ([...db.objectStoreNames] as LiveStore[]).sort();
@@ -283,8 +257,6 @@ async function rowsFor(userId: string): Promise<Record<string, number>> {
     counts[store] = rows.filter((row) => row.userId === userId).length;
   }
   counts.outbox = (await listQueuedMutations(userId)).length;
-  // The replay high-water marks live in the other database and are keyed
-  // `userId:bookId`, so they are swept by key range rather than by index.
   const sync = await openDB("chapterline-sync-v1");
   counts.sequences = ((await sync.getAll("sequences")) as { key: string }[]).filter((row) =>
     row.key.startsWith(`${userId}:`),
@@ -296,8 +268,6 @@ async function rowsFor(userId: string): Promise<Record<string, number>> {
 
 describe("account purge", () => {
   it("seeds every store the device actually has", async () => {
-    // If `db.ts` grows a store, this fails until the fixture covers it — which
-    // is what keeps the sweep assertion below exhaustive instead of a sample.
     await seedAccount(USER_A);
     expect(await liveStores()).toStrictEqual([...SEEDED_STORES].sort());
     const seeded = await rowsFor(USER_A);
@@ -353,10 +323,6 @@ describe("account purge", () => {
     await shell.put("https://hark.test/offline", new Response("shell"));
     await shell.put("https://hark.test/_next/static/chunk.js", new Response("js"));
     await shell.put("https://hark.test/icons/icon-192.png", new Response("icon"));
-    // Both launch-shell keys are the SAME user-agnostic document the service
-    // worker caches, so both survive — the cold launch's static route resolves
-    // against this cache and a miss would go to the network. A page that really
-    // does name an account still goes, which is what `/settings` proves.
     await shell.put("https://hark.test/library", new Response("shell"));
     await shell.put("https://hark.test/library?source=pwa", new Response("shell"));
     await shell.put("https://hark.test/settings", new Response("account page"));
@@ -389,8 +355,6 @@ describe("account purge", () => {
 
     expect(purged).toStrictEqual([USER_A]);
     expect(Object.values(await rowsFor(USER_A)).every((count) => count === 0)).toBe(true);
-    // The incoming account keeps its downloads: the MP3 exists nowhere else,
-    // so signing in must never be what destroys the only copy.
     expect(await rowsFor(USER_B)).toStrictEqual(incoming);
   });
 
@@ -403,10 +367,6 @@ describe("account purge", () => {
   });
 });
 
-/**
- * The auth-client hook is the only wiring; every sign-in and sign-out goes
- * through it, so a component that forgets to purge cannot exist.
- */
 describe("purge runs on both sign-out and sign-in", () => {
   async function fire(url: string, data?: unknown) {
     const { runAccountPurge } = await import("@/lib/auth-client");
@@ -444,20 +404,6 @@ describe("purge runs on both sign-out and sign-in", () => {
     expect(await rowsFor(USER_A)).toStrictEqual(before);
   });
 
-  /**
-   * The production race, reproduced exactly.
-   *
-   * `@/lib/offline/account-purge` has no static importer, so in a built app the
-   * `await import(...)` inside `runAccountPurge` is a chunk fetch — a real
-   * asynchronous gap. `account-menu.tsx` used to clear `ACTIVE_USER_KEY` the
-   * instant `signOut()` resolved, which is inside that gap. The purge then read
-   * `null`, took the "nobody is signed in" branch, swept only the page cache,
-   * and left the mirror, the downloads, the MP3s, the outbox, the playback
-   * history and the deletion journal on the device.
-   *
-   * Here the gap is one microtask instead of one network round trip, which is
-   * the SHORTEST it can ever be — a fix that survives this survives production.
-   */
   it("captures the departing account before the caller can clear the key", async () => {
     const { runAccountPurge } = await import("@/lib/auth-client");
     vi.stubGlobal("window", new EventTarget());
@@ -467,7 +413,6 @@ describe("purge runs on both sign-out and sign-in", () => {
     const purging = runAccountPurge({
       request: { url: "https://hark.test/api/auth/sign-out" },
     });
-    // Precisely what the sign-out call site did the moment `signOut()` resolved.
     storage.removeItem(ACTIVE_USER_KEY);
     await purging;
 
@@ -478,13 +423,6 @@ describe("purge runs on both sign-out and sign-in", () => {
   });
 });
 
-/**
- * F11a — signing out must not be what destroys an unsent write.
- *
- * Every user write in this product is journaled to the outbox and lives nowhere
- * else until the server answers. `clearQueuedMutationsForUser` deletes that
- * queue, so sign-out was silently throwing away every edit a user made offline.
- */
 describe("sign-out drains before it purges", () => {
   const ok = () => new Response(null, { status: 200 });
 
@@ -538,8 +476,6 @@ describe("sign-out drains before it purges", () => {
       outcome.undelivered.map((write) => `${write.kind}:${write.entityId}`),
       "an undeliverable write was dropped without a word",
     ).toStrictEqual(["metadata:book"]);
-    // The privacy bar does not move to make room for the report: the queue is
-    // still gone, because it names the account and the book it renamed.
     expect(await listQueuedMutations(USER_A)).toStrictEqual([]);
   });
 
@@ -582,13 +518,6 @@ describe("sign-out drains before it purges", () => {
     expect(await listLocalUserIds()).not.toContain(USER_A);
   });
 
-  /**
-   * A preference change is the one user write that is not an outbox row: its
-   * only record on the device is a flag in `chapterline:preferences:<userId>`,
-   * a key `clearLocalDataForUser` deletes as part of this very sweep. A drain
-   * that enumerated only the outbox and the playback queue therefore destroyed
-   * it and reported nothing.
-   */
   function seedPendingPreference(userId: string, skipBackMs: number) {
     storage.setItem(
       `chapterline:preferences:${userId}`,
@@ -635,8 +564,6 @@ describe("sign-out drains before it purges", () => {
       outcome.undelivered.map((write) => `${write.kind}:${write.entityId}`),
       "a preference change was deleted from the device without a word to the user",
     ).toStrictEqual([`preferences:${userId}`]);
-    // The privacy bar does not move to make room for the report: the key names
-    // the account, so it goes either way. Reporting it is the whole point.
     expect(storage.getItem(`chapterline:preferences:${userId}`)).toBe(null);
   });
 
@@ -773,15 +700,6 @@ describe("sign-out drains before it purges", () => {
   });
 });
 
-/**
- * F9 — one failing step must not abandon the rest of the sweep.
- *
- * The failure is injected the way it actually happens: Cache Storage refuses to
- * open, which is what `OfflineStorageUnavailableError` exists for. That makes
- * `clearLocalDataForUser` throw, and everything after it used to be skipped —
- * leaving the deletion journal (which names the account and the books it
- * deleted) and the account's replay counters on disk under the next session.
- */
 describe("a failing purge step does not abandon the ones after it", () => {
   it("still purges the deletion journal and the replay counters, and reports the failure", async () => {
     await seedAccount(USER_A);
@@ -821,13 +739,6 @@ describe("a failing purge step does not abandon the ones after it", () => {
   });
 });
 
-/**
- * F8 — the sweep enumerates all three databases.
- *
- * `chapterline-sync-v1` and `hark-playback-history-v1` are separate databases
- * from the mirror. An account whose only surviving trace is in one of them is
- * still an account whose writes and listening the next user can read.
- */
 describe("every database is enumerated", () => {
   it("finds an account whose only trace is a playback projection", async () => {
     const userId = "user-playback-only";
@@ -927,7 +838,6 @@ async function sequenceRowsFor(userId: string): Promise<number> {
   return rows.filter((row) => row.key.startsWith(`${userId}:`)).length;
 }
 
-/** Busy admission must retry BETWEEN single-flight passes, outside entity locks. */
 describe("sign-out replay coordination", () => {
   afterEach(() => vi.restoreAllMocks());
   const busy = () => new Response(null, { status: 503, headers: { "Retry-After": "1" } });
@@ -960,7 +870,7 @@ describe("sign-out replay coordination", () => {
 
     it(`joins ambient ${lane}, then runs its own busy retry without parallel replay`, async () => {
       await seed();
-      const replay = observeReplay(); // Delegates to the actual per-account single-flight.
+      const replay = observeReplay();
       const response = deferred<Response>();
       const started = deferred<void>();
       let ambientActive = true;
@@ -1001,7 +911,6 @@ describe("sign-out replay coordination", () => {
       expect(outcome.undelivered).toHaveLength(1);
       response.resolve(busy());
       await ambient;
-      // Flush the drain's continuation after the joined promise settles.
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(send).not.toHaveBeenCalled();
       expect(await listLocalUserIds()).not.toContain(USER_A);

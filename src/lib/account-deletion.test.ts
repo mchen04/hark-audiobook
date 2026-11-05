@@ -46,8 +46,6 @@ it("sweeps again after commit so a writer in the commit gap cannot survive delet
   account.purge.mockImplementation(sweep);
   rememberPendingAccountDeletion("user-a", "token-a-with-enough-entropy-123456789");
   const fetchFn = vi.fn<typeof fetch>(async () => {
-    // The real failure was the playing provider's cadence (and, in a peer tab,
-    // a completed pull) writing after the first sweep but before commit.
     localStorage.setItem(positionKey, JSON.stringify({ positionMs: 4_321 }));
     return Response.json({ deleted: true });
   });

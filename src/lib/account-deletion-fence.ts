@@ -20,7 +20,6 @@ type PendingAccountSignOutFence = {
 
 type AccountSignOutFence = PendingAccountSignOutFence | { phase: "committed" };
 
-/** The durable, origin-wide barrier installed before any account bytes are swept. */
 export function readPendingAccountDeletion(): PendingAccountDeletion | null {
   if (typeof localStorage === "undefined") return null;
   try {
@@ -67,7 +66,6 @@ function readStoredAccountSignOutFence(): AccountSignOutFence | null {
     } | null;
     if (!parsed) return null;
     if (parsed.phase === "committed") return { phase: "committed" };
-    // Records written before phases existed were unconfirmed request fences.
     if (
       (parsed.phase === undefined || parsed.phase === "pending") &&
       typeof parsed.userId === "string" &&
@@ -89,7 +87,6 @@ function readAccountSignOutFence(): AccountSignOutFence | null {
   return fence;
 }
 
-/** A request fence may age out if the initiating document dies before auth answers. */
 export function installAccountSignOutFence(userId: string): void {
   if (typeof localStorage === "undefined") return;
   const current = readStoredAccountSignOutFence();
@@ -101,7 +98,6 @@ export function installAccountSignOutFence(userId: string): void {
   notifyWriteFenceChange();
 }
 
-/** A confirmed account boundary stays closed until a later sign-in. */
 export function commitAccountSignOutFence(): void {
   if (typeof localStorage === "undefined") return;
   localStorage.setItem(ACCOUNT_SIGN_OUT_FENCE_KEY, JSON.stringify({ phase: "committed" }));
@@ -137,7 +133,6 @@ export type AccountWriteScope = {
   release: () => void;
 };
 
-/** Cancels long work in this document when any tab fences the account. */
 export function createAccountWriteScope(
   userId: string,
   externalSignal?: AbortSignal,
@@ -175,14 +170,10 @@ export type AccountWriteSlot = {
 };
 const heldAccountWriteSlots = new WeakSet<AccountWriteSlot>();
 
-/** One account-wide critical section shared by imports in every tab. */
 export async function withAccountWriteLock<T>(
   userId: string,
   operation: (slot: AccountWriteSlot) => Promise<T>,
 ): Promise<T> {
-  // Check both when the write asks to queue and when it eventually acquires
-  // the lock. A stale tab must not park work behind purge and have a later
-  // sign-in accidentally authorize it.
   assertAccountWritable(userId);
   return await withKeyedLock(accountLockName(userId), async () => {
     assertAccountWritable(userId);
@@ -196,7 +187,6 @@ export async function withAccountWriteLock<T>(
   });
 }
 
-/** Runtime proof that a caller is inside this account's current write lock. */
 export function holdsAccountWriteSlot(
   slot: AccountWriteSlot | undefined,
   userId: string,
@@ -204,20 +194,14 @@ export function holdsAccountWriteSlot(
   return Boolean(slot && slot.userId === userId && heldAccountWriteSlots.has(slot));
 }
 
-/** Purge uses the same lock after installing the fence and cancelling writers. */
 export function withAccountPurgeLock<T>(userId: string, operation: () => Promise<T>): Promise<T> {
-  // Commit before waiting for the lock. A cancelled writer may itself be
-  // wedged, but that must never let this barrier expire while purge queues.
   commitAccountSignOutFence();
   return withKeyedLock(ACCOUNT_PURGE_LOCK_NAME, () => {
-    // Close it again while owning the global lock: another document can race
-    // between the storage write above and this Web Lock request.
     commitAccountSignOutFence();
     return withKeyedLock(accountLockName(userId), operation);
   });
 }
 
-/** Reauthentication waits for any older purge before reopening this account. */
 export function reopenAccountAfterSignIn(userId: string): Promise<void> {
   return withKeyedLock(ACCOUNT_PURGE_LOCK_NAME, async () => {
     const current = readStoredAccountSignOutFence();
@@ -233,7 +217,6 @@ export function reopenAccountAfterSignIn(userId: string): Promise<void> {
   });
 }
 
-/** Same-document custom event plus peer-document `storage` events. */
 export function subscribeAccountDeletionFence(onChange: () => void): () => void {
   if (typeof window === "undefined") return () => undefined;
   const onStorage = (event: StorageEvent) => {

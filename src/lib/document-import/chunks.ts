@@ -13,7 +13,6 @@ const SENTENCE_ABBREVIATIONS = new Set([
   "etc",
 ]);
 
-/** Small sentence-aware units bound Kestrel's peak tensors and first-audio latency. */
 export function chunkNarrationText(text: string): string[] {
   const sentences = segmentSentences(text);
   const chunks: string[] = [];

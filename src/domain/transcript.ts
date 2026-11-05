@@ -1,22 +1,12 @@
 import { z } from "zod";
 
-/**
- * Read-along transcript embedded in generated audiobooks (Epub Listener GEOB
- * frame; contract in that repo's docs/transcript-format.md). All timestamps
- * are integer milliseconds RELATIVE TO CHAPTER START; `chapterIndex` refers
- * to the MP3's own embedded chapter order. Transcript content never leaves
- * the device.
- */
-
 export const TRANSCRIPT_GEOB_DESCRIPTION = "EPUB_LISTENER_TRANSCRIPT";
 const TRANSCRIPT_FORMAT = "epub-listener-transcript";
 const TRANSCRIPT_VERSION = 1;
 
-/** Reject transcript frames larger than this before even inflating. */
 export const MAX_COMPRESSED_TRANSCRIPT_BYTES = 24 * 1024 * 1024;
 const MAX_DECOMPRESSED_ABSOLUTE_BYTES = 128 * 1024 * 1024;
 
-/** Decompressed cap scales with book length (~3x real narration density). */
 export function maxDecompressedTranscriptBytes(durationMs: number): number {
   const durationSeconds = Math.max(0, Math.ceil(durationMs / 1000));
   return Math.min(MAX_DECOMPRESSED_ABSOLUTE_BYTES, 1024 * 1024 + 600 * durationSeconds);
@@ -26,7 +16,6 @@ type TranscriptWord = {
   text: string;
   startMs: number;
   endMs: number;
-  /** Char range into the sentence text marking the displayed word. */
   charStart: number;
   charEnd: number;
 };
@@ -39,7 +28,6 @@ export type TranscriptSentence = {
 };
 
 type TranscriptChapter = {
-  /** Index into the book's embedded chapter list; the array may be sparse. */
   index: number;
   granularity: "word" | "sentence";
   sentences: TranscriptSentence[];
@@ -92,10 +80,6 @@ const documentSchema = z.object({
   chapters: z.array(chapterSchema),
 });
 
-/**
- * Validates a decoded transcript document. Throws TranscriptParseError on any
- * contract violation; callers treat that as "this book has no transcript".
- */
 export function interpretTranscriptDocument(value: unknown): BookTranscript {
   const parsed = documentSchema.safeParse(value);
   if (!parsed.success) {
@@ -154,7 +138,6 @@ export function interpretTranscriptDocument(value: unknown): BookTranscript {
   return { engine, language, chapters: cleanChapters };
 }
 
-/** Decode + validate raw JSON bytes, enforcing the duration-scaled size cap. */
 export function interpretTranscriptBytes(bytes: Uint8Array, durationMs: number): BookTranscript {
   if (bytes.byteLength > maxDecompressedTranscriptBytes(durationMs)) {
     throw new TranscriptParseError(

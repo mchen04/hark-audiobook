@@ -20,11 +20,6 @@ export const dynamic = "force-dynamic";
 
 const CHAPTER_INSERT_BATCH = 2_000;
 
-/**
- * Registers a book whose source and audio stay on the user's device: the
- * browser parses or narrates it locally and sends only metadata. The server
- * owns identity, sync, and organization — never the content bytes.
- */
 export const POST = withMutation(
   { body: bookRegistrationSchema, invalidBody: "The book registration is invalid." },
   async ({ session, data }) => {
@@ -52,10 +47,6 @@ export const POST = withMutation(
           }
         }
 
-        // A device-named registration is idempotent on that name. The outbox
-        // replays a queued import until the server answers, and the answer to
-        // "this book already exists, and it is yours" is that the write landed —
-        // not a primary-key crash that would retry until the end of time.
         const [claimed] = await transaction
           .insert(books)
           .values({
@@ -124,9 +115,6 @@ export const POST = withMutation(
             renditionKey: data.renditionKey,
             durationMs: data.durationMs,
           })
-          // Targetless conflict handling works during both halves of the rollout:
-          // while the live server still needs the legacy fingerprint arbiter and
-          // after a later release removes it in favor of rendition identity.
           .onConflictDoNothing()
           .returning({ bookId: mediaAssets.bookId });
         if (!registeredMedia) {
@@ -214,11 +202,6 @@ export const POST = withMutation(
     );
 
     if ("settled" in registration) {
-      // The device already named this book and the server already holds it, so
-      // this registration has nothing left to do. 200 rather than 409: the
-      // outbox reads any non-retryable answer as settled either way, but the
-      // 409 branch below means "a *different* book already owns these bytes",
-      // and this is not that.
       if (!registration.settled) {
         return Response.json(
           { error: "That book id belongs to another account." },

@@ -8,19 +8,6 @@ import { ACTIVE_USER_KEY } from "@/lib/app-keys";
 
 import { AccountMenu } from "./account-menu";
 
-/**
- * The sign-out call site — `docs/local-first.md` section 11.
- *
- * Two properties, both of which this component got wrong:
- *
- *  1. It must NOT clear `chapterline:active-user` itself. That key is the only
- *     record of whose data is on this device, and the purge reads it. Clearing
- *     it here raced the purge across a dynamic import and won, and the purge
- *     then read `null` and swept nothing but the page cache.
- *  2. It may navigate only because the auth hook durably records any warning
- *     for the login page, which survives this provider subtree being revoked.
- */
-
 const router = vi.hoisted(() => ({ replace: vi.fn(), refresh: vi.fn() }));
 const auth = vi.hoisted(() => ({
   signOut: vi.fn(async () => undefined),
@@ -32,8 +19,6 @@ vi.mock("@/lib/auth-client", () => ({
 }));
 
 beforeEach(() => {
-  // Vitest runs without globals, so testing-library's automatic cleanup hook
-  // never registers; without this every render stacks up in one document.
   cleanup();
   router.replace.mockClear();
   router.refresh.mockClear();

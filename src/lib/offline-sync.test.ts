@@ -673,17 +673,6 @@ describe("offline progress queue", () => {
     expect(await listQueuedMutations("user-a")).toStrictEqual([]);
   });
 
-  /**
-   * MEASURED, WebKit, hard kill: Postgres left holding 15245 ms against a true
-   * position of 3231 ms. The 15 s heartbeat queued the pre-rewind position, the
-   * kill took the write that would have followed the rewind, and replay then
-   * published the queued value — carrying its ORIGINAL `eventOccurredAt`, which
-   * the server compares against what IT holds rather than against what the
-   * device knows. The user was left ~12 s ahead of themselves the moment the
-   * server became authoritative (a fresh install, a second device, cleared
-   * storage). These three rows pin the collapse, its bounds, and the case it
-   * must not touch.
-   */
   describe("a queued progress row against a newer local position", () => {
     const KEY = "chapterline:position:user-a:book-1";
 
@@ -724,8 +713,6 @@ describe("offline progress queue", () => {
       const body = JSON.parse(fetchFn.mock.calls[0]?.[1]?.body as string);
       expect(body.positionMs).toBe(3_231);
       expect(body.eventOccurredAt).toBe("2026-07-09T00:00:05.000Z");
-      // A carried-over sequence is a write the server answers 200 to and then
-      // discards, so the superseding row has to claim a fresh one.
       expect(body.deviceSequence).toBeGreaterThan(4);
       expect(await listQueuedMutations("user-a")).toHaveLength(0);
       expect(await nextDeviceSequence("book-1", "user-a")).toBeGreaterThan(body.deviceSequence);
@@ -750,8 +737,6 @@ describe("offline progress queue", () => {
 
     it("does not fold in a record that claims no moment at all", async () => {
       await queueProgress(progressEntry({ deviceSequence: 4, positionMs: 15_245 }));
-      // Every pre-v2 local value parses to `occurredAt: 0`. It cannot claim to
-      // be later than anything, which is the rule `localWinsOver` applies too.
       withLocalStorage({ [KEY]: "3231" });
       const fetchFn = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
 
@@ -903,16 +888,6 @@ describe("offline progress queue", () => {
   });
 });
 
-/**
- * The offline half of design contract section 10.
- *
- * An import made with the network down mints its own book id and writes the
- * audio, the download record and the cues under it. The server answers the
- * replayed registration with 409 + `existingBookId` — the fingerprint already
- * belongs to another book — and that answer is the only thing that ever names
- * the canonical id on this device. Discarding it leaves the account holding two
- * books and this device holding audio nobody will ever ask for.
- */
 describe("replaying an import the server merges by fingerprint", () => {
   const USER = "user-import";
   const MINTED = "minted-book-id";
@@ -950,7 +925,6 @@ describe("replaying an import the server merges by fingerprint", () => {
     vi.unstubAllGlobals();
   });
 
-  /** What an offline import leaves behind: bytes under the id this device minted. */
   async function seedOfflineImport(bookId: string, offlineMediaUrl: string) {
     const db = await database();
     await db.put("downloads", {
@@ -977,7 +951,6 @@ describe("replaying an import the server merges by fingerprint", () => {
     await db.put("cacheEntries", { url: `${offlineMediaUrl}/chunk/0`, userId: USER, bookId });
   }
 
-  /** The registration, queued through the production mutation API. */
   function queueRegistration(bookId: string) {
     return commitImport({ userId: USER, deviceId: "device-1" }, "fingerprint-abc", {
       bookId,
@@ -1063,7 +1036,6 @@ describe("replaying an import the server merges by fingerprint", () => {
     ).toBeDefined();
     expect(queued!.attempts).toBe(1);
 
-    // The next drain asks again and gets the same deterministic answer.
     cacheAvailable = true;
     await replayQueuedMutations(USER, fetchFn as unknown as typeof fetch);
     expect(await listQueuedMutations(USER)).toStrictEqual([]);
@@ -1090,22 +1062,9 @@ describe("replaying an import the server merges by fingerprint", () => {
     ]);
   });
 
-  /**
-   * The writes the user made against the phantom.
-   *
-   * A book imported with no network is on this device's screen — the library
-   * projects a download record the mirror has never heard of — so it can be
-   * renamed, tagged, shelved, played and deleted while the registration is
-   * still queued. Every one of those writes names the id this device minted.
-   * When the merge takes that id away, a row still naming it replays into a
-   * 404, which is terminal, and is dropped as settled: the rename is gone, the
-   * tag is gone, and the DELETE is gone while the book quietly survives as the
-   * canonical one.
-   */
   describe("the writes queued against the id the merge abandons", () => {
     const OTHER_DEVICE_ORIGIN = { userId: USER, deviceId: "device-1" };
 
-    /** Everything a user can queue about one book, through the production API. */
     async function queueEveryKindAgainst(bookId: string) {
       await commitMetadataEdit(OTHER_DEVICE_ORIGIN, bookId, { title: "Renamed offline" });
       await commitTagEdge(OTHER_DEVICE_ORIGIN, bookId, "tag-id", true);
@@ -1124,7 +1083,6 @@ describe("replaying an import the server merges by fingerprint", () => {
       await commitBookDeletion(OTHER_DEVICE_ORIGIN, bookId);
     }
 
-    /** 409 for the registration; everything else is retryable, so it stays queued. */
     function mergeThenHold() {
       return vi.fn(async (url: RequestInfo | URL) => {
         if (String(url) === "/api/books/local") return duplicateAnswer();
@@ -1224,10 +1182,6 @@ describe("replaying an import the server merges by fingerprint", () => {
 
     it("re-stamps progress with a sequence the surviving book will accept", async () => {
       await seedOfflineImport(MINTED, MEDIA_URL);
-      // This device has already sent progress for the canonical book, so the
-      // server holds a high-water mark for (user, canonical, device). A carried
-      // -over sequence below it is discarded by the server, which answers 200
-      // while doing it — a write that reports success and vanishes.
       for (let index = 0; index < 5; index += 1) await nextDeviceSequence(CANONICAL, USER);
       const behind = await currentDeviceSequence(CANONICAL, USER);
       await queueProgress({
@@ -1330,9 +1284,6 @@ describe("replaying an import the server merges by fingerprint", () => {
     });
 
     it("does not drop them when they reach the server BEFORE the registration", async () => {
-      // The order the outbox actually replays in: `archive`, `collection`,
-      // `delete` and `history` all sort ahead of `import`, so the writes arrive
-      // while the server still knows nothing about the book.
       await seedOfflineImport(MINTED, MEDIA_URL);
       await commitHistoryEvent(OTHER_DEVICE_ORIGIN, MINTED, { action: "seek", positionMs: 10 });
       await commitBookDeletion(OTHER_DEVICE_ORIGIN, MINTED);
@@ -1353,8 +1304,6 @@ describe("replaying an import the server merges by fingerprint", () => {
     });
 
     it("stops holding them once the registration leaves the queue", async () => {
-      // The bound: nothing waits forever on a book the server will never hear
-      // about. With no registration queued, a 404 is terminal again.
       await commitHistoryEvent(OTHER_DEVICE_ORIGIN, MINTED, { action: "seek", positionMs: 10 });
       const notFound = vi.fn(async () => Response.json({ error: "Not found" }, { status: 404 }));
 
@@ -1378,15 +1327,6 @@ describe("replaying an import the server merges by fingerprint", () => {
   });
 });
 
-/**
- * Deleting a book and re-picking its MP3 are two intents about one file.
- *
- * The outbox replays in key order with four requests in flight, not in the
- * order the user expressed them, so a registration queued BEFORE a delete lands
- * after it — finds the fingerprint free, because the delete just released it —
- * and creates the book again. Nothing is lost in transit; the delete is undone
- * by an intent the user had already superseded, and the book comes back.
- */
 describe("a delete supersedes an unsent registration of the same file", () => {
   const USER = "user-supersede";
   const ORIGIN = { userId: USER, deviceId: "device-1" };
@@ -1408,7 +1348,6 @@ describe("a delete supersedes an unsent registration of the same file", () => {
     });
   }
 
-  /** The mirror row a pull leaves behind, which is where the delete reads the fingerprint. */
   async function mirrorBook(bookId: string) {
     const db = await database();
     await db.put("books", {
@@ -1453,8 +1392,6 @@ describe("a delete supersedes an unsent registration of the same file", () => {
   });
 
   it("drops the registration of a device-only book by the id it minted", async () => {
-    // No mirror row: this book exists nowhere but this device, which is exactly
-    // the book the library projects from a download record.
     await queueRegistration("device-only-book");
 
     await commitBookDeletion(ORIGIN, "device-only-book");
@@ -1512,8 +1449,6 @@ describe("a delete supersedes an unsent registration of the same file", () => {
 
     const replay = replayQueuedMutations(USER, fetchFn as typeof fetch);
     await vi.waitFor(() => expect(events).toContain("delete-started"));
-    // Give every bounded worker a turn. The import must still be waiting on the
-    // earlier delete rather than racing it into a duplicate-fingerprint 409.
     await new Promise((resolve) => setTimeout(resolve, 0));
     const beforeDeleteSettled = [...events];
     releaseDelete();

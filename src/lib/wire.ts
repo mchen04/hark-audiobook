@@ -1,7 +1,3 @@
-/**
- * Runtime guards for API responses, so a server shape change fails loudly at
- * the fetch boundary instead of silently at a distant use site.
- */
 export async function readJson<T>(
   response: Response,
   guard: (value: unknown) => value is T,

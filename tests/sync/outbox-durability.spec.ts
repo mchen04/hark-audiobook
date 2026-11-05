@@ -24,23 +24,6 @@ import { awaitSignInBudget } from "../shared/sign-in-budget";
 import { buildDriverScript } from "./harness/driver-bundle";
 import { readBookIds, readServerState } from "./harness/state";
 
-/**
- * The queue is the only thing standing between a user write and a lost write,
- * so it has to survive the app being gone.
- *
- * WebKit refuses to navigate at all while `setOffline(true)` is in force, so a
- * reload cannot be taken with the network genuinely absent — see the note on
- * `goOffline` in `harness/app.ts`. A full RELAUNCH of a persistent context is
- * the stronger property anyway and it is what this file proves: mutations
- * journalled offline, the browser closed outright, the profile reopened, and
- * every queued intent still there with the same `mutationId` — which is what
- * makes replay a no-op rather than a double-apply.
- *
- * `sequences` (the per-book device high-water marks) is checked too. The design
- * contract says those must never be reset: they order every future replay, and
- * losing them lets a stale event overwrite a newer one.
- */
-
 const DEVICE = "device-durable-000001";
 const DURATION_MS = 600_000;
 
@@ -75,9 +58,7 @@ async function launch(userDataDir: string): Promise<{ context: BrowserContext; p
     ([id, key]) => {
       try {
         localStorage.setItem(key as string, id as string);
-      } catch {
-        // The driver still loads even where storage is unavailable.
-      }
+      } catch {}
     },
     [DEVICE, "chapterline:device-id"] as const,
   );
@@ -98,14 +79,8 @@ test("every queued mutation survives the app being closed and reopened", async (
   let doomedId = "";
 
   try {
-    // ------------------------------------------------ first launch, online
     const first = await launch(userDataDir);
     try {
-      // This spec signs in for real — it needs a session inside its own
-      // persistent profile, which a reused storageState cannot give it — so it
-      // spends from the same window every other suite spends from. Without
-      // this it passed alone and failed whenever parity had just run, which
-      // looks exactly like a product bug and is not one.
       await awaitSignInBudget("sync");
       await first.page.goto(`${APP_ORIGIN}/login`, { waitUntil: "domcontentloaded" });
       await first.page.getByLabel("Email").fill(account.email);
@@ -114,8 +89,6 @@ test("every queued mutation survives the app being closed and reopened", async (
       await first.page
         .waitForURL(/\/library/, { timeout: 60_000 })
         .catch(async (error: unknown) => {
-          // A bare timeout here says "the app never reached the library", which
-          // is a product claim. Read the page before making it.
           const message = await first.page
             .locator("body")
             .innerText()
@@ -153,7 +126,6 @@ test("every queued mutation survives the app being closed and reopened", async (
       expect(bookId && doomedId, "the durability subjects never reached the server").toBeTruthy();
       expect(await pull(first.page)).toBe("applied");
 
-      // ------------------------------------------- offline, one of each kind
       await first.context.setOffline(true);
       const newFingerprint = "d".repeat(63) + "3";
       await commit(first.page, {
@@ -200,20 +172,11 @@ test("every queued mutation survives the app being closed and reopened", async (
       sequenceBefore = await first.page.evaluate((id) => window.__harkSync.sequenceFor(id), bookId);
       expect(sequenceBefore, "no device sequence was claimed for the book").toBeGreaterThan(0);
     } finally {
-      // The app is gone. Not backgrounded, not reloaded — closed.
       await first.context.close();
     }
 
-    // ------------------------------------------------------ second launch
     const second = await launch(userDataDir);
     try {
-      // Read the queue from a page that is NOT the app.
-      //
-      // `/library` mounts `PlaybackProvider`, which replays on mount — reading
-      // the outbox there would race the drain and could report an empty queue
-      // for the good reason as easily as the bad one. An unrouted path is a
-      // plain Next 404: same origin, same IndexedDB, no app shell, no replay.
-      // So what this reads is the queue exactly as the restart found it.
       await second.page.goto(`${APP_ORIGIN}/__hark_sync_probe__`, {
         waitUntil: "domcontentloaded",
       });
@@ -223,9 +186,6 @@ test("every queued mutation survives the app being closed and reopened", async (
         .map((row) => ({ key: row.key, mutationId: row.mutationId, kind: row.kind }))
         .sort((left, right) => left.key.localeCompare(right.key));
 
-      // Nothing lost, nothing invented, and every `mutationId` identical —
-      // which is what makes replaying an already-applied write a no-op rather
-      // than a second apply.
       expect(
         queuedAfter,
         "the outbox did not come through the relaunch intact. A row that vanished here is a " +
@@ -243,7 +203,6 @@ test("every queued mutation survives the app being closed and reopened", async (
           "(design contract section 4).",
       ).toBeGreaterThanOrEqual(sequenceBefore);
 
-      // Now let the app itself come up and deliver what it found.
       await second.page.goto(`${APP_ORIGIN}/library`, { waitUntil: "domcontentloaded" });
       await second.page.waitForSelector("[data-launch-ready]", {
         state: "attached",
@@ -253,7 +212,6 @@ test("every queued mutation survives the app being closed and reopened", async (
       await drainOutbox(second.page);
       expect(await pull(second.page)).toBe("applied");
 
-      // Every intent journalled before the restart is now on the server.
       const server = await readServerState(account.userId);
       const keeper = server.booksByFingerprint.get("d".repeat(63) + "1");
       expect(keeper?.title, "the rename queued before the restart was lost").toBe(
@@ -319,10 +277,6 @@ test("a replay that cannot reach the server leaves every row queued", async ({ b
     const queued = (await outbox(page)).map((row) => row.mutationId).sort();
     expect(queued, "nothing was journalled while offline").toHaveLength(3);
 
-    // The replay the app runs on mount and on reconnect, but with the network
-    // genuinely gone. `docs/local-first.md` section 5: a row leaves the outbox
-    // only on a server answer that proves the write landed. A replay that
-    // reached nobody proves nothing, so all three rows must still be here.
     await replay(page);
     expect(
       (await outbox(page)).map((row) => row.mutationId).sort(),
@@ -330,7 +284,6 @@ test("a replay that cannot reach the server leaves every row queued", async ({ b
         "record of the user's writes and nothing else in the system holds them.",
     ).toStrictEqual(queued);
 
-    // Attempts may be counted, but the intent must survive verbatim.
     const retained = await outbox(page);
     expect(retained.map((row) => row.kind).sort()).toStrictEqual([
       "archive",

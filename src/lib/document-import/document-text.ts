@@ -50,7 +50,6 @@ const BLOCK_ELEMENTS = new Set([
   "UL",
 ]);
 
-/** A single DOM walk captures mixed container/text markup without duplicates. */
 export function extractNarrativeBlocks(document: Document): NarrativeBlock[] {
   stripNonNarrativeMarkup(document);
   const blocks: NarrativeBlock[] = [];

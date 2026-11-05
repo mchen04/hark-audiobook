@@ -12,34 +12,20 @@ import type { PlaybackPredecessor } from "@/lib/playback-core";
 const DATABASE_NAME = "chapterline-sync-v1";
 const SYNC_DATABASE_VERSION = 5;
 
-/**
- * The outbox: every mutation this device has made but the server has not yet
- * acknowledged. It is the only thing standing between a user write and a lost
- * write, so nothing is ever removed from it except on a server answer that
- * proves the write landed (or is permanently unacceptable).
- *
- * Design contract `docs/local-first.md` sections 5 and 7.
- */
-
 export type MutationKind =
   "progress" | "import" | "metadata" | "tag" | "collection" | "archive" | "delete" | "history";
 
 export type QueuedMutation = {
-  /** Coalesce identity. Two rows sharing a key are the same intent. */
   key: string;
   userId: string;
   kind: MutationKind;
-  /** bookId or collectionId. */
   entityId: string;
-  /** The intended change, already in the shape the route accepts. */
   payload: Record<string, unknown>;
-  /** Generated once at queue time and reused on every retry. */
   mutationId: string;
   deviceId: string;
   deviceSequence: number;
   queuedAt: number;
   attempts: number;
-  /** Local-only causal predecessor for an acknowledged progress write. */
   progressPredecessor?: PlaybackPredecessor;
 };
 
@@ -54,13 +40,10 @@ export type QueuedProgress = {
   eventOccurredAt: string;
   playbackRateOccurredAt?: string;
   completedOccurredAt?: string;
-  /** Legacy combined clock accepted from queued rows written by older clients. */
   stateOccurredAt?: string;
-  /** Never serialized; distinguishes a lost local save from a later held action. */
   predecessor?: PlaybackPredecessor;
 };
 
-/** The legacy v1–v3 record, read only by the v4 upgrade. */
 type LegacyProgressMutation = {
   key: string;
   userId: string;
@@ -80,18 +63,6 @@ export interface SyncDatabase extends DBSchema {
   };
 }
 
-/**
- * A per-book replay high-water mark.
- *
- * From version 5 the key is `userId:bookId` and the row names its owner, so an
- * account purge can sweep it by key range like every other store. Rows written
- * before then — or written while no account was signed in — keep the bare
- * `bookId` key and carry no `userId`; both shapes are read, and a legacy row is
- * folded into its scoped key the next time the book is written.
- *
- * The floor row (`SEQUENCE_FLOOR_KEY`) is neither: one integer, no owner and no
- * book. See `purgeDeviceSequencesForUser`.
- */
 type SequenceRow = { key: string; userId?: string; bookId?: string; value: number };
 
 export type SyncDb = IDBPDatabase<SyncDatabase>;
@@ -119,12 +90,6 @@ export function database() {
         transaction.objectStore("mutations").createIndex("by-user-key", ["userId", "key"]);
       }
       if (oldVersion < 4) {
-        // The first upgrade in this database that *rewrites* rows rather than
-        // only dropping them, so it is awaited: a rejection here aborts the
-        // version-change transaction and the upgrade is retried on the next
-        // open instead of committing a half-migrated outbox. Each row is a
-        // user write that has not reached the server, so losing one here is
-        // indistinguishable from losing the write itself.
         const mutations = transaction.objectStore("mutations");
         let cursor = await mutations.openCursor();
         while (cursor) {
@@ -149,29 +114,6 @@ type UpgradeTransaction = IDBPTransaction<
   "versionchange"
 >;
 
-/**
- * v4 → v5. Attributes each bare `bookId` counter to the signed-in account so an
- * account purge can sweep it, and preserves its value exactly.
- *
- * Awaited, like the v4 step, so a failure aborts the version-change transaction
- * and the upgrade is retried rather than committing half-attributed.
- *
- * Two properties make this safe to run on a device mid-flight:
- *
- * - **Nothing is dropped when the owner is unknown.** With no signed-in account
- *   there is no honest attribution to make, so the rows are left exactly as
- *   they are and `nextDeviceSequence` keeps reading them through its bare-key
- *   fallback. A tidier migration that discarded them would reset this device's
- *   counters, and a counter that restarts below the server's high-water mark
- *   loses every write until it catches up.
- * - **A value can only rise.** The scoped row takes the maximum of whatever is
- *   already there and the value being carried across, so re-running this step
- *   over a partially attributed store cannot lower a counter.
- *
- * The store is snapshotted with `getAll` rather than walked with a cursor,
- * because the rewrite changes each row's primary key: a cursor could otherwise
- * visit a row this loop had just inserted ahead of it and attribute it twice.
- */
 async function attributeSequencesToActiveUser(transaction: UpgradeTransaction): Promise<void> {
   const owner = activeUserId();
   if (!owner) return;
@@ -190,17 +132,6 @@ async function attributeSequencesToActiveUser(transaction: UpgradeTransaction): 
   }
 }
 
-/**
- * v3 → v4. The queued intent is preserved exactly — same book, same device,
- * same sequence, same position — only re-expressed in the general record shape.
- *
- * `mutationId` is derived deterministically from the identity the legacy row
- * already carried rather than minted fresh, so re-running the upgrade (or
- * running it on two tabs) cannot produce two different idempotency keys for
- * one queued write. `queuedAt` is 0 because the legacy row never recorded it;
- * nothing orders on it, and inventing `Date.now()` would claim a fact the
- * record does not contain.
- */
 function migrateLegacyMutation(row: LegacyProgressMutation | QueuedMutation): QueuedMutation {
   if (!("entry" in row)) return row;
   const { entry } = row;
@@ -232,24 +163,8 @@ export function progressPayload(entry: Omit<QueuedProgress, "userId">): Record<s
   };
 }
 
-/**
- * The highest sequence this device has ever issued, for any book and any
- * account. It carries no `userId` and no `bookId` — it is one integer that
- * identifies nobody — which is why it may survive an account purge when the
- * per-book counters may not.
- *
- * It exists for exactly one reason. The server discards a progress write whose
- * `deviceSequence` is not above `playback_device_sequences.last_sequence` for
- * (user, book, device), and answers 200 while doing so. If an account purge
- * simply deleted this device's counters, the same account signing back in would
- * restart at 1 against a server that remembers 42, and every write until it
- * climbed past 42 would be silently dropped. Raising this floor as the counters
- * are deleted means the next sequence issued is above anything the server can
- * already hold, so the counters can be purged without a single lost write.
- */
 export const SEQUENCE_FLOOR_KEY = "\u0000device-sequence-floor";
 
-/** `userId:bookId`. Book ids are uuids, so the separator is unambiguous. */
 export function deviceSequenceKey(userId: string, bookId: string): string {
   return `${userId}:${bookId}`;
 }
@@ -259,7 +174,6 @@ export function activeUserId(): string | null {
     if (typeof localStorage === "undefined") return null;
     return localStorage.getItem(ACTIVE_USER_KEY);
   } catch {
-    // A device with storage disabled still has to be able to play.
     return null;
   }
 }

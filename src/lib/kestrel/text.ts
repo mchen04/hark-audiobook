@@ -2,9 +2,6 @@ import { phonemize } from "phonemizer";
 
 const MAX_PHONEMES = 240;
 
-// Kokoro's published vocabulary. Kestrel was distilled against the same token
-// ids; unsupported eSpeak symbols are deliberately dropped, as in Kestrel's
-// Python implementation.
 const VOCAB: Readonly<Record<string, number>> = {
   ";": 1,
   ":": 2,

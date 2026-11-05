@@ -16,7 +16,6 @@ it.each([false, true])(
     await expect(
       syncReceipt({ execute } as unknown as Transaction, "fixture-user"),
     ).rejects.toBeInstanceOf(SyncBusyError);
-    // No floor/state read on a failed admission. Rollback belongs to db.transaction.
     expect(execute).toHaveBeenCalledTimes(2);
   },
 );

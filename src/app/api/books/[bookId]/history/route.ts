@@ -11,14 +11,6 @@ import {
 
 export const runtime = "nodejs";
 
-/**
- * One book's listening history: the discrete actions the player records, and
- * the contiguous stretches the listening tracker measures.
- *
- * Both arrive here because the outbox carries both under its one `history`
- * mutation kind, and `history` is the kind that never coalesces — which is what
- * makes each event survive rather than collapse into the last one.
- */
 export const POST = withMutation(
   {
     params: z.object({ bookId: z.uuid() }),

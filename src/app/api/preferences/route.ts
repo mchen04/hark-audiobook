@@ -21,5 +21,4 @@ export const GET = withQuery(async ({ session }) => {
   });
 });
 
-// The legacy path keeps accepting bare bodies so pre-v2 clients still work.
 export const PATCH = makePreferencesPatch({ strict: false });

@@ -15,10 +15,6 @@ import { deleteBookTranscript } from "./transcript-store";
 
 const CACHE_DELETE_CONCURRENCY = 8;
 
-/**
- * Deletions are journaled before any bytes are removed so a crash mid-delete
- * leaves a retryable record instead of orphaned cache entries.
- */
 export async function removeOfflineBook(
   userId: string,
   bookId: string,
@@ -42,11 +38,6 @@ async function completeJournaledOfflineDeletion(
   await completeOfflineDeletion(db, key);
 }
 
-/**
- * A writer that already held the lock may have passed its first fence check
- * before the journal landed. Re-read its final record under the lock and make
- * that token the one this deletion owns before removing anything.
- */
 async function refreshJournaledMedia(
   db: OfflineDb,
   key: string,
@@ -96,10 +87,7 @@ export async function retryAllPendingOfflineDeletions(): Promise<void> {
   await Promise.allSettled(
     pending.map((entry) =>
       entry.completedAt
-        ? // A permanent book deletion is also a durable liveness fence. A stale
-          // player tab must never be able to attach bytes under that dead id;
-          // account purge removes the marker with the rest of the user's data.
-          !entry.clearPlaybackHistory && entry.completedAt < now - 24 * 60 * 60_000
+        ? !entry.clearPlaybackHistory && entry.completedAt < now - 24 * 60 * 60_000
           ? db.delete("deletions", entry.key)
           : Promise.resolve()
         : withMediaWriteLock(entry.key, () =>
@@ -133,10 +121,6 @@ async function completeOfflineDeletion(db: OfflineDb, key: string): Promise<void
   await db.delete("downloads", key);
   notifyLibraryChanged();
   if (pending) {
-    // Account purge may have deleted this row while Cache Storage or history
-    // cleanup was awaited. Re-read and complete it in one transaction: a
-    // removed row stays removed, and a newer removal attempt is never marked
-    // complete using the older attempt's work.
     const transaction = db.transaction("deletions", "readwrite");
     const current = await transaction.store.get(key);
     if (
@@ -167,12 +151,6 @@ export async function deleteJournaledCacheEntry(
   await db.delete("cacheEntries", url);
 }
 
-/**
- * Bulk variant: bounded cache fan-out and one IndexedDB transaction, so
- * removing a thousand-chunk audiobook does not queue a thousand independent
- * transactions. Journal rows are dropped only for URLs whose cache delete
- * succeeded, preserving the journal-covers-bytes invariant.
- */
 export async function deleteJournaledCacheEntries(
   db: OfflineDb,
   cache: Cache,
@@ -205,8 +183,6 @@ export async function deleteJournaledMedia(
   cache: Cache,
   mediaUrl: string,
 ): Promise<void> {
-  // The store is keyed by URL, so the chunk list is a key-range read instead
-  // of a scan across every stored book.
   const chunkPrefix = `${mediaUrl}/chunk/`;
   const urls = await db.getAllKeys(
     "cacheEntries",
@@ -216,14 +192,6 @@ export async function deleteJournaledMedia(
   await deleteJournaledCacheEntries(db, cache, urls);
 }
 
-/**
- * Orphan detection is an in-memory diff of two snapshot reads. Chunked
- * audiobooks put thousands of rows in `cacheEntries`, so per-entry work
- * (a lock or a get per row) would stall every launch for minutes-long books;
- * locks are taken only for the rare books that actually have orphans, and
- * ownership is re-checked under the lock so an import that is still
- * journaling in another tab is never swept.
- */
 async function reconcileOrphanedCacheEntries(db: OfflineDb): Promise<void> {
   const [entries, downloads] = await Promise.all([
     db.getAll("cacheEntries"),
@@ -265,7 +233,6 @@ function ownedUrls(records: OfflineBook[]): Set<string> {
   return owned;
 }
 
-/** Chunk URLs (`…/chunk/N`) are owned through their book's media URL. */
 function ownershipUrl(url: string): string {
   const index = url.indexOf("/chunk/");
   return index === -1 ? url : url.slice(0, index);

@@ -43,7 +43,6 @@ type UnzipRunner = (
   callback: (error: Error | null, result: Record<string, Uint8Array>) => void,
 ) => AsyncTerminable;
 
-/** Owns fflate's worker terminator so abort rejects without retaining the archive. */
 export function runAbortableUnzip(
   compressed: Uint8Array,
   options: AsyncUnzipOptions,
@@ -66,9 +65,7 @@ export function runAbortableUnzip(
       }
       try {
         terminate();
-      } catch {
-        // Cancellation owns the result; a worker teardown error cannot revive the job.
-      }
+      } catch {}
       cleanup();
       reject(abortError);
     };

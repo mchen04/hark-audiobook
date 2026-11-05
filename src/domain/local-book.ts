@@ -1,6 +1,5 @@
 import type { PlayerChapter } from "./player";
 
-/** Metadata synced for media whose source bytes remain on the user's device. */
 export type LocalBookRegistration = {
   bookId: string;
   fileName: string;

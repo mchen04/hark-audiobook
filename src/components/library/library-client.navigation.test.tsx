@@ -8,19 +8,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LibraryClient } from "./library-client";
 import { LibraryViewProvider } from "./library-view-state";
 
-/**
- * The one library UI answers two URLs.
- *
- * When the service worker cannot fetch `/books/:id` it serves the cached
- * library document instead, and this component reads the book id out of the
- * URL and plays this device's own copy. That makes the URL — not a click — the
- * thing that decides whether the player or the grid is on screen, so every way
- * the URL can change has to be honoured. The browser's back button changes it
- * without a click, and `AppShell` and `MiniPlayer` both already follow it via
- * `usePathname()`; a component that read the URL only at mount would leave the
- * player mounted under a header that had already returned to library chrome.
- */
-
 const BOOK_ID = "11111111-2222-3333-4444-555555555555";
 
 const device = new Map([[BOOK_ID, { book: { id: BOOK_ID, title: "The Hobbit" } }]]);
@@ -115,7 +102,6 @@ function renderLibrary() {
   });
 }
 
-/** What a back button does, as this document observes it: the URL, then the event. */
 function popTo(path: string) {
   act(() => {
     window.history.replaceState(null, "", path);
@@ -210,8 +196,6 @@ describe("LibraryClient URL following", () => {
       screen.getByRole("button", { name: "Library" }).click();
     });
 
-    // Popped, not overwritten: the book stays ahead in history, forward works,
-    // and this button and the system back button agree on where the library is.
     expect(back).toHaveBeenCalledTimes(1);
     back.mockRestore();
   });
@@ -226,8 +210,6 @@ describe("LibraryClient URL following", () => {
       screen.getByRole("button", { name: "Library" }).click();
     });
 
-    // A document opened cold at a book URL has only the browser behind it, so
-    // going back would walk the user out of the app entirely.
     expect(back).not.toHaveBeenCalled();
     expect(window.location.pathname).toBe("/library");
     expect(screen.getByRole("heading", { name: "Library" })).toBeInTheDocument();

@@ -30,18 +30,12 @@ const DEFAULT_VIEW: LibraryViewState = {
   view: "grid",
 };
 
-// Next restores an earlier React tree snapshot on browser Back. Route-level
-// provider state is part of that snapshot, but the user's current library view
-// is not historical server data and must not roll back with it. This map lives
-// only for the current document, is keyed by account, and writes nothing to
-// disk; it is the stable source when that provider tree is restored/remounted.
 const documentViews = new Map<string, LibraryViewState>();
 
 const LibraryViewContext = createContext<
   { view: LibraryViewState; setView: Dispatch<SetStateAction<LibraryViewState>> } | undefined
 >(undefined);
 
-/** Keeps one account's library controls alive while its route content swaps. */
 export function LibraryViewProvider({ userId, children }: { userId: string; children: ReactNode }) {
   const [record, setRecord] = useState<{ userId: string; view: LibraryViewState }>({
     userId,

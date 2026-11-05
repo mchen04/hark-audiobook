@@ -2,25 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ACTIVE_USER_KEY } from "@/lib/app-keys";
 
-/**
- * The sign-out hook's ORDERING — `docs/local-first.md` section 11.
- *
- * The purge itself is proved in `offline/account-purge.test.ts` against real
- * IndexedDB. What is proved here is the thing that test could never see: that
- * the auth client does not hand control back to its caller until the sweep has
- * run, and that the outbox is drained on the way OUT rather than on the way
- * back, while the session cookie the replay needs is still valid.
- *
- * The purge module is replaced so the sequence is observable. Fire-and-forget
- * looks identical to awaited when every step is a resolved promise; each step
- * here takes a real macrotask, which is what makes the difference visible.
- */
-
 const purge = vi.hoisted(() => ({
   order: [] as string[],
   undelivered: [] as Array<{ kind: string; entityId: string; queuedAt: number }>,
   failure: null as unknown,
-  /** A storage layer that has wedged: the sweep starts and never settles. */
   wedged: false,
   fencedAtPurge: false,
 }));
@@ -31,9 +16,6 @@ vi.mock("@/lib/offline/account-purge", () => ({
     purge.order.push("drained");
     return purge.undelivered;
   },
-  // Echoes `alreadyDrained` back, which is how the test sees that the drain's
-  // result was handed to the purge rather than merged behind its back — and
-  // that the purge is not asked to drain a second time against a dead session.
   purgeOnSignOut: async (
     userId: string,
     options?: { alreadyDrained?: Array<{ kind: string; entityId: string; queuedAt: number }> },
@@ -86,7 +68,6 @@ beforeEach(async () => {
   vi.stubGlobal("window", globalThis);
   vi.stubGlobal("localStorage", storage);
   vi.stubGlobal("sessionStorage", session);
-  // Drain any report a previous test left behind.
   const { takeSignOutReport } = await import("@/lib/auth-client");
   takeSignOutReport();
 });
@@ -185,13 +166,6 @@ describe("sign-out hooks", () => {
   });
 });
 
-/**
- * The sign-in sweep is the CRASH-RECOVERY path: it is what finishes a purge an
- * earlier sign-out never completed. Running it unawaited meant the incoming
- * account's library painted while the previous account's mirror and downloaded
- * MP3s were still being deleted, and a tab closed mid-sweep abandoned the only
- * thing that would ever have finished the job.
- */
 describe("sign-in waits for the sweep", () => {
   const SIGN_IN = "https://hark.test/api/auth/sign-in/email";
 

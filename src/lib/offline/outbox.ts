@@ -30,22 +30,6 @@ import {
 import { ensurePermanentOfflineBookDeletion } from "./deletion-fence";
 import { notifyLibraryChanged } from "./library-revision";
 
-/**
- * Journal intent, then act.
- *
- * A mutation becomes durable in the outbox *before* the mirror is patched, so
- * the state the user is shown can never be one the server will not eventually
- * be told about. A crash between the two leaves an unapplied outbox row, which
- * replay delivers and the next pull mirrors — recoverable. The reverse order
- * would leave a mirrored change with no queued write, which is a lost write and
- * is not recoverable from anything.
- *
- * `docs/local-first.md` section 5 rule 1 describes this ordering. The outbox
- * lives in `chapterline-sync-v1` and the mirror in `chapterline-offline-v1`;
- * IndexedDB cannot transact across both. Each database commits its own write
- * atomically, with intent first, as in `deletion-journal.ts`.
- */
-
 const PATCH_STORES = [
   "books",
   "chapters",
@@ -61,19 +45,10 @@ type MirrorPatchTransaction = IDBPTransaction<OfflineDatabase, PatchStore[], "re
 export type MirrorPatch = (transaction: MirrorPatchTransaction) => Promise<void>;
 
 export type CommitResult = {
-  /** The row that is durable in the outbox — the existing one when coalescing dropped this intent. */
   queued: QueuedMutation;
-  /** True when the optimistic mirror patch also committed. */
   mirrored: boolean;
 };
 
-/**
- * Queues one mutation and optimistically patches the mirror.
- *
- * The outbox write is awaited first and is never rolled back by a mirror
- * failure: the user's intent stays recorded even if the local projection of it
- * could not be written.
- */
 export async function commitMutation(
   mutation: QueuedMutation,
   patch: MirrorPatch | null = mirrorPatchFor(mutation),
@@ -84,9 +59,6 @@ export async function commitMutation(
   assertAccountWritable(mutation.userId);
   await afterQueue?.();
   assertAccountWritable(mutation.userId);
-  // A fully superseded event changes neither durable row. Progress can instead
-  // contribute one independently newer field to an older sequence envelope;
-  // project the merged row, not either tab's stale whole tuple.
   if (!changed || !patch) return { queued, mirrored: false };
   const effectivePatch = queued.kind === "progress" ? mirrorPatchFor(queued) : patch;
   if (!effectivePatch) return { queued, mirrored: false };
@@ -94,7 +66,6 @@ export async function commitMutation(
   return { queued, mirrored: true };
 }
 
-/** One mirror patch, atomically, with no outbox row in front of it. */
 async function applyMirrorPatch(userId: string, patch: MirrorPatch): Promise<void> {
   const db = await database();
   const transaction = db.transaction(PATCH_STORES as unknown as PatchStore[], "readwrite");
@@ -121,24 +92,6 @@ export function commitDraft(
     afterQueue,
   );
 }
-
-// ---------------------------------------------------------------------------
-// The mutation API
-// ---------------------------------------------------------------------------
-
-/**
- * These are the only supported ways to make a mutation, and the only reason
- * they exist is that the coalesce key must not be a caller's responsibility.
- *
- * The key is the load-bearing half of the coalescing rules: the policy table
- * says `import`, `delete` and `history` never coalesce, but what *enforces* it
- * is that `eventMutationKey` puts the `mutationId` in the key so two distinct
- * events cannot collide. A call site that hand-assembled a key could silently
- * drop the `mutationId`, and the policy branch that would have saved it is
- * unreachable — two rows would simply become one, and one user write would be
- * gone. Routing every mutation through a builder is what makes that
- * unrepresentable rather than merely discouraged.
- */
 
 type Origin = { userId: string; deviceId: string };
 
@@ -170,18 +123,6 @@ export function commitArchiveChange(origin: Origin, bookId: string, archived: bo
   });
 }
 
-/**
- * One book↔tag edge.
- *
- * The tag's *name* is resolved from the mirror and queued alongside its id,
- * which is what makes the intent self-sufficient. A tag id is not stable across
- * the gap between queueing and replay: the server garbage-collects a tag the
- * moment no book references it, so "remove fiction, then add it back" — or
- * another device saving a book's whole tag list in between — can delete the row
- * this edge names. Replaying an id that no longer exists would 404, and a 4xx
- * is terminal, so the write would be dropped. With the name aboard, the server
- * can re-establish the vocabulary entry and the edge still lands.
- */
 export async function commitTagEdge(
   origin: Origin,
   bookId: string,
@@ -201,22 +142,6 @@ export async function commitTagEdge(
   });
 }
 
-/**
- * The details dialog's whole-tag-list field, expressed as edges.
- *
- * The dialog offers a comma-separated list of *names*, but the queued form has
- * to be per-edge. A `tags: [...]` replacement would be the last writer to reach
- * the server wiping every tag another device added while this one was offline,
- * which is precisely the conflict the design contract's section 7 resolves as
- * add-wins-per-edge. Only what the user actually changed is queued.
- *
- * A name with no id in the mirror — a tag being invented right now, or one this
- * device has never pulled — gets a locally minted id and a mirror vocabulary
- * row. The id is a guess the server is free to ignore: `resolveEdgeTag` falls
- * back to the name, re-establishing or creating the entry, and the next pull
- * replaces the guess with the real row. Minting it locally is what lets the new
- * chip appear on this device immediately instead of after a round trip.
- */
 export async function commitTagList(
   origin: Origin,
   bookId: string,
@@ -235,8 +160,6 @@ export async function commitTagList(
   for (const [lowered] of before) {
     if (after.has(lowered)) continue;
     const tagId = idByName.get(lowered);
-    // Nothing local names this tag, so there is no edge to express. The book's
-    // own tag list is re-read from the next pull either way.
     if (tagId) await commitTagEdge(origin, bookId, tagId, false);
   }
   for (const [lowered, name] of after) {
@@ -257,27 +180,10 @@ export async function commitTagList(
   }
 }
 
-/**
- * A progress event, journalled AND projected onto the shelf.
- *
- * `queueProgress` wrote the outbox row and nothing else, which is why
- * `mirrorPatchFor`'s `case "progress"` was unreachable in production: the
- * library card renders from the mirror's `playbackStates` row, so a device that
- * only ever queued progress showed "Not started" for a book it had just played
- * nine seconds of. Routing the queue through `commitMutation` is what makes the
- * projection run — journal first, patch second, exactly as every other kind
- * does.
- */
 export function commitProgress(entry: QueuedProgress) {
   return commitMutation(buildProgressMutation(entry));
 }
 
-/**
- * The projection with no outbox row: the server has already accepted this
- * event, so there is no unsent intent to record, but the shelf on THIS device
- * still has to show it. Without this the card is only ever as fresh as the last
- * pull, which is the online half of the same stale-shelf failure.
- */
 export function mirrorProgress(entry: QueuedProgress): Promise<void> {
   const patch = mirrorPatchFor(buildProgressMutation(entry));
   return patch ? applyMirrorPatch(entry.userId, patch) : Promise.resolve();
@@ -300,11 +206,6 @@ export function commitCollectionEdge(
   });
 }
 
-/**
- * The three distinct-event kinds. Each mints its own `mutationId` and hands it
- * to `eventMutationKey`, so two calls can never produce the same key — which is
- * the whole mechanism by which they refuse to coalesce.
- */
 function commitDistinctEvent(
   origin: Origin,
   kind: "import" | "delete" | "history",
@@ -337,16 +238,6 @@ export function commitImport(
   return commitDistinctEvent(origin, "import", fingerprint, payload);
 }
 
-/**
- * The delete carries the deleted book's media fingerprint and rendition when
- * this device knows them. That lets `queueMutation` drop an unsent registration
- * of the SAME RENDITION — a re-import the user has just superseded — without
- * erasing a newer recipe that happens to share the source bytes.
- *
- * Read from the mirror, exactly as `commitTagEdge` reads a tag's name, and it
- * never leaves the device: `toReplayRequest` sends a delete as a bodiless
- * DELETE, so no payload of this kind is ever serialized onto the wire.
- */
 export async function commitBookDeletion(
   origin: Origin,
   bookId: string,
@@ -376,28 +267,9 @@ function abortQuietly(transaction: MirrorPatchTransaction): void {
   void transaction.done.catch(() => undefined);
   try {
     transaction.abort();
-  } catch {
-    // A failing request already aborted it; same outcome.
-  }
+  } catch {}
 }
 
-// ---------------------------------------------------------------------------
-// Optimistic mirror projections
-// ---------------------------------------------------------------------------
-
-/**
- * The local projection of each mutation kind.
- *
- * `import` and `history` have no automatic projection. Registration is
- * projected explicitly by `registerLocalBook` after it knows whether the
- * device-minted id was accepted, remained offline, or resolved to a canonical
- * duplicate. Playback history is not mirrored at all (section 2). Both still
- * go through the outbox, which is what makes them durable.
- *
- * Every projection that touches a book's children also bumps that book's
- * `updatedAt`, mirroring the server rule from section 3 — otherwise the local
- * copy would order differently from the one the next pull delivers.
- */
 function mirrorPatchFor(mutation: QueuedMutation): MirrorPatch | null {
   const { userId, entityId, payload } = mutation;
   const now = new Date().toISOString();
@@ -525,7 +397,6 @@ function mirrorPatchFor(mutation: QueuedMutation): MirrorPatch | null {
   }
 }
 
-/** Same-device sequence orders whole events; cross-device fields use their clocks. */
 function sameDeviceHasNewerMutation(
   existing: MirrorPlaybackState,
   mutation: QueuedMutation,
@@ -574,17 +445,10 @@ async function patchBook(
   await store.put({ ...next, searchText: searchTextFor(next) });
 }
 
-/** Matches the mirror writer for older open bundles that still read this field. */
 function searchTextFor(book: MirrorBook): string {
   return [book.title, book.author, book.narrator || "", book.series || ""].join(" ").toLowerCase();
 }
 
-/**
- * Removes one book and everything that hangs off it. Media bytes and
- * transcripts are deliberately not touched here: this is a metadata projection,
- * and the only copy of the audio is removed through `removeOfflineBook`'s
- * journal, never as a side effect of sync bookkeeping.
- */
 async function removeBookAggregate(
   transaction: MirrorPatchTransaction,
   userId: string,

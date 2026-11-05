@@ -13,21 +13,11 @@ export async function fingerprintMedia(
 ): Promise<string> {
   throwIfAborted(signal);
   if (kind === "sample-v1") return sampleFingerprint(file, signal);
-  // Hashing a whole audiobook is heavy CPU; run it off the main thread so
-  // import and playback stay responsive. Worker-less environments (tests)
-  // hash inline via the same shared routine.
   if (typeof Worker !== "undefined") {
     try {
       return await workerSha256(file, onProgress, signal);
     } catch {
       throwIfAborted(signal);
-      // The worker could not be loaded or died. Its script is a separate
-      // `/_next/static` file fetched at first use — not referenced by the shell
-      // document, so nothing precaches it — which meant an import with no
-      // network parsed the MP3 successfully and then failed on the hash, one
-      // step from done. Hashing on the main thread is slower and worth it:
-      // being unable to add a book is a worse outcome than a busy UI, and the
-      // fallback needs no network because `media-hash` is warmed at launch.
       return inlineSha256(file, onProgress, signal);
     }
   }

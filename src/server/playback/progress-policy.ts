@@ -15,7 +15,6 @@ export type ProgressFieldState = {
   eventOccurredAt: Date;
   playbackRateOccurredAt?: Date | null;
   completedOccurredAt?: Date | null;
-  /** Combined clock stored by clients and rows that predate per-field clocks. */
   stateOccurredAt?: Date | null;
 };
 
@@ -42,11 +41,6 @@ export function decideProgressUpdate(
   return { accept: true, occurredAt: bounded, reason: "accepted" };
 }
 
-/**
- * Position, rate and completion are independent last-writer-wins registers.
- * Changing playback speed is not authorization to seek a book backward, while
- * listening on another device is not authorization to discard a later speed.
- */
 export function mergeProgressFields(
   existing: ProgressFieldState | null,
   incoming: ProgressFieldState,

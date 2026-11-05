@@ -1,10 +1,3 @@
-/**
- * The isomorphic core of player preferences: the shape, the product defaults,
- * and the wire protocol constants. Both sides of the API import from here —
- * the browser cache/replay logic in `@/lib/preferences` and the server route,
- * schema, and write policy — so neither drags the other's runtime along.
- */
-
 export type PlayerPreferences = {
   skipBackMs: number;
   skipForwardMs: number;
@@ -15,9 +8,6 @@ export type PlayerPreferences = {
 export const DEFAULT_PREFERENCES: PlayerPreferences = {
   skipBackMs: 15_000,
   skipForwardMs: 30_000,
-  // Exact resume is the safe default. Smart rewind is still available, but a
-  // returning listener must opt in before opening a book can move behind the
-  // durable position they actually reached.
   smartRewind: false,
   autoplayNextInCollection: false,
 };
@@ -34,6 +24,4 @@ export function isPreferenceWriteId(value: unknown): value is string {
   return typeof value === "string" && PREFERENCES_WRITE_ID_PATTERN.test(value);
 }
 
-/** Shared skip bounds: client normalizer, API schema, and the database check
- * constraints in `db/schema.ts` all enforce this same range. */
 export const SKIP_BOUNDS_MS = { min: 5_000, max: 120_000 } as const;

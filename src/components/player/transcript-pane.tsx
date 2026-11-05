@@ -7,16 +7,8 @@ import { activeCueIndex } from "@/domain/transcript-cues";
 
 import { usePlaybackTimeDerived } from "./playback-provider";
 
-/** How long after the reader stops scrolling before auto-follow resumes. */
 const MANUAL_SCROLL_GRACE_MS = 3500;
 
-/**
- * The read-along pane that replaces the cover: the sentence being narrated is
- * highlighted and kept in view, and the word being spoken is marked inside
- * it. Rendering is tiered so the ticking clock never touches the whole list:
- * word ticks re-render only the active sentence, sentence changes re-render
- * exactly two memoized rows.
- */
 export function TranscriptPane({
   sentences,
   chapterStartMs,
@@ -27,7 +19,6 @@ export function TranscriptPane({
   sentences: TranscriptSentence[];
   chapterStartMs: number;
   chapterTitle: string;
-  /** Cues are still loading; render quietly instead of "no text". */
   pending?: boolean;
   onSeek: (positionMs: number) => void;
 }) {
@@ -38,8 +29,6 @@ export function TranscriptPane({
   const activeRowRef = useRef<HTMLButtonElement>(null);
   const manualUntilRef = useRef(0);
 
-  // The bottom fade is a scroll affordance; showing it on a fully visible
-  // list would read as accidental truncation instead.
   useEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
@@ -52,10 +41,6 @@ export function TranscriptPane({
   }, [sentences]);
 
   useEffect(() => {
-    // The scroll container only exists once cues render (the empty/pending
-    // state is a different element), and the pane remounts per chapter, so
-    // this must re-run when sentences arrive — not just at mount — or the
-    // manual-scroll grace never attaches after a chapter change.
     const container = scrollRef.current;
     if (!container) return;
     const noteManualScroll = () => {
@@ -76,7 +61,6 @@ export function TranscriptPane({
 
   const seekToSentence = useCallback(
     (sentence: TranscriptSentence) => {
-      // A tapped sentence is a navigation intent: follow it immediately.
       manualUntilRef.current = 0;
       onSeek(chapterStartMs + sentence.startMs);
     },
@@ -109,7 +93,6 @@ export function TranscriptPane({
   );
 }
 
-/** A single dimmed line under the cover echoing the sentence being narrated. */
 export function CoverNowReading({
   sentences,
   chapterStartMs,
@@ -121,8 +104,6 @@ export function CoverNowReading({
     const index = activeCueIndex(sentences, timeMs - chapterStartMs);
     return index >= 0 ? sentences[index]!.text : "";
   });
-  // Marked aria-hidden: the text view is the accessible read-along surface;
-  // this cover echo would otherwise announce a new sentence every few seconds.
   return text ? (
     <p className="player-now-reading" aria-hidden="true">
       {text}
@@ -164,7 +145,6 @@ const SentenceRow = memo(function SentenceRow({
   );
 });
 
-/** Word-level karaoke marking; the only node that re-renders per word cue. */
 function ActiveSentence({
   sentence,
   chapterStartMs,
@@ -172,8 +152,6 @@ function ActiveSentence({
   sentence: TranscriptSentence;
   chapterStartMs: number;
 }) {
-  // An unanchored cue (empty char range) keeps the previous word marked
-  // rather than dropping the marker mid-sentence.
   const markedIndex = usePlaybackTimeDerived((timeMs) => {
     let index = activeCueIndex(sentence.words, timeMs - chapterStartMs);
     while (index >= 0 && sentence.words[index]!.charStart >= sentence.words[index]!.charEnd) {

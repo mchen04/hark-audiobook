@@ -15,13 +15,6 @@ import { BOOK_FILE_ACCEPT } from "@/lib/source-formats";
 
 export type UploadState = ImportState;
 
-/**
- * The local book import flow: MP3s stay unchanged; documents are narrated on
- * the device before entering the same offline media store.
- *
- * The import itself lives outside React, in `import-controller`. This hook only
- * subscribes to it, so visiting another screen does not destroy the import.
- */
 export function useBookImport(
   userId: string | null,
   onImported: () => Promise<void>,
@@ -30,9 +23,6 @@ export function useBookImport(
   const inputRef = useRef<HTMLInputElement>(null);
   const upload = useSyncExternalStore(subscribeToImport, importSnapshot, emptyImportSnapshot);
 
-  // An import belongs to the account that started it. A different account
-  // signing in on this device abandons it rather than narrating into their
-  // library.
   useEffect(() => {
     if (userId) abortImportForOtherAccount(userId);
   }, [userId]);
@@ -53,8 +43,6 @@ export function useBookImport(
     [userId, onImported, reportError],
   );
 
-  // Rendered by the caller wherever the hidden input belongs in its tree; the
-  // ref and change handler never leave this module.
   const fileInput = (
     <input
       ref={inputRef}
@@ -70,10 +58,6 @@ export function useBookImport(
   return { fileInput, upload, chooseFile };
 }
 
-/**
- * The error banner, rendered after the library body. Import progress is not
- * here: it belongs to the book the library shows for the narration in flight.
- */
 export function UploadBanners({
   error,
   onDismissError,

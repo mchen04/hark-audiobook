@@ -3,14 +3,7 @@ import { assertAccountWritable } from "@/lib/account-deletion-fence";
 
 import { database, type OfflineDb, type StoredChapterTranscript } from "./db";
 
-/**
- * Read-along cues live only in this device's IndexedDB, alongside the audio.
- * They are chapter-keyed so the player loads one chapter's cues at a time,
- * and they never appear in any server request.
- */
-
 function chapterKey(userId: string, bookId: string, chapterIndex: number) {
-  // Zero-padded so lexicographic key ranges enumerate chapters in order.
   return `${userId}:${bookId}:${String(chapterIndex).padStart(6, "0")}`;
 }
 
@@ -46,7 +39,6 @@ export async function storeBookTranscript(
   await transaction.done;
 }
 
-/** Chapter indexes that have cues; empty array = book has no read-along. */
 export async function getTranscriptChapterIndexes(
   userId: string,
   bookId: string,
@@ -65,7 +57,6 @@ export async function getChapterTranscript(
   return db.get("transcripts", chapterKey(userId, bookId, chapterIndex));
 }
 
-/** Used by the deletion journal; accepts its transaction-owning db handle. */
 export async function deleteBookTranscript(
   db: OfflineDb,
   userId: string,
@@ -77,7 +68,6 @@ export async function deleteBookTranscript(
   await Promise.all([...keys.map((key) => transaction.store.delete(key)), transaction.done]);
 }
 
-/** Book ids with any stored cues — one indexed key scan for library badges. */
 export async function listBookIdsWithTranscripts(userId: string): Promise<Set<string>> {
   const db = await database();
   const keys = await db.getAllKeysFromIndex("transcripts", "by-user", userId);

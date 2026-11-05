@@ -16,7 +16,6 @@ import {
 
 type CanonicalBook = OfflineBook["book"];
 
-/** Makes an accepted local registration immediately available to offline routes. */
 export async function projectLocalBookRegistration(
   userId: string,
   registration: LocalBookRegistration,
@@ -58,11 +57,6 @@ export async function projectLocalBookRegistration(
   }
 }
 
-/**
- * Moves the optimistic mirror aggregate after the server resolves a device id
- * to a pre-existing canonical book. This is idempotent: the outbox keeps the
- * registration until both the byte record and this projection have moved.
- */
 export async function rekeyMirroredLocalBook(
   userId: string,
   fromBookId: string,
@@ -297,7 +291,5 @@ function abortQuietly(transaction: { abort: () => void; done: Promise<unknown> }
   void transaction.done.catch(() => undefined);
   try {
     transaction.abort();
-  } catch {
-    // A failing request already aborted it; same outcome.
-  }
+  } catch {}
 }
