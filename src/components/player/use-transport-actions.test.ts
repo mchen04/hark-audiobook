@@ -104,6 +104,13 @@ describe("seeking", () => {
     actions.seek(30_000);
 
     expect(saveDurableState).toHaveBeenCalledWith("seek", 30_000);
+    expect(audio.currentTime).toBe(0);
+    Object.assign(audio, { readyState: 1 });
+    audio.dispatchEvent(new Event("loadedmetadata"));
+    expect(audio.currentTime).toBe(30);
+    audio.currentTime = 31;
+    audio.dispatchEvent(new Event("loadedmetadata"));
+    expect(audio.currentTime).toBe(31);
   });
 
   it("still bounds a seek past the metadata duration", () => {
