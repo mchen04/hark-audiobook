@@ -1,11 +1,7 @@
 :root {
-  /* Native system faces keep the installed PWA visually at home on iOS and
-     remove both a render-blocking font payload and a network-bound build step. */
   --font-sans:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-
-  /* Color */
   --bg: #fafafa;
   --surface: #ffffff;
   --surface-strong: #ffffff;
@@ -20,13 +16,9 @@
   --focus: #52525b;
   --shadow: 0 18px 50px rgb(24 24 27 / 0.1);
   --shadow-soft: 0 8px 28px rgb(24 24 27 / 0.07);
-
-  /* Shape */
   --radius-panel: 16px;
   --radius-control: 12px;
   --radius-pill: 999px;
-
-  /* Type scale */
   --text-2xs: 0.7rem;
   --text-xs: 0.76rem;
   --text-sm: 0.84rem;
@@ -35,17 +27,12 @@
   --text-lg: 1.15rem;
   --text-xl: 1.45rem;
   --text-2xl: 1.75rem;
-
-  /* Spacing rhythm */
   --space-2xs: 0.25rem;
   --space-xs: 0.45rem;
   --space-sm: 0.7rem;
   --space-md: 1rem;
   --space-lg: 1.5rem;
   --space-xl: 2.25rem;
-
-  /* Controls: --tap is the minimum hit target (44px on iOS); --control is
-     the compact visual height for secondary chrome. */
   --tap: 2.75rem;
   --control: 2.5rem;
   --header-height: 60px;
@@ -79,9 +66,6 @@ html {
   overscroll-behavior-y: none;
   -webkit-text-size-adjust: 100%;
 }
-
-/* The page may only ever scroll vertically; anything wider than the viewport
-   is clipped instead of dragging the whole document sideways. */
 html,
 body {
   max-width: 100%;
@@ -145,8 +129,6 @@ a {
   font-weight: 690;
   letter-spacing: -0.02em;
 }
-
-/* Waveform mark: three sound bars in a rounded tile. */
 .brand-symbol {
   display: flex;
   width: 1.85rem;
