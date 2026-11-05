@@ -125,6 +125,7 @@ test("simulated lock-screen resume stays audible with discarded buffers for five
               void context.resume();
               const samples = new Float32Array(analyser.fftSize);
               Object.assign(window, {
+                closeAudioObserver: () => context.close(),
                 readAudioEnergy: () => {
                   analyser.getFloatTimeDomainData(samples);
                   return Math.sqrt(
@@ -137,6 +138,7 @@ test("simulated lock-screen resume stays audible with discarded buffers for five
           );
         });
         await page.getByRole("button", { name: "Play", exact: true }).click();
+        await expect.poll(async () => (await sample()).decodedEnergy).toBeGreaterThan(0.001);
         await page.getByRole("button", { name: "Pause", exact: true }).click();
       }
       for (let cycle = 0; cycle < 5; cycle++) {
@@ -207,5 +209,10 @@ test("simulated lock-screen resume stays audible with discarded buffers for five
     writeFileSync(output, `${JSON.stringify(report, null, 2)}\n`);
     await page.screenshot({ path: path.join(folder, `${info.project.name}-resume.png`) });
     await info.attach("simulated-resume", { path: output, contentType: "application/json" });
+    await page.evaluate(() =>
+      (
+        window as typeof window & { closeAudioObserver?: () => Promise<void> }
+      ).closeAudioObserver?.(),
+    );
   }
 });

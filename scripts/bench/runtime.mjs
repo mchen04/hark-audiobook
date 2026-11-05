@@ -295,21 +295,33 @@ function browserLaunchOptions(executable) {
     : { executablePath: executable };
 }
 
-export async function launchWebKit(options = {}) {
+export async function launchWebKit(options = {}, profile = null) {
   const before = new Set(processSnapshot().map((p) => p.pid));
-  const browser = await webkit.launch({
+  const launchOptions = {
     ...browserLaunchOptions(webkit.executablePath()),
     headless: true,
     handleSIGINT: false,
     handleSIGTERM: false,
-  });
-  const context = await browser.newContext({
+  };
+  const contextOptions = {
     ...devices["iPhone 15"],
     serviceWorkers: "allow",
     extraHTTPHeaders: headers,
     ...options,
-  });
-  const close = () => browser.close();
+  };
+  let browser;
+  let context;
+  if (profile) {
+    context = await webkit.launchPersistentContext(profile, {
+      ...launchOptions,
+      ...contextOptions,
+    });
+    browser = context.browser();
+  } else {
+    browser = await webkit.launch(launchOptions);
+    context = await browser.newContext(contextOptions);
+  }
+  const close = () => (profile ? context.close() : browser.close());
   const release = ownResource(close);
   browser.once("disconnected", release);
   const executable = webkit.executablePath();
@@ -339,7 +351,7 @@ export async function launchWebKit(options = {}) {
     close,
     version: browser.version(),
     build: path.basename(bundle),
-    ...trackWebKitPages(context, mainPid),
+    ...trackWebKitPages(context, mainPid, profile ? context.pages()[0] : null),
     capture: (action) => action(),
     rss() {
       const matched = ownership().processes;
@@ -353,15 +365,25 @@ export async function launchWebKit(options = {}) {
   };
 }
 
-export function trackWebKitPages(context, mainPid) {
+function trackWebKitPages(context, mainPid, initialPage = null) {
   const executable = webkit.executablePath();
   const pagePids = new WeakMap();
   const ownership = (requireRenderer = true) =>
     ownedBrowserProcesses({ engine: "webkit", executable, mainPid, requireRenderer });
+  if (initialPage) {
+    const renderers = ownership().renderers;
+    if (renderers.length !== 1) throw new Error("Expected one persistent startup page process.");
+    pagePids.set(initialPage, renderers[0]);
+  }
   return {
     ownedProcesses: () => ownership(),
     context,
     async newPage() {
+      if (initialPage) {
+        const page = initialPage;
+        initialPage = null;
+        return page;
+      }
       const snapshot = new Set(ownership(false).renderers.map((p) => p.pid));
       const page = await context.newPage();
       const renderers = ownership().renderers.filter((p) => !snapshot.has(p.pid));
@@ -381,19 +403,24 @@ export function trackWebKitPages(context, mainPid) {
   };
 }
 
-export async function closeWebKitPages(handle) {
+export async function closeWebKit(handle) {
   const pages = handle.context.pages();
   if (!pages.length) throw new Error("A cold start requires an existing page process.");
-  const processes = pages.map((page) => handle.pageProcess(page));
+  const { mains, renderers: processes } = handle.ownedProcesses();
   const audioSavedBefore = await pages[0].evaluate(storedAudioReady);
   const checkedAt = new Date().toISOString();
-  for (const page of pages) await page.close();
   const started = performance.now();
+  for (const page of pages) await page.close();
+  await handle.close();
   await until(
-    () => processes.every((p) => !processSnapshot().some((current) => current.pid === p.pid)),
-    `Page WebContent PID did not exit: ${processes.map((p) => p.pid).join(", ")}`,
+    () =>
+      [...mains, ...processes].every(
+        (p) => !processSnapshot().some((current) => current.pid === p.pid),
+      ),
+    `WebKit processes did not exit: ${[...mains, ...processes].map((p) => p.pid).join(", ")}`,
   );
   return {
+    browserProcess: { ...mains[0], checkedAt, exited: true },
     processes: processes.map((p) => ({ ...p, checkedAt, exited: true })),
     audioSavedBefore,
     exitObservedAt: new Date().toISOString(),
