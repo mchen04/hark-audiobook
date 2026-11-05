@@ -20,8 +20,9 @@ export function setMediaTime(audio: HTMLMediaElement, position: number): void {
     };
     pendingSeeks.set(audio, { position, apply });
     audio.addEventListener("loadedmetadata", apply, { once: true });
+    return;
   }
-  audio.currentTime = position;
+  if (audio.currentTime !== position) audio.currentTime = position;
 }
 
 export function loadMediaSource(audio: HTMLMediaElement, source: string, position: number): void {
