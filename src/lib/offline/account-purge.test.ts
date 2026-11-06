@@ -491,7 +491,15 @@ describe("sign-out drains before it purges", () => {
     const outcome = await purgeOnSignOut(USER_A, { fetchFn, drainTimeoutMs: 2_000 });
 
     expect(fetchFn).toHaveBeenCalledTimes(2);
-    expect(fetchFn.mock.calls[1]).toEqual(fetchFn.mock.calls[0]);
+    const [firstUrl, firstInit] = fetchFn.mock.calls[0]!;
+    const [secondUrl, secondInit] = fetchFn.mock.calls[1]!;
+    const { signal: firstSignal, ...firstRequest } = firstInit!;
+    const { signal: secondSignal, ...secondRequest } = secondInit!;
+    expect(secondUrl).toBe(firstUrl);
+    expect(secondRequest).toEqual(firstRequest);
+    expect(firstSignal).toBeInstanceOf(AbortSignal);
+    expect(secondSignal).toBeInstanceOf(AbortSignal);
+    expect(secondSignal).not.toBe(firstSignal);
     expect(performance.now() - started).toBeGreaterThanOrEqual(950);
     expect(outcome.undelivered).toEqual([]);
     expect(outcome.failure).toBe(null);
