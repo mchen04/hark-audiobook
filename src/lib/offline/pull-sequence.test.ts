@@ -16,6 +16,17 @@ import { commitImport, commitMetadataEdit } from "./outbox";
 import { projectLocalBookRegistration } from "./local-import-mirror";
 import { applyPullBatch, getMirrorPlayerBook, getSyncMeta, readMirrorLibrary } from "./mirror";
 import type { PullBatch, PulledBook } from "./sync-protocol";
+import { replayAcknowledgements } from "@/lib/offline-sync/sequences";
+
+async function applyFresh(userId: string, payload: PullBatch) {
+  return applyPullBatch(
+    userId,
+    payload,
+    undefined,
+    undefined,
+    await replayAcknowledgements(userId),
+  );
+}
 
 function book(owner: string, id: string, title = `${owner}:server`): PulledBook {
   return {
@@ -132,9 +143,9 @@ it("preserves sync invariants through fixed seeded account and request sequences
     hook.unmount();
     steps += 4;
     for (const id of users)
-      await applyPullBatch(id, batch([...states.get(id)!.server.values()], stamp(0), true));
+      await applyFresh(id, batch([...states.get(id)!.server.values()], stamp(0), true));
     let owner = { id: users[0]!, controller: new AbortController() };
-    const pulls: { owner: typeof owner; payload: PullBatch }[] = [];
+    const pulls: { owner: typeof owner; payload: PullBatch; acknowledged: number }[] = [];
     const replays = new Map<
       string,
       {
@@ -219,7 +230,7 @@ it("preserves sync invariants through fixed seeded account and request sequences
     recovery.queued.set(queued.key, queued);
     await verify();
     const incoming = batch([...recovery.server.values()], stamp(++index), true);
-    await applyPullBatch(owner.id, incoming);
+    await applyFresh(owner.id, incoming);
     recovery.recoveredImports.set(registration.bookId, registration.title);
     await verify();
     await replayQueuedMutations(owner.id, async () =>
@@ -227,8 +238,41 @@ it("preserves sync invariants through fixed seeded account and request sequences
     );
     recovery.queued.delete(queued.key);
     await verify();
-    await applyPullBatch(owner.id, { ...incoming, since: incoming.cursor, books: [] });
+    await applyFresh(owner.id, { ...incoming, since: incoming.cursor, books: [] });
     await verify();
+    owner.controller.abort();
+    owner = { id: users[1]!, controller: new AbortController() };
+    const pendingState = states.get(owner.id)!;
+    const pendingImport = {
+      ...registration,
+      bookId: `${owner.id}-pending`,
+      fingerprint: "d".repeat(64),
+      title: `${owner.id}:pending`,
+    };
+    await projectLocalBookRegistration(owner.id, pendingImport);
+    const pendingRow = await commitImport(
+      { userId: owner.id, deviceId: "sequence" },
+      "d".repeat(64),
+      pendingImport,
+    );
+    pendingState.queued.set(pendingRow.queued.key, pendingRow.queued);
+    await applyFresh(owner.id, batch([], stamp(++index), true));
+    expect((await getMirrorPlayerBook(owner.id, pendingImport.bookId))?.playerBook.title).toBe(
+      pendingImport.title,
+    );
+    await verify();
+    await replayQueuedMutations(owner.id, async () => new Response(null, { status: 503 }));
+    await verify();
+    await replayQueuedMutations(owner.id, async (_url, init) => {
+      const payload = JSON.parse(String(init?.body));
+      pendingState.server.set(payload.bookId, book(owner.id, payload.bookId, payload.title));
+      return Response.json({ bookId: payload.bookId }, { status: 201 });
+    });
+    pendingState.queued.delete(pendingRow.queued.key);
+    await verify();
+    await applyFresh(owner.id, batch([...pendingState.server.values()], stamp(++index), true));
+    owner.controller.abort();
+    owner = { id: users[0]!, controller: new AbortController() };
     const retry = await commitImport(
       { userId: owner.id, deviceId: "sequence" },
       registration.fingerprint,
@@ -242,7 +286,7 @@ it("preserves sync invariants through fixed seeded account and request sequences
       updatedAt: stamp(++index),
     });
     const corrected = batch([...recovery.server.values()], stamp(index), true);
-    await applyPullBatch(owner.id, corrected);
+    await applyFresh(owner.id, corrected);
     recovery.recoveredImports.set(registration.bookId, correctedTitle);
     await verify();
     await replayQueuedMutations(owner.id, async () =>
@@ -250,7 +294,27 @@ it("preserves sync invariants through fixed seeded account and request sequences
     );
     recovery.queued.delete(retry.queued.key);
     await verify();
-    await applyPullBatch(owner.id, { ...corrected, since: corrected.cursor, books: [] });
+    await applyFresh(owner.id, { ...corrected, since: corrected.cursor, books: [] });
+    await verify();
+    const delayedAck = batch([...recovery.server.values()], stamp(++index), true);
+    const edit = await commitMetadataEdit(
+      { userId: owner.id, deviceId: "sequence" },
+      `${owner.id}-main`,
+      { title: `${owner.id}:acknowledged` },
+    );
+    recovery.queued.set(edit.queued.key, edit.queued);
+    await replayQueuedMutations(owner.id, async () => Response.json({ ok: true }));
+    recovery.queued.delete(edit.queued.key);
+    recovery.server.set(
+      `${owner.id}-main`,
+      book(owner.id, `${owner.id}-main`, `${owner.id}:acknowledged`),
+    );
+    const cursorBeforeAck = (await getSyncMeta(owner.id))!.cursor;
+    await applyPullBatch(owner.id, delayedAck);
+    expect(
+      (await readMirrorLibrary(owner.id)).books.find((row) => row.id === `${owner.id}-main`)?.title,
+    ).toBe(`${owner.id}:acknowledged`);
+    expect((await getSyncMeta(owner.id))?.cursor).toBe(cursorBeforeAck);
     await verify();
     const actions = [
       "pull",
@@ -283,6 +347,7 @@ it("preserves sync invariants through fixed seeded account and request sequences
       if (action === "pull")
         pulls.push({
           owner,
+          acknowledged: await replayAcknowledgements(owner.id),
           payload: batch(
             structuredClone([...state.server.values()]),
             stamp(++index),
@@ -370,10 +435,17 @@ it("preserves sync invariants through fixed seeded account and request sequences
           payload,
           undefined,
           pull.owner.controller.signal,
+          pull.acknowledged,
         );
         if (pull.owner.controller.signal.aborted)
           await expect(apply).rejects.toMatchObject({ name: "AbortError" });
-        else await apply;
+        else if (!(await apply)) {
+          const current = states.get(pull.owner.id)!;
+          await applyFresh(
+            pull.owner.id,
+            batch([...current.server.values()], stamp(++index), true),
+          );
+        }
       }
       await verify();
     }

@@ -18,6 +18,7 @@ import {
 } from "@/lib/offline/mirror";
 import { isPullBatch } from "@/lib/offline/sync-protocol";
 import { singleFlight } from "@/lib/single-flight";
+import { replayAcknowledgements } from "@/lib/offline-sync/sequences";
 
 import type { SortOrder, StatusFilter } from "./library-view";
 
@@ -152,7 +153,8 @@ export function useLibraryBooks(
           setFirstSync((current) => (current === "done" ? "done" : "applied"));
         else {
           setUnreachedAttempt(attempt);
-          if (firstPull) backoff = window.setTimeout(retryFirstPull, retryDelayFor(attempt));
+          if (firstPull || outcome === "superseded")
+            backoff = window.setTimeout(retryFirstPull, retryDelayFor(attempt));
         }
         reread();
       });
@@ -204,7 +206,11 @@ export function useLibraryBooks(
     const owner = pullOwner.current;
     if (!userId || owner?.userId !== userId) return;
     reread();
-    void revalidate(owner).then(reread);
+    void revalidate(owner).then((outcome) => {
+      if (owner.signal.aborted) return;
+      if (outcome === "superseded") setReconnects((current) => current + 1);
+      reread();
+    });
   }, [userId, reread]);
 
   const removeDownload = useCallback(
@@ -279,7 +285,7 @@ function asLibraryBook(record: OfflineBook): LibraryBook {
   };
 }
 
-type PullOutcome = "applied" | "unauthorized" | "unreachable";
+type PullOutcome = "applied" | "unauthorized" | "unreachable" | "superseded";
 
 type PullOwner = {
   userId: string;
@@ -303,6 +309,8 @@ async function pullOnce(owner: PullOwner): Promise<PullOutcome> {
     const liveBooks = held ? `&liveBooks=${held.digest}` : "";
     try {
       owner.signal.throwIfAborted();
+      const acknowledged = await replayAcknowledgements(userId);
+      owner.signal.throwIfAborted();
       const response = await fetch(`/api/sync/pull?snapshots=final${since}${liveBooks}`, {
         cache: "no-store",
         signal: owner.signal,
@@ -311,7 +319,10 @@ async function pullOnce(owner: PullOwner): Promise<PullOutcome> {
       if (!response.ok) return "unreachable";
       const body: unknown = await response.json();
       if (!isPullBatch(body)) return "unreachable";
-      await applyPullBatch(userId, body, held?.ids, owner.signal);
+      if (!(await applyPullBatch(userId, body, held?.ids, owner.signal, acknowledged))) {
+        if (page === PULL_PAGE_LIMIT - 1) return "superseded";
+        continue;
+      }
       if (body.complete) return "applied";
     } catch (error) {
       if (error instanceof LiveBookSetChangedError) {

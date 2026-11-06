@@ -23,6 +23,8 @@ import { createProgressPersister } from "@/components/player/progress-persister"
 import { withBookProjectionLock } from "@/lib/offline-sync/locks";
 import { projectLocalBookRegistration } from "@/lib/offline/local-import-mirror";
 import * as mirrorStore from "@/lib/offline/mirror";
+import * as launch from "@/lib/launch-revalidation";
+import { replayAcknowledgements, purgeDeviceSequencesForUser } from "@/lib/offline-sync/sequences";
 import type { PullBatch, PulledBook } from "@/lib/offline/sync-protocol";
 
 const user = "h7-user";
@@ -516,5 +518,183 @@ it("keeps a server title correction after an import retry and the next delta", a
   await applyPullBatch(user, { ...correction, since: t1, books: [] });
   expect((await readMirrorLibrary(user)).books[0]?.title).toBe("Corrected on another device");
   expect(await listQueuedMutations(user)).toHaveLength(0);
+  expect((await getSyncMeta(user))?.cursor).toBe(t1);
+});
+
+it.each(["import", "edit"])("preserves user data across an old %s pull", async (kind) => {
+  if (kind === "import") {
+    const r = {
+      bookId: "h7-book",
+      title: "Pending import",
+      author: "Author",
+      narrator: null,
+      fileName: "fixture.mp3",
+      mimeType: "audio/mpeg",
+      byteSize: 1000,
+      durationMs: 60000,
+      fingerprint: "f".repeat(64),
+      fingerprintKind: "sha256-v1" as const,
+      renditionKey: "source-v1",
+      chapterDiagnostic: null,
+      chapters: [{ position: 0, title: "One", startMs: 0, endMs: 60000 }],
+    };
+    await projectLocalBookRegistration(user, r);
+    await commitImport({ userId: user, deviceId: "device" }, r.fingerprint, r);
+  } else {
+    await applyPullBatch(user, batch("Original title", t0, null));
+    await commitMetadataEdit({ userId: user, deviceId: "device" }, "h7-book", { title: "My edit" });
+  }
+  const delayed = batch("Original title", t1, t0);
+  if (kind === "import") {
+    delayed.books = [];
+    delayed.liveBookIds = [];
+  } else await replayQueuedMutations(user, async () => Response.json({ ok: true }));
+  await applyPullBatch(user, delayed);
+  const actual = {
+    queued: (await listQueuedMutations(user)).length,
+    title: (await readMirrorLibrary(user)).books[0]?.title ?? null,
+  };
+  console.log(kind, JSON.stringify(actual));
+  expect(actual).toEqual(
+    kind === "import" ? { queued: 1, title: "Pending import" } : { queued: 0, title: "My edit" },
+  );
+});
+
+it("refetches whole batches after repeated acknowledgements without advancing the stale cursor", async () => {
+  await applyPullBatch(user, batch("Original title", t0, null));
+  const hook = renderHook(() => useLibraryBooks(user, filters));
+  await act(async () => hook.result.current.reload());
+  await waitFor(() => expect(requests).toHaveLength(1));
+  for (let index = 0; index < 8; index++) {
+    await commitMetadataEdit({ userId: user, deviceId: "device" }, "h7-book", {
+      title: `My edit ${index}`,
+    });
+    await replayQueuedMutations(user, async () => Response.json({ ok: true }));
+    const old = batch("Original title", t2, t0);
+    old.tags = [{ id: "old-tag", name: "Old tag" }];
+    await act(async () => requests[index]!.resolve(Response.json(old)));
+    await waitFor(() => expect(requests).toHaveLength(index + 2));
+    const mirror = await readMirrorLibrary(user);
+    expect(mirror.books[0]?.title).toBe(`My edit ${index}`);
+    expect(mirror.tags).toEqual([]);
+    expect((await getSyncMeta(user))?.cursor).toBe(t0);
+  }
+  await act(async () => requests[8]!.resolve(Response.json(batch("My edit 7", t2, t0))));
+  await waitFor(async () => expect((await getSyncMeta(user))?.cursor).toBe(t2));
+  expect((await readMirrorLibrary(user)).books[0]?.title).toBe("My edit 7");
+  expect(await listQueuedMutations(user)).toHaveLength(0);
+});
+
+function pendingRegistration() {
+  return {
+    bookId: "h7-book",
+    title: "Pending import",
+    author: "Author",
+    narrator: null,
+    fileName: "fixture.mp3",
+    mimeType: "audio/mpeg",
+    byteSize: 1000,
+    durationMs: 60000,
+    fingerprint: "f".repeat(64),
+    fingerprintKind: "sha256-v1" as const,
+    renditionKey: "source-v1",
+    chapterDiagnostic: null,
+    chapters: [{ position: 0, title: "One", startMs: 0, endMs: 60000 }],
+  };
+}
+
+it.each(["tombstone", "gone"])("allows a queued import to be removed after %s", async (mode) => {
+  const registration = pendingRegistration();
+  await projectLocalBookRegistration(user, registration);
+  await commitImport({ userId: user, deviceId: "device" }, registration.fingerprint, registration);
+  if (mode === "gone")
+    await replayQueuedMutations(user, async () => new Response(null, { status: 410 }));
+  const deleted = batch("Deleted", t1, null);
+  deleted.books = [];
+  deleted.liveBookIds = [];
+  if (mode === "tombstone") deleted.tombstones = [{ bookId: registration.bookId, deletedAt: t1 }];
+  await applyPullBatch(user, deleted, undefined, undefined, await replayAcknowledgements(user));
+  expect(await getMirrorPlayerBook(user, registration.bookId)).toBeNull();
+  expect(await listQueuedMutations(user)).toHaveLength(mode === "gone" ? 0 : 1);
+  expect((await getSyncMeta(user))?.cursor).toBe(t1);
+});
+
+it.each(["initial", "reload"])(
+  "yields after bounded %s invalidations and resumes automatically",
+  async (mode) => {
+    await projectLocalBookRegistration(user, pendingRegistration());
+    const scheduled: (() => void)[] = [];
+    if (mode === "reload") {
+      await applyPullBatch(user, batch("Pending import", t0, null));
+      vi.spyOn(launch, "afterLaunchPaint").mockImplementation((run) => {
+        scheduled.push(run);
+        return () => {};
+      });
+    }
+    const timers = vi.spyOn(window, "setTimeout");
+    const hook = renderHook(() => useLibraryBooks(user, filters));
+    if (mode === "reload") {
+      await waitFor(() => expect(scheduled).toHaveLength(1), { interval: 1 });
+      await act(async () => hook.result.current.reload());
+    }
+    for (let index = 0; index < 50; index++) {
+      await waitFor(() => expect(requests).toHaveLength(index + 1), { interval: 1 });
+      await commitMetadataEdit({ userId: user, deviceId: "device" }, "h7-book", {
+        title: `Edit ${index}`,
+      });
+      await replayQueuedMutations(user, async () => Response.json({ ok: true }));
+      await act(async () => requests[index]!.resolve(Response.json(batch("Old title", t1, null))));
+    }
+    expect(requests).toHaveLength(50);
+    expect((await getSyncMeta(user))?.cursor).toBe(mode === "initial" ? undefined : t0);
+    expect((await readMirrorLibrary(user)).books[0]?.title).toBe("Edit 49");
+    if (mode === "initial") {
+      await waitFor(() => expect(timers.mock.calls.some(([, ms]) => ms === 2000)).toBe(true), {
+        interval: 1,
+      });
+      const retry = timers.mock.calls.find(([, ms]) => ms === 2000)![0];
+      expect(typeof retry).toBe("function");
+      await act(async () => {
+        if (typeof retry === "function") retry();
+      });
+    } else {
+      await waitFor(() => expect(scheduled).toHaveLength(2), { interval: 1 });
+      await act(async () => scheduled[1]!());
+    }
+    await waitFor(() => expect(requests).toHaveLength(51), { interval: 1 });
+    await act(async () => requests[50]!.resolve(Response.json(batch("Edit 49", t1, null))));
+    await waitFor(async () => expect((await getSyncMeta(user))?.cursor).toBe(t1), { interval: 1 });
+    await waitFor(() => expect(hook.result.current.preparing).toBe(false), { interval: 1 });
+    expect((await readMirrorLibrary(user)).books[0]?.title).toBe("Edit 49");
+  },
+  5000,
+);
+
+it("persists acknowledgement counts per account and removes them with account data", async () => {
+  await applyPullBatch(user, batch("Original", t0, null));
+  await commitMetadataEdit({ userId: user, deviceId: "device" }, "h7-book", { title: "My edit" });
+  await replayQueuedMutations(user, async () => new Response(null, { status: 503 }));
+  expect(await replayAcknowledgements(user)).toBe(0);
+  await replayQueuedMutations(user, async () => Response.json({ ok: true }));
+  expect(await replayAcknowledgements(user)).toBe(1);
+  expect(await replayAcknowledgements("other-owner")).toBe(0);
+  vi.resetModules();
+  const reopened = await import("@/lib/offline-sync/sequences");
+  expect(await reopened.replayAcknowledgements(user)).toBe(1);
+  await purgeDeviceSequencesForUser(user);
+  expect(await reopened.replayAcknowledgements(user)).toBe(0);
+});
+
+it("the browser bridge applies a fresh server correction after replay settles", async () => {
+  await applyPullBatch(user, batch("Original title", t0, null));
+  await commitMetadataEdit({ userId: user, deviceId: "device" }, "h7-book", { title: "My edit" });
+  await replayQueuedMutations(user, async () => Response.json({ ok: true }));
+  await import("../../../tests/sync/harness/driver-entry");
+  window.__harkSync.configure(user, "bridge-device");
+  const pull = window.__harkSync.pull();
+  await waitFor(() => expect(requests).toHaveLength(1), { interval: 1 });
+  requests[0]!.resolve(Response.json(batch("Fresh server correction", t1, t0)));
+  expect(await pull).toBe("applied");
+  expect((await readMirrorLibrary(user)).books[0]?.title).toBe("Fresh server correction");
   expect((await getSyncMeta(user))?.cursor).toBe(t1);
 });

@@ -22,6 +22,7 @@ import {
 } from "./reconcile";
 import {
   currentDeviceSequence,
+  replayAcknowledgementKey,
   reserveDeviceSequenceAbove,
   reserveDeviceSequenceAboveInStore,
 } from "./sequences";
@@ -318,9 +319,18 @@ async function replayMutation(snapshot: QueuedMutation, fetchFn: typeof fetch): 
 async function settleMutation(snapshot: QueuedMutation): Promise<void> {
   await withBookProjectionLock(snapshot.userId, async () => {
     const db = await database();
-    const transaction = db.transaction("mutations", "readwrite");
-    const current = await transaction.store.get(snapshot.key);
-    if (current?.mutationId === snapshot.mutationId) await transaction.store.delete(snapshot.key);
+    const transaction = db.transaction(["mutations", "sequences"], "readwrite");
+    const mutations = transaction.objectStore("mutations");
+    const current = await mutations.get(snapshot.key);
+    if (!current) {
+      await transaction.done;
+      return;
+    }
+    if (current?.mutationId === snapshot.mutationId) await mutations.delete(snapshot.key);
+    const sequences = transaction.objectStore("sequences");
+    const key = replayAcknowledgementKey(snapshot.userId);
+    const acknowledged = await sequences.get(key);
+    await sequences.put({ key, userId: snapshot.userId, value: (acknowledged?.value ?? 0) + 1 });
     await transaction.done;
   });
 }
