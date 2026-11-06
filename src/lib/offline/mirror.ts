@@ -36,6 +36,7 @@ import {
 import type { PullBatch, PulledBook } from "./sync-protocol";
 import { listQueuedMutations } from "@/lib/offline-sync/queue";
 import { withBookProjectionLock } from "@/lib/offline-sync/locks";
+import { replayAcknowledgements } from "@/lib/offline-sync/sequences";
 import { mirrorPatchFor } from "./outbox";
 
 type MirrorStoreName =
@@ -88,9 +89,10 @@ export async function applyPullBatch(
   batch: PullBatch,
   digestedBookIds?: readonly string[],
   signal?: AbortSignal,
-): Promise<void> {
+  acknowledged?: number,
+): Promise<boolean> {
   return withBookProjectionLock(userId, () =>
-    applyPullBatchUnlocked(userId, batch, digestedBookIds, signal),
+    applyPullBatchUnlocked(userId, batch, digestedBookIds, signal, acknowledged),
   );
 }
 
@@ -99,10 +101,14 @@ async function applyPullBatchUnlocked(
   batch: PullBatch,
   digestedBookIds?: readonly string[],
   signal?: AbortSignal,
-): Promise<void> {
+  acknowledged?: number,
+): Promise<boolean> {
   signal?.throwIfAborted();
   assertAccountWritable(userId);
   const pending = await listQueuedMutations(userId);
+  const imports = new Set(
+    pending.filter((row) => row.kind === "import").map((row) => String(row.payload.bookId)),
+  );
   const projected = pending.filter((row) =>
     ["metadata", "archive", "tag", "collection"].includes(row.kind),
   );
@@ -110,7 +116,10 @@ async function applyPullBatchUnlocked(
     projected.map((row) => (row.kind === "collection" ? String(row.payload.bookId) : row.entityId)),
   );
   const db = await database();
+  const acknowledgements = await replayAcknowledgements(userId);
+  const expected = acknowledged ?? (await db.get("syncMeta", userId))?.replayAcknowledgements ?? 0;
   signal?.throwIfAborted();
+  if (expected !== acknowledgements) return false;
   const transaction = db.transaction(MIRROR_STORES, "readwrite");
   const onAbort = () => abortQuietly(transaction);
   signal?.addEventListener("abort", onAbort, { once: true });
@@ -122,7 +131,7 @@ async function applyPullBatchUnlocked(
     const current = await transaction.objectStore("syncMeta").get(userId);
     if (current && orderedCursor(current.cursor) > orderedCursor(batch.cursor)) {
       await transaction.done;
-      return;
+      return true;
     }
     await clearBookAggregates(transaction, userId, batch.books);
     await writeBookAggregates(transaction, userId, batch.books);
@@ -145,19 +154,21 @@ async function applyPullBatchUnlocked(
       await writePreferences(transaction, userId, batch);
       await writeListeningSessions(transaction, userId, batch);
     }
-    await applyTombstones(transaction, userId, batch, digestedBookIds, protectedBooks);
+    await applyTombstones(transaction, userId, batch, digestedBookIds, protectedBooks, imports);
     for (const mutation of projected) await mirrorPatchFor(mutation)?.(transaction);
 
     const meta: MirrorSyncMeta = {
       userId,
       cursor: batch.cursor,
       lastSyncedAt: new Date().toISOString(),
+      replayAcknowledgements: acknowledgements,
     };
     await transaction.objectStore("syncMeta").put(meta);
 
     assertAccountWritable(userId);
     await transaction.done;
     notifyLibraryChanged();
+    return true;
   } catch (error) {
     abortQuietly(transaction);
     throw error;
@@ -412,6 +423,7 @@ async function applyTombstones(
   batch: PullBatch,
   digestedBookIds: readonly string[] | undefined,
   protectedBooks: Set<string>,
+  imports: Set<string>,
 ): Promise<void> {
   const doomedSet = new Set((batch.tombstones || []).map((tombstone) => tombstone.bookId));
   const localKeys = await transaction.objectStore("books").index("by-user").getAllKeys(userId);
@@ -421,7 +433,8 @@ async function applyTombstones(
   }
   if (batch.liveBookIds) {
     const live = new Set(batch.liveBookIds);
-    for (const bookId of localIds) if (!live.has(bookId)) doomedSet.add(bookId);
+    for (const bookId of localIds)
+      if (!live.has(bookId) && !imports.has(bookId)) doomedSet.add(bookId);
   }
   const localIdSet = new Set(localIds);
   const doomed = [...doomedSet].filter(

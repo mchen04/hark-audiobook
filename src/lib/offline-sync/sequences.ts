@@ -71,6 +71,15 @@ export async function currentDeviceSequence(bookId: string, userId?: string): Pr
   return Math.max(scopedRow?.value || 0, legacyRow?.value || 0);
 }
 
+export function replayAcknowledgementKey(userId: string): string {
+  return `${userId}:\u0000replay-acknowledgements`;
+}
+
+export async function replayAcknowledgements(userId: string): Promise<number> {
+  const db = await database();
+  return (await db.get("sequences", replayAcknowledgementKey(userId)))?.value ?? 0;
+}
+
 export async function purgeDeviceSequencesForUser(userId: string): Promise<void> {
   const db = await database();
   const transaction = db.transaction("sequences", "readwrite");

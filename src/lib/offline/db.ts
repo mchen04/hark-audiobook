@@ -144,6 +144,7 @@ export type MirrorSyncMeta = {
   userId: string;
   cursor: string;
   lastSyncedAt: string;
+  replayAcknowledgements?: number;
 };
 
 export interface OfflineDatabase extends DBSchema {
