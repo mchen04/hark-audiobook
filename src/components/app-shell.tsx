@@ -41,7 +41,7 @@ export function AppShell({
   );
 
   return (
-    <PreferencesProvider userId={userId}>
+    <PreferencesProvider key={userId} userId={userId}>
       <PlaybackProvider userId={userId}>
         <LibraryViewProvider userId={userId}>
           <AppNavigation pathname={pathname}>
