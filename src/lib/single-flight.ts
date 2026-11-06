@@ -1,8 +1,8 @@
-export function singleFlight(
-  active: Map<string, Promise<void>>,
+export function singleFlight<T>(
+  active: Map<string, Promise<T>>,
   key: string,
-  run: () => Promise<void>,
-): Promise<void> {
+  run: () => Promise<T>,
+): Promise<T> {
   const existing = active.get(key);
   if (existing) return existing;
   const flight = run().finally(() => {

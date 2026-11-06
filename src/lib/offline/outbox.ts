@@ -29,6 +29,7 @@ import {
 } from "./db";
 import { ensurePermanentOfflineBookDeletion } from "./deletion-fence";
 import { notifyLibraryChanged } from "./library-revision";
+import { withBookProjectionLock } from "@/lib/offline-sync/locks";
 
 const PATCH_STORES = [
   "books",
@@ -52,6 +53,19 @@ export type CommitResult = {
 export async function commitMutation(
   mutation: QueuedMutation,
   patch: MirrorPatch | null = mirrorPatchFor(mutation),
+  afterQueue?: () => Promise<void>,
+): Promise<CommitResult> {
+  if (mutation.kind === "metadata" || mutation.kind === "archive") {
+    return withBookProjectionLock(mutation.userId, () =>
+      commitMutationUnlocked(mutation, patch, afterQueue),
+    );
+  }
+  return commitMutationUnlocked(mutation, patch, afterQueue);
+}
+
+async function commitMutationUnlocked(
+  mutation: QueuedMutation,
+  patch: MirrorPatch | null,
   afterQueue?: () => Promise<void>,
 ): Promise<CommitResult> {
   assertAccountWritable(mutation.userId);
@@ -416,7 +430,7 @@ function laterClock(left: string, right: string): string {
   return Date.parse(left) >= Date.parse(right) ? left : right;
 }
 
-function bookFieldsFrom(payload: Record<string, unknown>): Partial<MirrorBook> {
+export function bookFieldsFrom(payload: Record<string, unknown>): Partial<MirrorBook> {
   const fields: Partial<MirrorBook> = {};
   for (const field of ["title", "author", "narrator", "description", "series"] as const) {
     if (field in payload) fields[field] = payload[field] as never;

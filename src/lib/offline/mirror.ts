@@ -34,6 +34,9 @@ import {
   type OfflineDatabase,
 } from "./db";
 import type { PullBatch, PulledBook } from "./sync-protocol";
+import { listQueuedMutations } from "@/lib/offline-sync/queue";
+import { withBookProjectionLock } from "@/lib/offline-sync/locks";
+import { bookFieldsFrom } from "./outbox";
 
 type MirrorStoreName =
   | "downloads"
@@ -85,7 +88,27 @@ export async function applyPullBatch(
   batch: PullBatch,
   digestedBookIds?: readonly string[],
 ): Promise<void> {
+  return withBookProjectionLock(userId, () =>
+    applyPullBatchUnlocked(userId, batch, digestedBookIds),
+  );
+}
+
+async function applyPullBatchUnlocked(
+  userId: string,
+  batch: PullBatch,
+  digestedBookIds?: readonly string[],
+): Promise<void> {
   assertAccountWritable(userId);
+  const pending = await listQueuedMutations(userId);
+  const edits = new Map<string, Partial<MirrorBook>>();
+  for (const mutation of pending) {
+    if (mutation.kind !== "metadata" && mutation.kind !== "archive") continue;
+    edits.set(mutation.entityId, {
+      ...edits.get(mutation.entityId),
+      ...bookFieldsFrom(mutation.payload),
+    });
+  }
+  const incomingBooks = batch.books.map((book) => ({ ...book, ...edits.get(book.id) }));
   const db = await database();
   const transaction = db.transaction(MIRROR_STORES, "readwrite");
   const unsubscribe = subscribeAccountDeletionFence(() => {
@@ -93,8 +116,13 @@ export async function applyPullBatch(
   });
 
   try {
+    const current = await transaction.objectStore("syncMeta").get(userId);
+    if (current && orderedCursor(current.cursor) > orderedCursor(batch.cursor)) {
+      await transaction.done;
+      return;
+    }
     await clearBookAggregates(transaction, userId, batch.books);
-    await writeBookAggregates(transaction, userId, batch.books);
+    await writeBookAggregates(transaction, userId, incomingBooks);
     await writePlaybackStates(transaction, userId, batch);
     if (batch.complete) {
       await replaceTags(transaction, userId, batch);
@@ -120,6 +148,13 @@ export async function applyPullBatch(
   } finally {
     unsubscribe();
   }
+}
+
+function orderedCursor(cursor: string): string {
+  return cursor.replace(
+    /(?:\.(\d{1,6}))?Z$/,
+    (_match, fraction: string | undefined) => `.${(fraction ?? "").padEnd(6, "0")}Z`,
+  );
 }
 
 function abortQuietly(transaction: MirrorTransaction): void {

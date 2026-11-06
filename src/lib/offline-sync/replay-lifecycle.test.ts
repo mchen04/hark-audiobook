@@ -25,7 +25,8 @@ function holdReplayLock() {
   const release = deferred();
   vi.stubGlobal("navigator", {
     locks: {
-      request: async (_name: string, operation: () => Promise<void>) => {
+      request: async (name: string, operation: () => Promise<void>) => {
+        if (name.startsWith("chapterline-sync-network:")) return operation();
         entered.resolve();
         await release.promise;
         return operation();
@@ -48,6 +49,7 @@ function metadata(title: string) {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   await clearQueuedMutationsForUser(userId);
 });
@@ -81,4 +83,41 @@ it("does not resend a mutation another tab settles while replay waits for its lo
 
   expect(send).not.toHaveBeenCalled();
   expect(await listQueuedMutations(userId)).toEqual([]);
+});
+
+it("retains an import when its duplicate response body times out", async () => {
+  await queueMutation(
+    buildMutation({
+      key: `${userId}:import:book-1`,
+      userId,
+      entityId: "book-1",
+      kind: "import",
+      payload: { bookId: "book-1", fingerprint: "f".repeat(64), renditionKey: "source-v1" },
+      deviceId: "device-1",
+      deviceSequence: 0,
+    }),
+  );
+  const timers = vi.spyOn(globalThis, "setTimeout");
+  const entered = deferred();
+  const send = vi.fn<typeof fetch>(async (_url, init) => {
+    const response = new Response(
+      new ReadableStream({
+        start(controller) {
+          init!.signal!.addEventListener("abort", () => controller.error(init!.signal!.reason), {
+            once: true,
+          });
+        },
+      }),
+      { status: 409 },
+    );
+    entered.resolve();
+    return response;
+  });
+  const replay = replayQueuedMutations(userId, send);
+  await entered.promise;
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  const deadline = timers.mock.calls.find(([, delay]) => delay === 15_000)![0];
+  if (typeof deadline === "function") deadline();
+  await replay;
+  expect(await listQueuedMutations(userId)).toHaveLength(1);
 });

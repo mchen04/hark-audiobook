@@ -18,6 +18,7 @@ import {
 } from "@/lib/offline/mirror";
 import { isPullBatch } from "@/lib/offline/sync-protocol";
 import { singleFlight } from "@/lib/single-flight";
+import { withSyncNetworkLock, withSyncRequest } from "@/lib/offline-sync/locks";
 
 import type { SortOrder, StatusFilter } from "./library-view";
 
@@ -274,25 +275,32 @@ async function revalidate(userId: string): Promise<PullOutcome> {
   return outcome;
 }
 
-async function pull(userId: string): Promise<PullOutcome> {
+const activePulls = new Map<string, Promise<PullOutcome>>();
+
+function pull(userId: string): Promise<PullOutcome> {
+  return singleFlight(activePulls, userId, () =>
+    withSyncNetworkLock(userId, () => pullOnce(userId)),
+  );
+}
+
+async function pullOnce(userId: string): Promise<PullOutcome> {
   let sendDigest = true;
   for (let page = 0; page < PULL_PAGE_LIMIT; page += 1) {
     const meta = await getSyncMeta(userId).catch(() => undefined);
     const since = meta?.cursor ? `&since=${encodeURIComponent(meta.cursor)}` : "";
     const held = sendDigest ? await localLiveBooks(userId).catch(() => null) : null;
     const liveBooks = held ? `&liveBooks=${held.digest}` : "";
-    let response: Response;
-    try {
-      response = await fetch(`/api/sync/pull?snapshots=final${since}${liveBooks}`, {
+    const batch = await withSyncRequest(async (signal) => {
+      const response = await fetch(`/api/sync/pull?snapshots=final${since}${liveBooks}`, {
         cache: "no-store",
+        signal,
       });
-    } catch {
-      return "unreachable";
-    }
-    if (response.status === 401 || response.status === 403) return "unauthorized";
-    if (!response.ok) return "unreachable";
-    const batch: unknown = await response.json().catch(() => null);
-    if (!isPullBatch(batch)) return "unreachable";
+      if (response.status === 401 || response.status === 403) return "unauthorized" as const;
+      if (!response.ok) return "unreachable" as const;
+      const body: unknown = await response.json().catch(() => null);
+      return isPullBatch(body) ? body : ("unreachable" as const);
+    }).catch(() => "unreachable" as const);
+    if (typeof batch === "string") return batch;
     try {
       await applyPullBatch(userId, batch, held?.ids);
     } catch (error) {

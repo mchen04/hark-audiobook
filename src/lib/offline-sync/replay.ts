@@ -5,6 +5,7 @@ import { withKeyedLock } from "@/lib/keyed-lock";
 import { runBounded } from "@/lib/run-bounded";
 
 import { database, type QueuedMutation, type SyncDb } from "./db";
+import { withSyncNetworkLock, withSyncRequest } from "./locks";
 import { queuedMediaRegistrationIdentity } from "./media-registration-identity";
 import {
   hasPendingDeleteForMediaRegistration,
@@ -92,7 +93,9 @@ export function replayQueuedMutations(
   userId: string,
   fetchFn: typeof fetch = fetch,
 ): Promise<void> {
-  return singleFlight(activeReplays, userId, () => replayQueueSnapshot(userId, fetchFn));
+  return singleFlight(activeReplays, userId, () =>
+    withSyncNetworkLock(userId, () => replayQueueSnapshot(userId, fetchFn)),
+  );
 }
 
 async function replayQueueSnapshot(userId: string, fetchFn: typeof fetch): Promise<void> {
@@ -252,66 +255,69 @@ async function refreshDuplicateProgress(
 }
 
 async function replayMutation(snapshot: QueuedMutation, fetchFn: typeof fetch): Promise<void> {
-  await withMutationLock(snapshot, async () => {
-    const db = await database();
-    const current = await db.get("mutations", snapshot.key);
-    if (!current) return;
-    const task = await supersedeStaleProgress(current);
-    const identity = queuedMediaRegistrationIdentity(task);
-    if (
-      task.kind === "import" &&
-      identity &&
-      (await hasPendingDeleteForMediaRegistration(task.userId, identity))
-    ) {
-      return;
-    }
-    if (task.kind === "delete") {
-      await ensurePermanentOfflineBookDeletion(task.userId, task.entityId);
-    }
-    const { url, init } = toReplayRequest(task);
-    const response = await fetchFn(url, init);
-    if (
-      response.status === 400 &&
-      task.kind === "progress" &&
-      ("playbackRateOccurredAt" in task.payload || "completedOccurredAt" in task.payload)
-    ) {
-      await recordAttempt(task);
-      return;
-    }
-    if (shouldRetainMutation(response.status)) {
-      await recordAttempt(task);
-      return;
-    }
-    if (response.status === 404 && (await awaitsRegistration(task))) {
-      await recordAttempt(task);
-      return;
-    }
-    if (response.status === 409) {
-      if (task.kind === "progress") {
-        if (!(await reconcileProgressConflict(toQueuedProgress(task), response))) {
+  await withMutationLock(snapshot, () =>
+    withSyncRequest(async (signal) => {
+      const db = await database();
+      const current = await db.get("mutations", snapshot.key);
+      if (!current) return;
+      const task = await supersedeStaleProgress(current);
+      const identity = queuedMediaRegistrationIdentity(task);
+      if (
+        task.kind === "import" &&
+        identity &&
+        (await hasPendingDeleteForMediaRegistration(task.userId, identity))
+      ) {
+        return;
+      }
+      if (task.kind === "delete") {
+        await ensurePermanentOfflineBookDeletion(task.userId, task.entityId);
+      }
+      const { url, init } = toReplayRequest(task);
+      const response = await fetchFn(url, { ...init, signal });
+      if (
+        response.status === 400 &&
+        task.kind === "progress" &&
+        ("playbackRateOccurredAt" in task.payload || "completedOccurredAt" in task.payload)
+      ) {
+        await recordAttempt(task);
+        return;
+      }
+      if (shouldRetainMutation(response.status)) {
+        await recordAttempt(task);
+        return;
+      }
+      if (response.status === 404 && (await awaitsRegistration(task))) {
+        await recordAttempt(task);
+        return;
+      }
+      if (response.status === 409) {
+        if (task.kind === "progress") {
+          if (!(await reconcileProgressConflict(toQueuedProgress(task), response))) {
+            await recordAttempt(task);
+            return;
+          }
+        } else if (task.kind === "import" && !(await reattachDuplicateImport(task, response))) {
           await recordAttempt(task);
           return;
         }
-      } else if (task.kind === "import" && !(await reattachDuplicateImport(task, response))) {
-        await recordAttempt(task);
-        return;
       }
-    }
-    if (response.ok && task.kind === "progress") {
-      const entry = toQueuedProgress(task);
-      const duplicateFloor = await duplicateProgressRetryFloor(entry, response);
-      if (duplicateFloor !== null) {
-        await refreshDuplicateProgress(task, duplicateFloor);
-        return;
+      if (response.ok && task.kind === "progress") {
+        const entry = toQueuedProgress(task);
+        const duplicateFloor = await duplicateProgressRetryFloor(entry, response);
+        if (duplicateFloor !== null) {
+          await refreshDuplicateProgress(task, duplicateFloor);
+          return;
+        }
+        const reconciled = await reconcileAcceptedProgressWithStatus(entry, response);
+        if (!reconciled.persisted) {
+          await recordAttempt(task);
+          return;
+        }
       }
-      const reconciled = await reconcileAcceptedProgressWithStatus(entry, response);
-      if (!reconciled.persisted) {
-        await recordAttempt(task);
-        return;
-      }
-    }
-    await settleMutation(task);
-  });
+      signal.throwIfAborted();
+      await settleMutation(task);
+    }),
+  );
 }
 
 async function settleMutation(snapshot: QueuedMutation): Promise<void> {
