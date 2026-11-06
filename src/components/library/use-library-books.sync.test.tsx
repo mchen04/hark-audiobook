@@ -533,7 +533,7 @@ it.each(["import", "edit"])("preserves user data across an old %s pull", async (
       byteSize: 1000,
       durationMs: 60000,
       fingerprint: "f".repeat(64),
-      fingerprintKind: "sha256-v1",
+      fingerprintKind: "sha256-v1" as const,
       renditionKey: "source-v1",
       chapterDiagnostic: null,
       chapters: [{ position: 0, title: "One", startMs: 0, endMs: 60000 }],
