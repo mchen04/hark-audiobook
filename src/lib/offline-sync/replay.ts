@@ -253,7 +253,10 @@ async function refreshDuplicateProgress(
 
 async function replayMutation(snapshot: QueuedMutation, fetchFn: typeof fetch): Promise<void> {
   await withMutationLock(snapshot, async () => {
-    const task = await supersedeStaleProgress(snapshot);
+    const db = await database();
+    const current = await db.get("mutations", snapshot.key);
+    if (!current) return;
+    const task = await supersedeStaleProgress(current);
     const identity = queuedMediaRegistrationIdentity(task);
     if (
       task.kind === "import" &&
