@@ -103,18 +103,12 @@ async function applyPullBatchUnlocked(
   signal?.throwIfAborted();
   assertAccountWritable(userId);
   const pending = await listQueuedMutations(userId);
-  const imports = new Set(
-    pending.filter((row) => row.kind === "import").map((row) => String(row.payload.bookId)),
-  );
   const projected = pending.filter((row) =>
     ["metadata", "archive", "tag", "collection"].includes(row.kind),
   );
-  const protectedBooks = new Set([
-    ...imports,
-    ...projected.map((row) =>
-      row.kind === "collection" ? String(row.payload.bookId) : row.entityId,
-    ),
-  ]);
+  const protectedBooks = new Set(
+    projected.map((row) => (row.kind === "collection" ? String(row.payload.bookId) : row.entityId)),
+  );
   const db = await database();
   signal?.throwIfAborted();
   const transaction = db.transaction(MIRROR_STORES, "readwrite");
@@ -130,17 +124,8 @@ async function applyPullBatchUnlocked(
       await transaction.done;
       return;
     }
-    const incomingBooks: PulledBook[] = [];
-    for (const book of batch.books) {
-      if (
-        !imports.has(book.id) ||
-        !(await transaction.objectStore("books").getKey(mirrorKey(userId, book.id)))
-      ) {
-        incomingBooks.push(book);
-      }
-    }
-    await clearBookAggregates(transaction, userId, incomingBooks);
-    await writeBookAggregates(transaction, userId, incomingBooks);
+    await clearBookAggregates(transaction, userId, batch.books);
+    await writeBookAggregates(transaction, userId, batch.books);
     await writePlaybackStates(transaction, userId, batch);
     if (batch.complete) {
       await replaceTags(

@@ -364,80 +364,6 @@ it.each(["tag", "collection"])(
   },
 );
 
-it("keeps a local import available to the player while registration replays", async () => {
-  const registration = {
-    bookId: "h7-book",
-    fileName: "fixture.mp3",
-    mimeType: "audio/mpeg",
-    byteSize: 1000,
-    durationMs: 60000,
-    fingerprint: "f".repeat(64),
-    fingerprintKind: "sha256-v1" as const,
-    renditionKey: "source-v1",
-    title: "Offline import",
-    author: "Author",
-    narrator: null,
-    chapterDiagnostic: null,
-    chapters: [{ position: 0, title: "One", startMs: 0, endMs: 60000 }],
-  };
-  await projectLocalBookRegistration(user, registration);
-  expect(await getMirrorPlayerBook(user, registration.bookId)).not.toBeNull();
-  await commitImport({ userId: user, deviceId: "device" }, registration.fingerprint, registration);
-  let finish!: () => void;
-  const hold = new Promise<void>((done) => {
-    finish = done;
-  });
-  let serverRegistered = false;
-  const send = vi.fn(async () => {
-    await hold;
-    serverRegistered = true;
-    return Response.json({ bookId: "h7-book" }, { status: 201 });
-  });
-  const replay = replayQueuedMutations(user, send);
-  await waitFor(() => expect(send).toHaveBeenCalledOnce());
-  vi.stubGlobal("fetch", async () => {
-    const result = batch("Offline import", t1, null);
-    result.books[0]!.media = {
-      originalFilename: "fixture.mp3",
-      mimeType: "audio/mpeg",
-      byteSize: 1000,
-      fingerprint: registration.fingerprint,
-      fingerprintKind: "sha256-v1",
-      renditionKey: "source-v1",
-      durationMs: 60000,
-    };
-    result.books[0]!.chapters = registration.chapters;
-    if (!serverRegistered) {
-      result.books = [];
-      result.liveBookIds = [];
-    }
-    return Response.json(result);
-  });
-  const hook = renderHook(() => useLibraryBooks(user, filters));
-  await act(async () => {
-    await hook.result.current.reload();
-  });
-  await new Promise((done) => setTimeout(done, 50));
-  await act(async () => {
-    finish();
-    await replay;
-  });
-  await waitFor(async () => expect((await getSyncMeta(user))?.cursor).toBe(t1));
-  const books = (await readMirrorLibrary(user)).books.map((book) => book.id);
-  const playerAvailable = !!(await getMirrorPlayerBook(user, registration.bookId));
-  console.log(
-    "IMPORT_REPLAY_PULL",
-    JSON.stringify({
-      serverRegistered,
-      books,
-      playerAvailable,
-      queued: (await listQueuedMutations(user)).length,
-    }),
-  );
-  expect(playerAvailable).toBe(true);
-  expect(books).toEqual(["h7-book"]);
-});
-
 it.each(["deadline", "pull-first"])("retains an import during a %s pull", async (phase) => {
   const timers = vi.spyOn(globalThis, "setTimeout");
   const r = {
@@ -560,4 +486,35 @@ it("recovers a cancelled import that has no local book record", async () => {
   };
   console.log("IMPORT", JSON.stringify(result));
   expect(result.available).toBe(true);
+});
+
+it("keeps a server title correction after an import retry and the next delta", async () => {
+  const registration = {
+    bookId: "h7-book",
+    fileName: "fixture.mp3",
+    mimeType: "audio/mpeg",
+    byteSize: 1000,
+    durationMs: 60000,
+    fingerprint: "f".repeat(64),
+    fingerprintKind: "sha256-v1" as const,
+    renditionKey: "source-v1",
+    title: "Imported title",
+    author: "Author",
+    narrator: null,
+    chapterDiagnostic: null,
+    chapters: [{ position: 0, title: "One", startMs: 0, endMs: 60000 }],
+  };
+  await projectLocalBookRegistration(user, registration);
+  await commitImport({ userId: user, deviceId: "device" }, registration.fingerprint, registration);
+  const correction = batch("Corrected on another device", t1, null);
+  correction.books[0]!.media = { ...registration, originalFilename: registration.fileName };
+  correction.books[0]!.chapters = registration.chapters;
+  await applyPullBatch(user, correction);
+  await replayQueuedMutations(user, async () =>
+    Response.json({ bookId: registration.bookId, alreadyRegistered: true }),
+  );
+  await applyPullBatch(user, { ...correction, since: t1, books: [] });
+  expect((await readMirrorLibrary(user)).books[0]?.title).toBe("Corrected on another device");
+  expect(await listQueuedMutations(user)).toHaveLength(0);
+  expect((await getSyncMeta(user))?.cursor).toBe(t1);
 });

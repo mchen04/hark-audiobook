@@ -92,8 +92,7 @@ it("preserves sync invariants through fixed seeded account and request sequences
           queued: new Map<string, QueuedMutation>(),
           server: new Map([[`${id}-main`, book(id, `${id}-main`)]]),
           cursor: stamp(0),
-          missingImports: new Set<string>(),
-          recoveredImports: new Set<string>(),
+          recoveredImports: new Map<string, string>(),
         },
       ]),
     );
@@ -166,13 +165,9 @@ it("preserves sync invariants through fixed seeded account and request sequences
             expect(mirror.books.find((book) => book.id === row.entityId)?.title).toBe(
               row.payload.title,
             );
-          if (row.kind === "import")
-            expect(!!(await getMirrorPlayerBook(id, String(row.payload.bookId)))).toBe(
-              !state.missingImports.has(String(row.payload.bookId)),
-            );
         }
-        for (const recovered of state.recoveredImports)
-          expect(await getMirrorPlayerBook(id, recovered)).not.toBeNull();
+        for (const [recovered, title] of state.recoveredImports)
+          expect((await getMirrorPlayerBook(id, recovered))?.playerBook.title).toBe(title);
         const cursor = (await getSyncMeta(id))!.cursor;
         expect(cursor >= state.cursor).toBe(true);
         state.cursor = cursor;
@@ -222,12 +217,10 @@ it("preserves sync invariants through fixed seeded account and request sequences
     ).rejects.toMatchObject({ name: "AbortError" });
     const queued = (await listQueuedMutations(owner.id))[0]!;
     recovery.queued.set(queued.key, queued);
-    recovery.missingImports.add(registration.bookId);
     await verify();
     const incoming = batch([...recovery.server.values()], stamp(++index), true);
     await applyPullBatch(owner.id, incoming);
-    recovery.missingImports.delete(registration.bookId);
-    recovery.recoveredImports.add(registration.bookId);
+    recovery.recoveredImports.set(registration.bookId, registration.title);
     await verify();
     await replayQueuedMutations(owner.id, async () =>
       Response.json({ bookId: registration.bookId }),
@@ -235,6 +228,29 @@ it("preserves sync invariants through fixed seeded account and request sequences
     recovery.queued.delete(queued.key);
     await verify();
     await applyPullBatch(owner.id, { ...incoming, since: incoming.cursor, books: [] });
+    await verify();
+    const retry = await commitImport(
+      { userId: owner.id, deviceId: "sequence" },
+      registration.fingerprint,
+      registration,
+    );
+    recovery.queued.set(retry.queued.key, retry.queued);
+    const correctedTitle = `${owner.id}:corrected-on-another-device`;
+    recovery.server.set(registration.bookId, {
+      ...recovery.server.get(registration.bookId)!,
+      title: correctedTitle,
+      updatedAt: stamp(++index),
+    });
+    const corrected = batch([...recovery.server.values()], stamp(index), true);
+    await applyPullBatch(owner.id, corrected);
+    recovery.recoveredImports.set(registration.bookId, correctedTitle);
+    await verify();
+    await replayQueuedMutations(owner.id, async () =>
+      Response.json({ bookId: registration.bookId, alreadyRegistered: true }),
+    );
+    recovery.queued.delete(retry.queued.key);
+    await verify();
+    await applyPullBatch(owner.id, { ...corrected, since: corrected.cursor, books: [] });
     await verify();
     const actions = [
       "pull",
