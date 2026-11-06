@@ -271,7 +271,12 @@ async function replayMutation(snapshot: QueuedMutation, fetchFn: typeof fetch): 
         await ensurePermanentOfflineBookDeletion(task.userId, task.entityId);
       }
       const { url, init } = toReplayRequest(task);
-      const response = await fetchFn(url, { ...init, signal });
+      const request = () => {
+        signal.throwIfAborted();
+        return fetchFn(url, { ...init, signal });
+      };
+      const response =
+        task.kind === "import" ? await withSyncNetworkLock(task.userId, request) : await request();
       if (
         response.status === 400 &&
         task.kind === "progress" &&
@@ -316,9 +321,9 @@ async function replayMutation(snapshot: QueuedMutation, fetchFn: typeof fetch): 
       await settleMutation(task);
     });
   await withMutationLock(snapshot, () =>
-    snapshot.kind === "metadata" || snapshot.kind === "archive"
-      ? withSyncNetworkLock(snapshot.userId, send)
-      : send(),
+    snapshot.kind === "progress" || snapshot.kind === "import"
+      ? send()
+      : withSyncNetworkLock(snapshot.userId, send),
   );
 }
 

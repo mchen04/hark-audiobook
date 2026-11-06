@@ -5,12 +5,23 @@ import { IDBFactory } from "fake-indexeddb";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useLibraryBooks, type LibraryFilters } from "@/components/library/use-library-books";
-import { applyPullBatch, getSyncMeta, readMirrorLibrary } from "@/lib/offline/mirror";
-import { commitMetadataEdit } from "@/lib/offline/outbox";
-import { listQueuedMutations, replayQueuedMutations } from "@/lib/offline-sync";
+import {
+  applyPullBatch,
+  getSyncMeta,
+  readMirrorLibrary,
+  listMirrorCollections,
+  getMirrorPlayerBook,
+} from "@/lib/offline/mirror";
+import {
+  commitMetadataEdit,
+  commitTagEdge,
+  commitCollectionEdge,
+  commitImport,
+} from "@/lib/offline/outbox";
+import { listQueuedMutations, replayQueuedMutations, queueProgress } from "@/lib/offline-sync";
 import { createProgressPersister } from "@/components/player/progress-persister";
-import { queueProgress } from "@/lib/offline-sync";
 import { withSyncNetworkLock, withBookProjectionLock } from "@/lib/offline-sync/locks";
+import { projectLocalBookRegistration } from "@/lib/offline/local-import-mirror";
 import type { PullBatch, PulledBook } from "@/lib/offline/sync-protocol";
 
 const user = "h7-user";
@@ -347,3 +358,131 @@ it.each(["queued", "response", "projection"])(
     expect(sends.filter((id) => id === "account-b")).toHaveLength(1);
   },
 );
+
+it.each(["tag", "collection"])(
+  "keeps an acknowledged %s edit when a pull overlaps replay",
+  async (kind) => {
+    const edgeBatch = (included: boolean, cursor: string, since: string | null) => {
+      const result = batch("Original title", cursor, since);
+      result.tags = [{ id: "tag-one", name: "Favorite" }];
+      result.books[0]!.tagIds = included ? ["tag-one"] : [];
+      result.collections = [
+        {
+          id: "collection-one",
+          name: "Favorite",
+          updatedAt: cursor,
+          books: included ? [{ bookId: "h7-book", position: 0 }] : [],
+        },
+      ];
+      return result;
+    };
+    const included = async () =>
+      kind === "tag"
+        ? (await readMirrorLibrary(user)).books[0]?.tags.includes("Favorite")
+        : (await listMirrorCollections(user, "h7-book"))[0]?.includesBook;
+    await applyPullBatch(user, edgeBatch(false, t0, null));
+    const origin = { userId: user, deviceId: "device" };
+    if (kind === "tag") await commitTagEdge(origin, "h7-book", "tag-one", true);
+    else await commitCollectionEdge(origin, "collection-one", "h7-book", true);
+    expect(await included()).toBe(true);
+    let finish!: () => void;
+    const hold = new Promise<void>((done) => {
+      finish = done;
+    });
+    let serverIncluded = false;
+    const send = vi.fn(async () => {
+      await hold;
+      serverIncluded = true;
+      return Response.json({ ok: true });
+    });
+    const replay = replayQueuedMutations(user, send);
+    await waitFor(() => expect(send).toHaveBeenCalledOnce());
+    vi.stubGlobal("fetch", async () => Response.json(edgeBatch(serverIncluded, t1, t0)));
+    const hook = renderHook(() => useLibraryBooks(user, filters));
+    await act(async () => {
+      await hook.result.current.reload();
+    });
+    await new Promise((done) => setTimeout(done, 25));
+    await act(async () => {
+      finish();
+      await replay;
+    });
+    await waitFor(async () => expect((await getSyncMeta(user))?.cursor).toBe(t1));
+    expect(await listQueuedMutations(user)).toHaveLength(0);
+    expect(await included()).toBe(true);
+  },
+);
+
+it("keeps a local import available to the player while registration replays", async () => {
+  const registration = {
+    bookId: "h7-book",
+    fileName: "fixture.mp3",
+    mimeType: "audio/mpeg",
+    byteSize: 1000,
+    durationMs: 60000,
+    fingerprint: "f".repeat(64),
+    fingerprintKind: "sha256-v1" as const,
+    renditionKey: "source-v1",
+    title: "Offline import",
+    author: "Author",
+    narrator: null,
+    chapterDiagnostic: null,
+    chapters: [{ position: 0, title: "One", startMs: 0, endMs: 60000 }],
+  };
+  await projectLocalBookRegistration(user, registration);
+  expect(await getMirrorPlayerBook(user, registration.bookId)).not.toBeNull();
+  await commitImport({ userId: user, deviceId: "device" }, registration.fingerprint, registration);
+  let finish!: () => void;
+  const hold = new Promise<void>((done) => {
+    finish = done;
+  });
+  let serverRegistered = false;
+  const send = vi.fn(async () => {
+    await hold;
+    serverRegistered = true;
+    return Response.json({ bookId: "h7-book" }, { status: 201 });
+  });
+  const replay = replayQueuedMutations(user, send);
+  await waitFor(() => expect(send).toHaveBeenCalledOnce());
+  vi.stubGlobal("fetch", async () => {
+    const result = batch("Offline import", t1, null);
+    result.books[0]!.media = {
+      originalFilename: "fixture.mp3",
+      mimeType: "audio/mpeg",
+      byteSize: 1000,
+      fingerprint: registration.fingerprint,
+      fingerprintKind: "sha256-v1",
+      renditionKey: "source-v1",
+      durationMs: 60000,
+    };
+    result.books[0]!.chapters = registration.chapters;
+    if (!serverRegistered) {
+      result.books = [];
+      result.liveBookIds = [];
+    }
+    return Response.json(result);
+  });
+  const hook = renderHook(() => useLibraryBooks(user, filters));
+  await act(async () => {
+    await hook.result.current.reload();
+  });
+  await new Promise((done) => setTimeout(done, 50));
+  await act(async () => {
+    finish();
+    await replay;
+  });
+  await waitFor(async () => expect((await getSyncMeta(user))?.cursor).toBe(t1));
+  const books = (await readMirrorLibrary(user)).books.map((book) => book.id);
+  const playerAvailable = !!(await getMirrorPlayerBook(user, registration.bookId));
+  console.log(
+    "IMPORT_REPLAY_PULL",
+    JSON.stringify({
+      serverRegistered,
+      books,
+      playerAvailable,
+      queued: (await listQueuedMutations(user)).length,
+    }),
+  );
+  expect(playerAvailable).toBe(true);
+  expect(books).toEqual(["h7-book"]);
+});
