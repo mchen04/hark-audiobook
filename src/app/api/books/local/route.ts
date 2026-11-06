@@ -11,7 +11,7 @@ import { withMutation } from "@/server/api/route-handler";
 import { getBookForUser } from "@/server/books/queries";
 import { db } from "@/server/db/client";
 import { syncReceipt } from "@/server/db/sync-receipt";
-import { books, chapters, mediaAssets } from "@/server/db/schema";
+import { books, bookTombstones, chapters, mediaAssets } from "@/server/db/schema";
 import { validateUploadMetadata } from "@/server/media/filename";
 import { isSameLocalRegistration } from "@/server/media/local-registration-identity";
 
@@ -36,6 +36,14 @@ export const POST = withMutation(
     const registration = await db.transaction(
       async (transaction) => {
         const receipt = await syncReceipt(transaction, session.user.id);
+        if (data.bookId) {
+          const [deleted] = await transaction
+            .select({ bookId: bookTombstones.bookId })
+            .from(bookTombstones)
+            .where(eq(bookTombstones.bookId, data.bookId))
+            .limit(1);
+          if (deleted) return { deleted: true as const };
+        }
         async function insertChapterRows(bookId: string, chapterRows: ParsedChapter[]) {
           for (let start = 0; start < chapterRows.length; start += CHAPTER_INSERT_BATCH) {
             await transaction.insert(chapters).values(
@@ -200,6 +208,13 @@ export const POST = withMutation(
       },
       { isolationLevel: "read committed" },
     );
+
+    if ("deleted" in registration) {
+      return Response.json(
+        { error: "This book was deleted. Import it as a new book." },
+        { status: 410 },
+      );
+    }
 
     if ("settled" in registration) {
       if (!registration.settled) {
