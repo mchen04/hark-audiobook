@@ -115,7 +115,6 @@ async function applyPullBatchUnlocked(
       row.kind === "collection" ? String(row.payload.bookId) : row.entityId,
     ),
   ]);
-  const incomingBooks = batch.books.filter((book) => !imports.has(book.id));
   const db = await database();
   signal?.throwIfAborted();
   const transaction = db.transaction(MIRROR_STORES, "readwrite");
@@ -130,6 +129,15 @@ async function applyPullBatchUnlocked(
     if (current && orderedCursor(current.cursor) > orderedCursor(batch.cursor)) {
       await transaction.done;
       return;
+    }
+    const incomingBooks: PulledBook[] = [];
+    for (const book of batch.books) {
+      if (
+        !imports.has(book.id) ||
+        !(await transaction.objectStore("books").getKey(mirrorKey(userId, book.id)))
+      ) {
+        incomingBooks.push(book);
+      }
     }
     await clearBookAggregates(transaction, userId, incomingBooks);
     await writeBookAggregates(transaction, userId, incomingBooks);

@@ -284,19 +284,12 @@ type PullOutcome = "applied" | "unauthorized" | "unreachable";
 type PullOwner = {
   userId: string;
   signal: AbortSignal;
-  pending?: Promise<PullOutcome>;
 };
 
 async function revalidate(owner: PullOwner): Promise<PullOutcome> {
-  const outcome = await pull(owner);
+  const outcome = await pullOnce(owner);
   if (!owner.signal.aborted) await listOfflineBooks(owner.userId).catch(() => undefined);
   return outcome;
-}
-
-function pull(owner: PullOwner): Promise<PullOutcome> {
-  return (owner.pending ??= pullOnce(owner).finally(() => {
-    owner.pending = undefined;
-  }));
 }
 
 async function pullOnce(owner: PullOwner): Promise<PullOutcome> {

@@ -87,15 +87,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
-it("shares an unfinished first pull with an online retry", async () => {
-  const { result } = renderHook(() => useLibraryBooks(user, filters));
-  await waitFor(() => expect(requests).toHaveLength(1));
-  act(() => window.dispatchEvent(new Event("online")));
-  await act(async () => requests[0]!.resolve(Response.json(batch("New title", t2, null))));
-  await waitFor(() => expect(result.current.snapshot?.books[0]?.title).toBe("New title"));
-  expect(requests).toHaveLength(1);
-  expect((await getSyncMeta(user))?.cursor).toBe(t2);
-});
+
 it("ignores older batches without dropping microsecond precision", async () => {
   const newer = "2026-11-06T12:00:00.000002Z";
   const older = "2026-11-06T12:00:00.000001Z";
@@ -512,4 +504,60 @@ it.each(["deadline", "pull-first"])("retains an import during a %s pull", async 
   };
   console.log(phase, JSON.stringify(actual));
   expect(actual).toEqual({ sent: 1, queued: 0, available: true });
+});
+
+it("starts another pull when retry interrupts a stalled response", async () => {
+  const hook = renderHook(() => useLibraryBooks(user, filters));
+  await waitFor(() => expect(requests).toHaveLength(1));
+  act(() => hook.result.current.retry());
+  await new Promise((done) => setTimeout(done, 100));
+  console.log("RETRY", JSON.stringify({ requests: requests.length }));
+  expect(requests).toHaveLength(2);
+  await act(async () => requests[1]!.resolve(Response.json(batch("Latest title", t2, null))));
+  await waitFor(async () => expect((await getSyncMeta(user))?.cursor).toBe(t2));
+  await act(async () => requests[0]!.resolve(Response.json(batch("Old title", t1, null))));
+  expect((await readMirrorLibrary(user)).books[0]?.title).toBe("Latest title");
+  expect((await getSyncMeta(user))?.cursor).toBe(t2);
+});
+it("recovers a cancelled import that has no local book record", async () => {
+  const r = {
+    bookId: "h7-book",
+    fileName: "fixture.mp3",
+    mimeType: "audio/mpeg",
+    byteSize: 1000,
+    durationMs: 60000,
+    fingerprint: "f".repeat(64),
+    fingerprintKind: "sha256-v1" as const,
+    renditionKey: "source-v1",
+    title: "Imported",
+    author: "Author",
+    narrator: null,
+    chapterDiagnostic: null,
+    chapters: [{ position: 0, title: "One", startMs: 0, endMs: 60000 }],
+  };
+  const { registerLocalBook } = await import("@/lib/local-import");
+  const controller = new AbortController();
+  vi.stubGlobal("fetch", async () => {
+    controller.abort();
+    return Response.json({ bookId: r.bookId }, { status: 201 });
+  });
+  await expect(registerLocalBook(user, r, controller.signal)).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  expect(await listQueuedMutations(user)).toHaveLength(1);
+  const pulled = batch(r.title, t1, null);
+  pulled.books[0]!.media = { ...r, originalFilename: r.fileName };
+  pulled.books[0]!.chapters = r.chapters;
+  await applyPullBatch(user, pulled);
+  await replayQueuedMutations(user, async () => Response.json({ bookId: r.bookId }));
+  const delta = batch(r.title, t1, t1);
+  delta.books = [];
+  await applyPullBatch(user, delta);
+  const result = {
+    queued: (await listQueuedMutations(user)).length,
+    available: !!(await getMirrorPlayerBook(user, r.bookId)),
+    cursor: (await getSyncMeta(user))?.cursor,
+  };
+  console.log("IMPORT", JSON.stringify(result));
+  expect(result.available).toBe(true);
 });

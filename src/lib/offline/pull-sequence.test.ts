@@ -1,5 +1,10 @@
+// @vitest-environment jsdom
+
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { useLibraryBooks } from "@/components/library/use-library-books";
+import { registerLocalBook } from "@/lib/local-import";
 import { afterEach, expect, it, vi } from "vitest";
 import type { LocalBookRegistration } from "@/domain/local-book";
 import {
@@ -63,13 +68,21 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 it("preserves sync invariants through fixed seeded account and request sequences", async () => {
   const seeds = [7, 73, 701];
   let steps = 0;
   for (const seed of seeds) {
+    localStorage.clear();
     vi.stubGlobal("indexedDB", new IDBFactory());
+    vi.stubGlobal("caches", {
+      open: async () => ({ match: async () => undefined, delete: async () => true }),
+    });
     vi.stubGlobal("BroadcastChannel", undefined);
     const users = [`seed-${seed}-a`, `seed-${seed}-b`];
     const states = new Map(
@@ -79,9 +92,46 @@ it("preserves sync invariants through fixed seeded account and request sequences
           queued: new Map<string, QueuedMutation>(),
           server: new Map([[`${id}-main`, book(id, `${id}-main`)]]),
           cursor: stamp(0),
+          missingImports: new Set<string>(),
+          recoveredImports: new Set<string>(),
         },
       ]),
     );
+    const retryRequests: ((response: Response) => void)[] = [];
+    vi.stubGlobal("fetch", () => new Promise<Response>((resolve) => retryRequests.push(resolve)));
+    const hook = renderHook(() =>
+      useLibraryBooks(users[0]!, {
+        query: "",
+        status: "all",
+        tag: null,
+        sort: "title",
+        onDevice: false,
+      }),
+    );
+    await waitFor(() => expect(retryRequests).toHaveLength(1), { interval: 1 });
+    expect(await listQueuedMutations(users[0]!)).toHaveLength(0);
+    expect(await getSyncMeta(users[0]!)).toBeUndefined();
+    act(() => hook.result.current.retry());
+    await waitFor(() => expect(retryRequests).toHaveLength(2), { interval: 1 });
+    await act(async () =>
+      retryRequests[1]!(
+        Response.json(batch([...states.get(users[0]!)!.server.values()], stamp(0), true)),
+      ),
+    );
+    await waitFor(async () => expect((await getSyncMeta(users[0]!))?.cursor).toBe(stamp(0)), {
+      interval: 1,
+    });
+    await act(async () =>
+      retryRequests[0]!(
+        Response.json(
+          batch([book(users[0]!, `${users[0]}-main`, `${users[0]}:older`)], stamp(-1), true),
+        ),
+      ),
+    );
+    expect((await getSyncMeta(users[0]!))?.cursor).toBe(stamp(0));
+    expect((await readMirrorLibrary(users[0]!)).books[0]?.title).toBe(`${users[0]}:server`);
+    hook.unmount();
+    steps += 4;
     for (const id of users)
       await applyPullBatch(id, batch([...states.get(id)!.server.values()], stamp(0), true));
     let owner = { id: users[0]!, controller: new AbortController() };
@@ -117,8 +167,12 @@ it("preserves sync invariants through fixed seeded account and request sequences
               row.payload.title,
             );
           if (row.kind === "import")
-            expect(await getMirrorPlayerBook(id, String(row.payload.bookId))).not.toBeNull();
+            expect(!!(await getMirrorPlayerBook(id, String(row.payload.bookId)))).toBe(
+              !state.missingImports.has(String(row.payload.bookId)),
+            );
         }
+        for (const recovered of state.recoveredImports)
+          expect(await getMirrorPlayerBook(id, recovered)).not.toBeNull();
         const cursor = (await getSyncMeta(id))!.cursor;
         expect(cursor >= state.cursor).toBe(true);
         state.cursor = cursor;
@@ -137,6 +191,51 @@ it("preserves sync invariants through fixed seeded account and request sequences
         }
       replays.delete(id);
     };
+    const recovery = states.get(owner.id)!;
+    const registration: LocalBookRegistration = {
+      bookId: `${owner.id}-cancelled`,
+      fileName: "fixture.mp3",
+      mimeType: "audio/mpeg",
+      byteSize: 1000,
+      durationMs: 60000,
+      fingerprint: "c".repeat(64),
+      fingerprintKind: "sha256-v1",
+      renditionKey: "source-v1",
+      title: `${owner.id}:cancelled`,
+      author: "Author",
+      narrator: null,
+      chapterDiagnostic: null,
+      chapters: book(owner.id, "unused").chapters,
+    };
+    const cancellation = new AbortController();
+    vi.stubGlobal("fetch", async () => {
+      recovery.server.set(registration.bookId, {
+        ...book(owner.id, registration.bookId, registration.title),
+        media: { ...registration, originalFilename: registration.fileName },
+        chapters: registration.chapters,
+      });
+      cancellation.abort();
+      return Response.json({ bookId: registration.bookId }, { status: 201 });
+    });
+    await expect(
+      registerLocalBook(owner.id, registration, cancellation.signal),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    const queued = (await listQueuedMutations(owner.id))[0]!;
+    recovery.queued.set(queued.key, queued);
+    recovery.missingImports.add(registration.bookId);
+    await verify();
+    const incoming = batch([...recovery.server.values()], stamp(++index), true);
+    await applyPullBatch(owner.id, incoming);
+    recovery.missingImports.delete(registration.bookId);
+    recovery.recoveredImports.add(registration.bookId);
+    await verify();
+    await replayQueuedMutations(owner.id, async () =>
+      Response.json({ bookId: registration.bookId }),
+    );
+    recovery.queued.delete(queued.key);
+    await verify();
+    await applyPullBatch(owner.id, { ...incoming, since: incoming.cursor, books: [] });
+    await verify();
     const actions = [
       "pull",
       "metadata",
