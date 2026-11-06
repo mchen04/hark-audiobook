@@ -322,6 +322,10 @@ async function settleMutation(snapshot: QueuedMutation): Promise<void> {
     const transaction = db.transaction(["mutations", "sequences"], "readwrite");
     const mutations = transaction.objectStore("mutations");
     const current = await mutations.get(snapshot.key);
+    if (!current) {
+      await transaction.done;
+      return;
+    }
     if (current?.mutationId === snapshot.mutationId) await mutations.delete(snapshot.key);
     const sequences = transaction.objectStore("sequences");
     const key = replayAcknowledgementKey(snapshot.userId);

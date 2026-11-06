@@ -993,3 +993,27 @@ describe("sign-out replay coordination", () => {
     },
   );
 });
+
+it("does not recreate account counters when an acknowledgement arrives after purge", async () => {
+  const userId = "late-metadata-acknowledgement";
+  await commitMetadataEdit({ userId, deviceId: "device" }, "book", { title: "New title" });
+  let release!: (response: Response) => void;
+  let started!: () => void;
+  const requestStarted = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const fetchFn = () =>
+    new Promise<Response>((resolve) => {
+      release = resolve;
+      started();
+    });
+  const signingOut = purgeOnSignOut(userId, { fetchFn, drainTimeoutMs: 20 });
+  await requestStarted;
+  const result = await signingOut;
+  expect(result.failure).toBeNull();
+  expect(await sequenceRowsFor(userId)).toBe(0);
+  release(Response.json({ ok: true }));
+  await replayQueuedMutations(userId, fetchFn);
+  expect(await sequenceRowsFor(userId)).toBe(0);
+  expect(await listLocalUserIds()).toEqual([]);
+});
