@@ -7,6 +7,7 @@ import {
   ReactNode,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -298,6 +299,23 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
     recordAction,
   });
 
+  useLayoutEffect(() => {
+    const audio = audioRef.current;
+    const tracker = trackerRef.current;
+    return () => {
+      cancelSeekPersist();
+      if (!audio) return;
+      const activeBook = activeBookRef.current;
+      const positionMs = mediaTime(audio) * 1000;
+      pauseWithIntent(audio);
+      if (activeBook) {
+        markPausedNow(userId, activeBook.id);
+        void persistProgress("book-unload", positionMs);
+        tracker.end(activeBook.id, positionMs);
+      }
+    };
+  }, [cancelSeekPersist, persistProgress, userId]);
+
   const actions = useMemo(() => {
     return {
       loadBook(nextBook: PlayerBook, autoplay = false, historySnapshot?: PlaybackHistorySnapshot) {
@@ -402,6 +420,7 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
           const positionMs = mediaTime(audio) * 1000;
           saveDurableState("book-unload", positionMs);
           void persistProgress("book-unload", positionMs);
+          trackerRef.current.end(activeBookRef.current.id, positionMs);
         }
         cancelSeekPersist();
         if (audio) {
