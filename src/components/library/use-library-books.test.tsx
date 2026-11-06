@@ -12,8 +12,9 @@ vi.mock("@/lib/offline/mirror", () => ({
   healMirrorPlaybackFromLocal: heal,
   getSyncMeta: syncMeta,
   localLiveBooks: async () => null,
-  applyPullBatch: async () => {},
+  applyPullBatch: async () => true,
 }));
+vi.mock("@/lib/offline-sync/sequences", () => ({ replayAcknowledgements: async () => 0 }));
 vi.mock("@/lib/offline/library", () => ({
   listVisibleStoredOfflineBooks: async () => [],
   listOfflineBooks: async () => [],
@@ -70,6 +71,7 @@ it.each([true, false])(
     const { result } = renderHook(() => useLibraryBooks("a", filters));
     await waitFor(() => expect(result.current.snapshot?.libraryTotal).toBe(0));
     expect(result.current.preparing).toBe(true);
+    await waitFor(() => expect(completePull).toBeTypeOf("function"));
     await act(async () => completePull(Response.json({ complete: true })));
     await waitFor(() => expect(reader).toHaveBeenCalledTimes(2));
     expect(result.current.snapshot?.libraryTotal).toBe(0);
