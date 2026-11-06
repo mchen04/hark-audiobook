@@ -102,3 +102,45 @@ it("rejects replay of a deleted book UUID while allowing a new import of the sam
     await fixture.db.delete(user).where(eq(user.id, fixture.account.id));
   }
 }, 10_000);
+
+it("keeps a live registration idempotent beside a retained tombstone", async () => {
+  const bookId = randomUUID();
+  const payload = {
+    bookId,
+    fileName: "legacy.mp3",
+    mimeType: "audio/mpeg",
+    byteSize: 1000,
+    durationMs: 60000,
+    fingerprint: createHash("sha256").update(bookId).digest("hex"),
+    fingerprintKind: "sha256-v1",
+    renditionKey: "source-v1",
+    title: "Legacy live book",
+    author: "Author",
+    narrator: null,
+    chapterDiagnostic: null,
+    chapters: [{ position: 0, title: "One", startMs: 0, endMs: 60000 }],
+  };
+  const register = (changes = {}) =>
+    POST(
+      new Request(`${fixture.origin}/api/books/local`, {
+        method: "POST",
+        headers: { Origin: fixture.origin, "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, ...changes }),
+      }),
+    );
+  try {
+    await fixture.db.insert(user).values(fixture.account);
+    expect((await register()).status).toBe(201);
+    await fixture.db.insert(bookTombstones).values({ bookId, ownerId: fixture.account.id });
+    const retry = await register();
+    console.log("Legacy live registration retry", retry.status);
+    expect(retry.status).toBe(200);
+    expect((await register({ fingerprint: "e".repeat(64) })).status).toBe(422);
+    expect(await fixture.db.select().from(books).where(eq(books.id, bookId))).toHaveLength(1);
+    expect(
+      await fixture.db.select().from(bookTombstones).where(eq(bookTombstones.bookId, bookId)),
+    ).toHaveLength(1);
+  } finally {
+    await fixture.db.delete(user).where(eq(user.id, fixture.account.id));
+  }
+}, 10000);

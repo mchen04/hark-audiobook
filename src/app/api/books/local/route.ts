@@ -37,12 +37,19 @@ export const POST = withMutation(
       async (transaction) => {
         const receipt = await syncReceipt(transaction, session.user.id);
         if (data.bookId) {
-          const [deleted] = await transaction
-            .select({ bookId: bookTombstones.bookId })
-            .from(bookTombstones)
-            .where(eq(bookTombstones.bookId, data.bookId))
+          const [live] = await transaction
+            .select({ id: books.id })
+            .from(books)
+            .where(eq(books.id, data.bookId))
             .limit(1);
-          if (deleted) return { deleted: true as const };
+          if (!live) {
+            const [deleted] = await transaction
+              .select({ bookId: bookTombstones.bookId })
+              .from(bookTombstones)
+              .where(eq(bookTombstones.bookId, data.bookId))
+              .limit(1);
+            if (deleted) return { deleted: true as const };
+          }
         }
         async function insertChapterRows(bookId: string, chapterRows: ParsedChapter[]) {
           for (let start = 0; start < chapterRows.length; start += CHAPTER_INSERT_BATCH) {
