@@ -36,7 +36,7 @@ import {
 import type { PullBatch, PulledBook } from "./sync-protocol";
 import { listQueuedMutations } from "@/lib/offline-sync/queue";
 import { withBookProjectionLock } from "@/lib/offline-sync/locks";
-import { bookFieldsFrom } from "./outbox";
+import { mirrorPatchFor } from "./outbox";
 
 type MirrorStoreName =
   | "downloads"
@@ -103,15 +103,19 @@ async function applyPullBatchUnlocked(
   signal?.throwIfAborted();
   assertAccountWritable(userId);
   const pending = await listQueuedMutations(userId);
-  const edits = new Map<string, Partial<MirrorBook>>();
-  for (const mutation of pending) {
-    if (mutation.kind !== "metadata" && mutation.kind !== "archive") continue;
-    edits.set(mutation.entityId, {
-      ...edits.get(mutation.entityId),
-      ...bookFieldsFrom(mutation.payload),
-    });
-  }
-  const incomingBooks = batch.books.map((book) => ({ ...book, ...edits.get(book.id) }));
+  const imports = new Set(
+    pending.filter((row) => row.kind === "import").map((row) => String(row.payload.bookId)),
+  );
+  const projected = pending.filter((row) =>
+    ["metadata", "archive", "tag", "collection"].includes(row.kind),
+  );
+  const protectedBooks = new Set([
+    ...imports,
+    ...projected.map((row) =>
+      row.kind === "collection" ? String(row.payload.bookId) : row.entityId,
+    ),
+  ]);
+  const incomingBooks = batch.books.filter((book) => !imports.has(book.id));
   const db = await database();
   signal?.throwIfAborted();
   const transaction = db.transaction(MIRROR_STORES, "readwrite");
@@ -127,16 +131,29 @@ async function applyPullBatchUnlocked(
       await transaction.done;
       return;
     }
-    await clearBookAggregates(transaction, userId, batch.books);
+    await clearBookAggregates(transaction, userId, incomingBooks);
     await writeBookAggregates(transaction, userId, incomingBooks);
     await writePlaybackStates(transaction, userId, batch);
     if (batch.complete) {
-      await replaceTags(transaction, userId, batch);
-      await replaceCollections(transaction, userId, batch);
+      await replaceTags(
+        transaction,
+        userId,
+        batch,
+        new Set(
+          projected.filter((row) => row.kind === "tag").map((row) => String(row.payload.tagId)),
+        ),
+      );
+      await replaceCollections(
+        transaction,
+        userId,
+        batch,
+        new Set(projected.filter((row) => row.kind === "collection").map((row) => row.entityId)),
+      );
       await writePreferences(transaction, userId, batch);
       await writeListeningSessions(transaction, userId, batch);
     }
-    await applyTombstones(transaction, userId, batch, digestedBookIds);
+    await applyTombstones(transaction, userId, batch, digestedBookIds, protectedBooks);
+    for (const mutation of projected) await mirrorPatchFor(mutation)?.(transaction);
 
     const meta: MirrorSyncMeta = {
       userId,
@@ -295,21 +312,26 @@ async function replaceTags(
   transaction: MirrorTransaction,
   userId: string,
   batch: PullBatch,
+  pending: Set<string>,
 ): Promise<void> {
   const store = transaction.objectStore("tags");
   const existing = await store.index("by-user").getAllKeys(userId);
   const surviving = new Set(batch.tags.map((tag) => mirrorKey(userId, tag.id)));
   await Promise.all([
-    ...existing.filter((key) => !surviving.has(key)).map((key) => store.delete(key)),
-    ...batch.tags.map((tag) => {
-      const record: MirrorTag = {
-        key: mirrorKey(userId, tag.id),
-        userId,
-        tagId: tag.id,
-        name: tag.name,
-      };
-      return store.put(record);
-    }),
+    ...existing
+      .filter((key) => !surviving.has(key) && !pending.has(mirrorKeyTail(key)))
+      .map((key) => store.delete(key)),
+    ...batch.tags
+      .filter((tag) => !pending.has(tag.id))
+      .map((tag) => {
+        const record: MirrorTag = {
+          key: mirrorKey(userId, tag.id),
+          userId,
+          tagId: tag.id,
+          name: tag.name,
+        };
+        return store.put(record);
+      }),
   ]);
 }
 
@@ -317,6 +339,7 @@ async function replaceCollections(
   transaction: MirrorTransaction,
   userId: string,
   batch: PullBatch,
+  pending: Set<string>,
 ): Promise<void> {
   const store = transaction.objectStore("collections");
   const edges = transaction.objectStore("collectionBooks");
@@ -324,7 +347,7 @@ async function replaceCollections(
   const surviving = new Set(
     batch.collections.map((collection) => mirrorKey(userId, collection.id)),
   );
-  const dropped = existing.filter((key) => !surviving.has(key));
+  const dropped = existing.filter((key) => !surviving.has(key) && !pending.has(mirrorKeyTail(key)));
 
   await Promise.all([
     ...dropped.flatMap((key) => [
@@ -395,6 +418,7 @@ async function applyTombstones(
   userId: string,
   batch: PullBatch,
   digestedBookIds: readonly string[] | undefined,
+  protectedBooks: Set<string>,
 ): Promise<void> {
   const doomedSet = new Set((batch.tombstones || []).map((tombstone) => tombstone.bookId));
   const localKeys = await transaction.objectStore("books").index("by-user").getAllKeys(userId);
@@ -407,7 +431,9 @@ async function applyTombstones(
     for (const bookId of localIds) if (!live.has(bookId)) doomedSet.add(bookId);
   }
   const localIdSet = new Set(localIds);
-  const doomed = [...doomedSet].filter((bookId) => localIdSet.has(bookId));
+  const doomed = [...doomedSet].filter(
+    (bookId) => localIdSet.has(bookId) && !protectedBooks.has(bookId),
+  );
   if (!doomed.length) return;
 
   const doomedIds = new Set(doomed);

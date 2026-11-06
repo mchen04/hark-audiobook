@@ -18,7 +18,6 @@ import {
 } from "@/lib/offline/mirror";
 import { isPullBatch } from "@/lib/offline/sync-protocol";
 import { singleFlight } from "@/lib/single-flight";
-import { withSyncNetworkLock, withSyncRequest } from "@/lib/offline-sync/locks";
 
 import type { SortOrder, StatusFilter } from "./library-view";
 
@@ -295,7 +294,7 @@ async function revalidate(owner: PullOwner): Promise<PullOutcome> {
 }
 
 function pull(owner: PullOwner): Promise<PullOutcome> {
-  return (owner.pending ??= withSyncNetworkLock(owner.userId, () => pullOnce(owner)).finally(() => {
+  return (owner.pending ??= pullOnce(owner).finally(() => {
     owner.pending = undefined;
   }));
 }
@@ -309,20 +308,18 @@ async function pullOnce(owner: PullOwner): Promise<PullOutcome> {
     const since = meta?.cursor ? `&since=${encodeURIComponent(meta.cursor)}` : "";
     const held = sendDigest ? await localLiveBooks(userId).catch(() => null) : null;
     const liveBooks = held ? `&liveBooks=${held.digest}` : "";
-    const batch = await withSyncRequest(async (signal) => {
+    try {
       owner.signal.throwIfAborted();
       const response = await fetch(`/api/sync/pull?snapshots=final${since}${liveBooks}`, {
         cache: "no-store",
-        signal,
+        signal: owner.signal,
       });
-      if (response.status === 401 || response.status === 403) return "unauthorized" as const;
-      if (!response.ok) return "unreachable" as const;
-      const body: unknown = await response.json().catch(() => null);
-      return isPullBatch(body) ? body : ("unreachable" as const);
-    }).catch(() => "unreachable" as const);
-    if (typeof batch === "string") return batch;
-    try {
-      await applyPullBatch(userId, batch, held?.ids, owner.signal);
+      if (response.status === 401 || response.status === 403) return "unauthorized";
+      if (!response.ok) return "unreachable";
+      const body: unknown = await response.json();
+      if (!isPullBatch(body)) return "unreachable";
+      await applyPullBatch(userId, body, held?.ids, owner.signal);
+      if (body.complete) return "applied";
     } catch (error) {
       if (error instanceof LiveBookSetChangedError) {
         sendDigest = false;
@@ -330,7 +327,6 @@ async function pullOnce(owner: PullOwner): Promise<PullOutcome> {
       }
       return "unreachable";
     }
-    if (batch.complete) return "applied";
   }
   return "applied";
 }

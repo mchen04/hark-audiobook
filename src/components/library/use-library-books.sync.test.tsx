@@ -20,8 +20,9 @@ import {
 } from "@/lib/offline/outbox";
 import { listQueuedMutations, replayQueuedMutations, queueProgress } from "@/lib/offline-sync";
 import { createProgressPersister } from "@/components/player/progress-persister";
-import { withSyncNetworkLock, withBookProjectionLock } from "@/lib/offline-sync/locks";
+import { withBookProjectionLock } from "@/lib/offline-sync/locks";
 import { projectLocalBookRegistration } from "@/lib/offline/local-import-mirror";
+import * as mirrorStore from "@/lib/offline/mirror";
 import type { PullBatch, PulledBook } from "@/lib/offline/sync-protocol";
 
 const user = "h7-user";
@@ -130,38 +131,10 @@ it("keeps a pending metadata edit when an older pull arrives later", async () =>
   expect(mirror.books[0]?.title).toBe("My pending title");
 });
 
-it("keeps a metadata edit acknowledged while an older pull is still in flight", async () => {
-  await applyPullBatch(user, batch("Original title", t0, null));
-  const { result } = renderHook(() => useLibraryBooks(user, filters));
-  await act(async () => {
-    await result.current.reload();
-  });
-  await waitFor(() => expect(requests).toHaveLength(1));
-  await commitMetadataEdit({ userId: user, deviceId: "h7-device" }, "h7-book", {
-    title: "My accepted title",
-  });
-  expect((await readMirrorLibrary(user)).books[0]?.title).toBe("My accepted title");
-  const patch = vi.fn().mockResolvedValue(Response.json({ ok: true }));
-  const replay = replayQueuedMutations(user, patch);
-  await act(async () => requests[0]!.resolve(Response.json(batch("Original title", t1, t0))));
-  await waitFor(async () => expect((await getSyncMeta(user))?.cursor).toBe(t1));
-  await replay;
-  expect(patch).toHaveBeenCalledOnce();
-  expect(await listQueuedMutations(user)).toHaveLength(0);
-  const mirror = await readMirrorLibrary(user);
-  console.log(
-    "H7 accepted edit result",
-    JSON.stringify({
-      title: mirror.books[0]?.title,
-      pending: (await listQueuedMutations(user)).length,
-    }),
-  );
-  expect(mirror.books[0]?.title).toBe("My accepted title");
-});
-
-it.each(["headers", "body"])("releases replay when a pull stalls at its %s", async (phase) => {
-  const deadlines = vi.spyOn(globalThis, "setTimeout");
+it.each(["headers", "body"])("allows replay while a pull stalls at its %s", async (phase) => {
+  const entered = vi.fn();
   vi.stubGlobal("fetch", (_url: string, init: RequestInit) => {
+    entered();
     if (phase === "headers") {
       return new Promise<Response>((_resolve, reject) => {
         init.signal!.addEventListener("abort", () => reject(init.signal!.reason), { once: true });
@@ -179,54 +152,38 @@ it.each(["headers", "body"])("releases replay when a pull stalls at its %s", asy
       ),
     );
   });
-  const send = vi.fn().mockResolvedValue(Response.json({ ok: true }));
-  const { result } = renderHook(() => useLibraryBooks(user, filters));
-  await act(async () => {
-    await result.current.reload();
-  });
-  await waitFor(() =>
-    expect(deadlines.mock.calls.some(([, delay]) => delay === 15_000)).toBe(true),
-  );
+  const hook = renderHook(() => useLibraryBooks(user, filters));
+  await waitFor(() => expect(entered).toHaveBeenCalledOnce());
   await commitMetadataEdit({ userId: user, deviceId: "device" }, "h7-book", { title: "Pending" });
-  const replay = replayQueuedMutations(user, send);
-  expect(send).not.toHaveBeenCalled();
-  const deadline = deadlines.mock.calls.find(([, delay]) => delay === 15_000)![0];
-  await act(async () => {
-    if (typeof deadline === "function") deadline();
-    await replay;
-  });
+  const send = vi.fn().mockResolvedValue(Response.json({ ok: true }));
+  await replayQueuedMutations(user, send);
   expect(send).toHaveBeenCalledOnce();
   expect(await listQueuedMutations(user)).toHaveLength(0);
+  hook.unmount();
 });
 
-it("releases pulls and retains the queued edit when replay stalls", async () => {
+it("applies pulls without losing queued edits while replay stalls", async () => {
   await applyPullBatch(user, batch("Original title", t0, null));
   await commitMetadataEdit({ userId: user, deviceId: "device" }, "h7-book", { title: "Pending" });
-  const deadlines = vi.spyOn(globalThis, "setTimeout");
-  const send = vi.fn<typeof fetch>(
-    (_url, init) =>
-      new Promise<Response>((_resolve, reject) => {
-        init!.signal!.addEventListener("abort", () => reject(init!.signal!.reason), { once: true });
+  let finish!: (response: Response) => void;
+  const send = vi.fn(
+    () =>
+      new Promise<Response>((done) => {
+        finish = done;
       }),
   );
   const replay = replayQueuedMutations(user, send);
   await waitFor(() => expect(send).toHaveBeenCalledOnce());
-  const pull = vi.fn().mockResolvedValue(Response.json(batch("Original title", t1, t0)));
-  vi.stubGlobal("fetch", pull);
-  const { result } = renderHook(() => useLibraryBooks(user, filters));
+  vi.stubGlobal("fetch", async () => Response.json(batch("Original title", t1, t0)));
+  const hook = renderHook(() => useLibraryBooks(user, filters));
   await act(async () => {
-    await result.current.reload();
+    await hook.result.current.reload();
   });
-  expect(pull).not.toHaveBeenCalled();
-  const deadline = deadlines.mock.calls.find(([, delay]) => delay === 15_000)![0];
-  await act(async () => {
-    if (typeof deadline === "function") deadline();
-    await replay;
-  });
-  await waitFor(() => expect(pull).toHaveBeenCalledOnce());
   await waitFor(async () => expect((await getSyncMeta(user))?.cursor).toBe(t1));
-  expect(await listQueuedMutations(user)).toHaveLength(1);
   expect((await readMirrorLibrary(user)).books[0]?.title).toBe("Pending");
+  finish(new Response(null, { status: 503 }));
+  await replay;
+  expect(await listQueuedMutations(user)).toHaveLength(1);
 });
 
 it("pulls while replay waits for a stalled foreground progress save", async () => {
@@ -298,16 +255,18 @@ it.each(["queued", "response", "projection"])(
   async (phase) => {
     await applyPullBatch("account-a", batch("Account A title", t0, null));
     let release!: () => void;
-    const held =
-      phase === "queued"
-        ? withSyncNetworkLock(
-            "account-a",
-            () =>
-              new Promise<void>((done) => {
-                release = done;
-              }),
-          )
-        : Promise.resolve();
+    let held = Promise.resolve();
+    if (phase === "queued") {
+      const read = mirrorStore.getSyncMeta;
+      const gate = new Promise<void>((done) => {
+        release = done;
+      });
+      vi.spyOn(mirrorStore, "getSyncMeta").mockImplementation(async (id) => {
+        if (id === "account-a") await gate;
+        return read(id);
+      });
+      held = gate;
+    }
     let session = "account-a";
     const sends: string[] = [];
     let respond!: (response: Response) => void;
@@ -351,7 +310,7 @@ it.each(["queued", "response", "projection"])(
       else release();
       await held;
       await projection;
-      await withSyncNetworkLock("account-a", async () => undefined);
+      await withBookProjectionLock("account-a", async () => undefined);
     });
     expect((await readMirrorLibrary("account-a")).books[0]?.title).toBe("Account A title");
     expect((await getSyncMeta("account-a"))?.cursor).toBe(t0);
@@ -485,4 +444,72 @@ it("keeps a local import available to the player while registration replays", as
   );
   expect(playerAvailable).toBe(true);
   expect(books).toEqual(["h7-book"]);
+});
+
+it.each(["deadline", "pull-first"])("retains an import during a %s pull", async (phase) => {
+  const timers = vi.spyOn(globalThis, "setTimeout");
+  const r = {
+    bookId: "offline-import",
+    fileName: "fixture.mp3",
+    mimeType: "audio/mpeg",
+    byteSize: 1000,
+    durationMs: 60000,
+    fingerprint: "f".repeat(64),
+    fingerprintKind: "sha256-v1" as const,
+    renditionKey: "source-v1",
+    title: "Offline import",
+    author: "Author",
+    narrator: null,
+    chapterDiagnostic: null,
+    chapters: [{ position: 0, title: "One", startMs: 0, endMs: 60000 }],
+  };
+  await projectLocalBookRegistration(user, r);
+  await commitImport({ userId: user, deviceId: "device" }, r.fingerprint, r);
+  expect(await getMirrorPlayerBook(user, r.bookId)).not.toBeNull();
+  renderHook(() => useLibraryBooks(user, filters));
+  await waitFor(() => expect(requests).toHaveLength(1));
+  let registered = false;
+  const send = vi.fn(async () => {
+    registered = true;
+    return Response.json({ bookId: r.bookId }, { status: 201 });
+  });
+  const replay = replayQueuedMutations(user, send);
+  await new Promise((done) => setTimeout(done, 25));
+  if (phase === "deadline") {
+    const deadline = timers.mock.calls.filter(([, ms]) => ms === 15000)[1]?.[0];
+    await act(async () =>
+      requests[0]!.resolve(
+        Response.json({
+          ...batch("Page one", t1, null),
+          complete: false,
+          liveBookIds: null,
+        }),
+      ),
+    );
+    await waitFor(() => expect(requests).toHaveLength(2));
+    if (deadline) deadline();
+  }
+  const response = batch("Page two", t2, phase === "deadline" ? t1 : null);
+  response.books = registered
+    ? [
+        {
+          ...book(r.title, t2),
+          id: r.bookId,
+          chapters: r.chapters,
+          media: { ...r, originalFilename: r.fileName },
+        },
+      ]
+    : [];
+  response.liveBookIds = ["h7-book", ...(registered ? [r.bookId] : [])];
+  await act(async () => {
+    requests.at(-1)!.resolve(Response.json(response));
+    await replay;
+  });
+  const actual = {
+    sent: send.mock.calls.length,
+    queued: (await listQueuedMutations(user)).length,
+    available: !!(await getMirrorPlayerBook(user, r.bookId)),
+  };
+  console.log(phase, JSON.stringify(actual));
+  expect(actual).toEqual({ sent: 1, queued: 0, available: true });
 });

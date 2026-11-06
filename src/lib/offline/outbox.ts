@@ -43,7 +43,9 @@ const PATCH_STORES = [
 
 type PatchStore = (typeof PATCH_STORES)[number];
 type MirrorPatchTransaction = IDBPTransaction<OfflineDatabase, PatchStore[], "readwrite">;
-export type MirrorPatch = (transaction: MirrorPatchTransaction) => Promise<void>;
+export type MirrorPatch = (
+  transaction: Pick<MirrorPatchTransaction, "objectStore">,
+) => Promise<void>;
 
 export type CommitResult = {
   queued: QueuedMutation;
@@ -55,12 +57,9 @@ export async function commitMutation(
   patch: MirrorPatch | null = mirrorPatchFor(mutation),
   afterQueue?: () => Promise<void>,
 ): Promise<CommitResult> {
-  if (mutation.kind === "metadata" || mutation.kind === "archive") {
-    return withBookProjectionLock(mutation.userId, () =>
-      commitMutationUnlocked(mutation, patch, afterQueue),
-    );
-  }
-  return commitMutationUnlocked(mutation, patch, afterQueue);
+  return withBookProjectionLock(mutation.userId, () =>
+    commitMutationUnlocked(mutation, patch, afterQueue),
+  );
 }
 
 async function commitMutationUnlocked(
@@ -284,7 +283,7 @@ function abortQuietly(transaction: MirrorPatchTransaction): void {
   } catch {}
 }
 
-function mirrorPatchFor(mutation: QueuedMutation): MirrorPatch | null {
+export function mirrorPatchFor(mutation: QueuedMutation): MirrorPatch | null {
   const { userId, entityId, payload } = mutation;
   const now = new Date().toISOString();
   switch (mutation.kind) {
@@ -446,7 +445,7 @@ export function bookFieldsFrom(payload: Record<string, unknown>): Partial<Mirror
 }
 
 async function patchBook(
-  transaction: MirrorPatchTransaction,
+  transaction: Parameters<MirrorPatch>[0],
   userId: string,
   bookId: string,
   update: (book: MirrorBook) => MirrorBook,
@@ -464,7 +463,7 @@ function searchTextFor(book: MirrorBook): string {
 }
 
 async function removeBookAggregate(
-  transaction: MirrorPatchTransaction,
+  transaction: Parameters<MirrorPatch>[0],
   userId: string,
   bookId: string,
 ): Promise<void> {

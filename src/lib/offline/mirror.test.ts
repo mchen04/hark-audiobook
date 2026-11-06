@@ -20,6 +20,7 @@ import * as mirrorDatabase from "./db";
 import {
   applyPullBatch,
   readMirrorLibrary,
+  listMirrorCollections,
   getMirrorPlayerBook,
   getSyncMeta,
   healMirrorPlaybackFromLocal,
@@ -27,6 +28,14 @@ import {
   localLiveBooks,
   purgeUser,
 } from "./mirror";
+import {
+  commitMetadataEdit,
+  commitArchiveChange,
+  commitTagEdge,
+  commitCollectionEdge,
+  commitImport,
+} from "./outbox";
+import { listQueuedMutations } from "@/lib/offline-sync";
 import { liveBookDigest } from "./live-book-digest";
 import type { PullBatch, PulledBook } from "./sync-protocol";
 
@@ -1061,3 +1070,54 @@ describe("a batch that omitted the id list against the device's digest", () => {
     expect((await getSyncMeta(USER_A))?.cursor).toBe("2026-07-01T00:00:00.000Z");
   });
 });
+
+it.each(["metadata", "archive", "tag", "collection", "import"])(
+  "keeps pending %s projections when a full pull replaces server state",
+  async (kind) => {
+    const owner = "queued-projection";
+    const id = "pending-book";
+    const original = book(id);
+    const origin = { userId: owner, deviceId: "device" };
+    await applyPullBatch(
+      owner,
+      batch({
+        books: [original],
+        tags: [{ id: "tag-one", name: "Favorite" }],
+        collections: [
+          { id: "collection-one", name: "Favorite", updatedAt: original.updatedAt, books: [] },
+        ],
+      }),
+    );
+    if (kind === "metadata") await commitMetadataEdit(origin, id, { title: "Queued title" });
+    if (kind === "archive") await commitArchiveChange(origin, id, true);
+    if (kind === "tag") await commitTagEdge(origin, id, "tag-one", true);
+    if (kind === "collection") await commitCollectionEdge(origin, "collection-one", id, true);
+    if (kind === "import")
+      await commitImport(origin, "f".repeat(64), {
+        bookId: id,
+        fingerprint: "f".repeat(64),
+        renditionKey: "source-v1",
+      });
+    await applyPullBatch(
+      owner,
+      batch({
+        cursor: "2026-07-02T00:00:00.000Z",
+        books: [book(id, { title: "Remote title", media: null, chapters: [] })],
+        liveBookIds: kind === "import" ? [] : [id],
+        tombstones:
+          kind === "import" ? [{ bookId: id, deletedAt: "2026-07-02T00:00:00.000Z" }] : [],
+      }),
+    );
+    const current = (await readMirrorLibrary(owner)).books[0]!;
+    if (kind === "metadata") expect(current.title).toBe("Queued title");
+    if (kind === "archive") expect(current.archivedAt).not.toBeNull();
+    if (kind === "tag") expect(current.tags).toEqual(["Favorite"]);
+    if (kind === "collection")
+      expect(await listMirrorCollections(owner, id)).toEqual([
+        { id: "collection-one", name: "Favorite", includesBook: true },
+      ]);
+    if (kind === "import")
+      expect((await getMirrorPlayerBook(owner, id))?.playerBook.title).toBe(original.title);
+    expect(await listQueuedMutations(owner)).toHaveLength(1);
+  },
+);
