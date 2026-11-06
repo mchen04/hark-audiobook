@@ -85,6 +85,17 @@ export function useLibraryBooks(
   const [slowAttempt, setSlowAttempt] = useState(-1);
   const [unreachedAttempt, setUnreachedAttempt] = useState(-1);
 
+  const pullOwner = useRef<PullOwner | null>(null);
+  useEffect(() => {
+    if (!userId) {
+      pullOwner.current = null;
+      return;
+    }
+    const controller = new AbortController();
+    pullOwner.current = { userId, signal: controller.signal };
+    return () => controller.abort();
+  }, [userId]);
+
   const reread = useCallback(() => setNonce((current) => current + 1), []);
 
   useEffect(() => {
@@ -122,7 +133,8 @@ export function useLibraryBooks(
   }, [source, userId, query, status, tag, sort, onDevice]);
 
   useEffect(() => {
-    if (!userId) return;
+    const owner = pullOwner.current;
+    if (!userId || !owner) return;
     let active = true;
     let cancelWait = () => {};
     let gate = 0;
@@ -130,7 +142,7 @@ export function useLibraryBooks(
     let firstPull = false;
     const attempt = reconnects;
     const run = () => {
-      void revalidate(userId).then((outcome) => {
+      void revalidate(owner).then((outcome) => {
         if (!active) return;
         if (outcome === "unauthorized") {
           window.location.replace("/login");
@@ -190,9 +202,10 @@ export function useLibraryBooks(
   }, [reread]);
 
   const reload = useCallback(async () => {
-    if (!userId) return;
+    const owner = pullOwner.current;
+    if (!userId || owner?.userId !== userId) return;
     reread();
-    void revalidate(userId).then(reread);
+    void revalidate(owner).then(reread);
   }, [userId, reread]);
 
   const removeDownload = useCallback(
@@ -269,28 +282,35 @@ function asLibraryBook(record: OfflineBook): LibraryBook {
 
 type PullOutcome = "applied" | "unauthorized" | "unreachable";
 
-async function revalidate(userId: string): Promise<PullOutcome> {
-  const outcome = await pull(userId);
-  await listOfflineBooks(userId).catch(() => undefined);
+type PullOwner = {
+  userId: string;
+  signal: AbortSignal;
+  pending?: Promise<PullOutcome>;
+};
+
+async function revalidate(owner: PullOwner): Promise<PullOutcome> {
+  const outcome = await pull(owner);
+  if (!owner.signal.aborted) await listOfflineBooks(owner.userId).catch(() => undefined);
   return outcome;
 }
 
-const activePulls = new Map<string, Promise<PullOutcome>>();
-
-function pull(userId: string): Promise<PullOutcome> {
-  return singleFlight(activePulls, userId, () =>
-    withSyncNetworkLock(userId, () => pullOnce(userId)),
-  );
+function pull(owner: PullOwner): Promise<PullOutcome> {
+  return (owner.pending ??= withSyncNetworkLock(owner.userId, () => pullOnce(owner)).finally(() => {
+    owner.pending = undefined;
+  }));
 }
 
-async function pullOnce(userId: string): Promise<PullOutcome> {
+async function pullOnce(owner: PullOwner): Promise<PullOutcome> {
+  const { userId } = owner;
   let sendDigest = true;
   for (let page = 0; page < PULL_PAGE_LIMIT; page += 1) {
+    if (owner.signal.aborted) return "unreachable";
     const meta = await getSyncMeta(userId).catch(() => undefined);
     const since = meta?.cursor ? `&since=${encodeURIComponent(meta.cursor)}` : "";
     const held = sendDigest ? await localLiveBooks(userId).catch(() => null) : null;
     const liveBooks = held ? `&liveBooks=${held.digest}` : "";
     const batch = await withSyncRequest(async (signal) => {
+      owner.signal.throwIfAborted();
       const response = await fetch(`/api/sync/pull?snapshots=final${since}${liveBooks}`, {
         cache: "no-store",
         signal,
@@ -302,7 +322,7 @@ async function pullOnce(userId: string): Promise<PullOutcome> {
     }).catch(() => "unreachable" as const);
     if (typeof batch === "string") return batch;
     try {
-      await applyPullBatch(userId, batch, held?.ids);
+      await applyPullBatch(userId, batch, held?.ids, owner.signal);
     } catch (error) {
       if (error instanceof LiveBookSetChangedError) {
         sendDigest = false;

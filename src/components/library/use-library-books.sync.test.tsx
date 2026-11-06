@@ -8,6 +8,9 @@ import { useLibraryBooks, type LibraryFilters } from "@/components/library/use-l
 import { applyPullBatch, getSyncMeta, readMirrorLibrary } from "@/lib/offline/mirror";
 import { commitMetadataEdit } from "@/lib/offline/outbox";
 import { listQueuedMutations, replayQueuedMutations } from "@/lib/offline-sync";
+import { createProgressPersister } from "@/components/player/progress-persister";
+import { queueProgress } from "@/lib/offline-sync";
+import { withSyncNetworkLock, withBookProjectionLock } from "@/lib/offline-sync/locks";
 import type { PullBatch, PulledBook } from "@/lib/offline/sync-protocol";
 
 const user = "h7-user";
@@ -214,3 +217,133 @@ it("releases pulls and retains the queued edit when replay stalls", async () => 
   expect(await listQueuedMutations(user)).toHaveLength(1);
   expect((await readMirrorLibrary(user)).books[0]?.title).toBe("Pending");
 });
+
+it("pulls while replay waits for a stalled foreground progress save", async () => {
+  await applyPullBatch(user, batch("Original title", t0, null));
+  await queueProgress({
+    userId: user,
+    bookId: "h7-book",
+    deviceId: "device",
+    deviceSequence: 1,
+    positionMs: 12000,
+    playbackRate: 1,
+    completed: false,
+    eventOccurredAt: t0,
+  });
+  let finish!: (response: Response) => void;
+  const foreground = vi.fn(
+    () =>
+      new Promise<Response>((done) => {
+        finish = done;
+      }),
+  );
+  vi.stubGlobal("fetch", foreground);
+  const audio = document.createElement("audio");
+  const playerBook = {
+    id: "h7-book",
+    title: "Book",
+    author: "Author",
+    durationMs: 120000,
+    mediaUrl: "/media",
+    coverUrl: null,
+    initialPositionMs: 12000,
+    initialProgressOccurredAt: t0,
+    initialPlaybackRate: 1,
+    completed: false,
+    chapters: [],
+  };
+  const persister = createProgressPersister({
+    getUserId: () => user,
+    getAudio: () => audio,
+    getActiveBook: () => playerBook,
+  });
+  persister.markPositionChanged();
+  const save = persister.persistProgress("seek", 20000);
+  await waitFor(() => expect(foreground).toHaveBeenCalledOnce());
+  const replaySend = vi.fn().mockResolvedValue(Response.json({ ok: true }));
+  const replay = replayQueuedMutations(user, replaySend);
+  await new Promise((done) => setTimeout(done, 25));
+  const pull = vi.fn().mockResolvedValue(Response.json(batch("Remote title", t1, t0)));
+  vi.stubGlobal("fetch", pull);
+  const hook = renderHook(() => useLibraryBooks(user, filters));
+  try {
+    await act(async () => {
+      await hook.result.current.reload();
+    });
+    await waitFor(() => expect(pull).toHaveBeenCalledOnce());
+    expect(replaySend).not.toHaveBeenCalled();
+  } finally {
+    finish(Response.json({ ok: true }));
+    await act(async () => {
+      await save;
+      await replay;
+    });
+    await waitFor(() => expect(pull).toHaveBeenCalledOnce());
+  }
+});
+
+it.each(["queued", "response", "projection"])(
+  "keeps account ownership when a pull is waiting for %s",
+  async (phase) => {
+    await applyPullBatch("account-a", batch("Account A title", t0, null));
+    let release!: () => void;
+    const held =
+      phase === "queued"
+        ? withSyncNetworkLock(
+            "account-a",
+            () =>
+              new Promise<void>((done) => {
+                release = done;
+              }),
+          )
+        : Promise.resolve();
+    let session = "account-a";
+    const sends: string[] = [];
+    let respond!: (response: Response) => void;
+    vi.stubGlobal("fetch", async () => {
+      sends.push(session);
+      if (session === "account-a")
+        return new Promise<Response>((done) => {
+          respond = done;
+        });
+      return Response.json(batch("Account B private title", t1, null));
+    });
+    const hook = renderHook(({ userId }) => useLibraryBooks(userId, filters), {
+      initialProps: { userId: "account-a" },
+    });
+    await act(async () => {
+      await hook.result.current.reload();
+    });
+    if (phase === "queued") {
+      await new Promise((done) => setTimeout(done, 25));
+      expect(sends).toEqual([]);
+    } else {
+      await waitFor(() => expect(sends).toEqual(["account-a"]));
+    }
+    let projection = Promise.resolve();
+    if (phase === "projection") {
+      projection = withBookProjectionLock(
+        "account-a",
+        () =>
+          new Promise<void>((done) => {
+            release = done;
+          }),
+      );
+      await act(async () => respond(Response.json(batch("Stale response", t1, t0))));
+      await new Promise((done) => setTimeout(done, 25));
+    }
+    session = "account-b";
+    act(() => hook.rerender({ userId: session }));
+    await waitFor(async () => expect((await getSyncMeta("account-b"))?.cursor).toBe(t1));
+    await act(async () => {
+      if (phase === "response") respond(Response.json(batch("Account B private title", t1, t0)));
+      else release();
+      await held;
+      await projection;
+      await withSyncNetworkLock("account-a", async () => undefined);
+    });
+    expect((await readMirrorLibrary("account-a")).books[0]?.title).toBe("Account A title");
+    expect((await getSyncMeta("account-a"))?.cursor).toBe(t0);
+    expect(sends.filter((id) => id === "account-b")).toHaveLength(1);
+  },
+);

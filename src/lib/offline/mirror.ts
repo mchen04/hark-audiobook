@@ -87,9 +87,10 @@ export async function applyPullBatch(
   userId: string,
   batch: PullBatch,
   digestedBookIds?: readonly string[],
+  signal?: AbortSignal,
 ): Promise<void> {
   return withBookProjectionLock(userId, () =>
-    applyPullBatchUnlocked(userId, batch, digestedBookIds),
+    applyPullBatchUnlocked(userId, batch, digestedBookIds, signal),
   );
 }
 
@@ -97,7 +98,9 @@ async function applyPullBatchUnlocked(
   userId: string,
   batch: PullBatch,
   digestedBookIds?: readonly string[],
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
   assertAccountWritable(userId);
   const pending = await listQueuedMutations(userId);
   const edits = new Map<string, Partial<MirrorBook>>();
@@ -110,7 +113,10 @@ async function applyPullBatchUnlocked(
   }
   const incomingBooks = batch.books.map((book) => ({ ...book, ...edits.get(book.id) }));
   const db = await database();
+  signal?.throwIfAborted();
   const transaction = db.transaction(MIRROR_STORES, "readwrite");
+  const onAbort = () => abortQuietly(transaction);
+  signal?.addEventListener("abort", onAbort, { once: true });
   const unsubscribe = subscribeAccountDeletionFence(() => {
     if (isAccountDeletionFenced(userId)) abortQuietly(transaction);
   });
@@ -146,6 +152,7 @@ async function applyPullBatchUnlocked(
     abortQuietly(transaction);
     throw error;
   } finally {
+    signal?.removeEventListener("abort", onAbort);
     unsubscribe();
   }
 }

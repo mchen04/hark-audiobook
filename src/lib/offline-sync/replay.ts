@@ -93,9 +93,7 @@ export function replayQueuedMutations(
   userId: string,
   fetchFn: typeof fetch = fetch,
 ): Promise<void> {
-  return singleFlight(activeReplays, userId, () =>
-    withSyncNetworkLock(userId, () => replayQueueSnapshot(userId, fetchFn)),
-  );
+  return singleFlight(activeReplays, userId, () => replayQueueSnapshot(userId, fetchFn));
 }
 
 async function replayQueueSnapshot(userId: string, fetchFn: typeof fetch): Promise<void> {
@@ -255,7 +253,7 @@ async function refreshDuplicateProgress(
 }
 
 async function replayMutation(snapshot: QueuedMutation, fetchFn: typeof fetch): Promise<void> {
-  await withMutationLock(snapshot, () =>
+  const send = () =>
     withSyncRequest(async (signal) => {
       const db = await database();
       const current = await db.get("mutations", snapshot.key);
@@ -316,7 +314,11 @@ async function replayMutation(snapshot: QueuedMutation, fetchFn: typeof fetch): 
       }
       signal.throwIfAborted();
       await settleMutation(task);
-    }),
+    });
+  await withMutationLock(snapshot, () =>
+    snapshot.kind === "metadata" || snapshot.kind === "archive"
+      ? withSyncNetworkLock(snapshot.userId, send)
+      : send(),
   );
 }
 
