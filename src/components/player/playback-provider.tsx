@@ -318,6 +318,12 @@ export function PlaybackProvider({ children, userId }: { children: ReactNode; us
 
   const actions = useMemo(() => {
     return {
+      markFinished() {
+        const audio = audioRef.current;
+        const activeBook = activeBookRef.current;
+        if (audio && activeBook) trackerRef.current.end(activeBook.id, mediaTime(audio) * 1000);
+        transport.markFinished();
+      },
       loadBook(nextBook: PlayerBook, autoplay = false, historySnapshot?: PlaybackHistorySnapshot) {
         const audio = audioRef.current;
         if (!audio) return;

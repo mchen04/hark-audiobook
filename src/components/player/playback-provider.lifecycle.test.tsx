@@ -113,6 +113,35 @@ it("records a listening stretch on an ordinary pause", () => {
   );
 });
 
+it("excludes paused time after marking a book finished", () => {
+  vi.useFakeTimers();
+  const { result } = mount();
+  act(() => result.current.playback.toggle());
+  vi.setSystemTime(Date.now() + 6_000);
+  act(() => result.current.playback.markFinished());
+  expect(postSession).toHaveBeenCalledOnce();
+  const stretch = postSession.mock.calls[0]![2];
+  expect(Date.parse(stretch.endedAt) - Date.parse(stretch.startedAt)).toBe(6_000);
+
+  vi.setSystemTime(Date.now() + 100_000);
+  act(() => result.current.playback.loadBook(nextBook));
+  expect(postSession).toHaveBeenCalledOnce();
+});
+
+it("keeps a short listening stretch across a refreshed audio source", () => {
+  vi.useFakeTimers();
+  const { result } = mount();
+  act(() => result.current.playback.toggle());
+  vi.setSystemTime(Date.now() + 4_000);
+  act(() => result.current.playback.loadBook({ ...book, mediaUrl: "/offline-media/refreshed" }));
+  vi.setSystemTime(Date.now() + 4_000);
+  act(() => result.current.playback.pause());
+
+  expect(postSession).toHaveBeenCalledOnce();
+  const stretch = postSession.mock.calls[0]![2];
+  expect(Date.parse(stretch.endedAt) - Date.parse(stretch.startedAt)).toBe(8_000);
+});
+
 it.each(["unload", "unmount"])(
   "closes the listening stretch on %s before a queued pause",
   (exit) => {
