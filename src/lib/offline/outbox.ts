@@ -35,6 +35,7 @@ const PATCH_STORES = [
   "books",
   "chapters",
   "bookTags",
+  "tags",
   "playbackStates",
   "collections",
   "collectionBooks",
@@ -141,15 +142,16 @@ export async function commitTagEdge(
   bookId: string,
   tagId: string,
   include: boolean,
+  name?: string,
 ) {
   const db = await database();
-  const tag = await db.get("tags", mirrorKey(origin.userId, tagId));
+  name ??= (await db.get("tags", mirrorKey(origin.userId, tagId)))?.name;
   return commitDraft({
     key: tagMutationKey(origin.userId, bookId, tagId),
     userId: origin.userId,
     kind: "tag",
     entityId: bookId,
-    payload: { tagId, include, ...(tag ? { name: tag.name } : {}) },
+    payload: { tagId, include, ...(name !== undefined ? { name } : {}) },
     deviceId: origin.deviceId,
     deviceSequence: 0,
   });
@@ -177,19 +179,8 @@ export async function commitTagList(
   }
   for (const [lowered, name] of after) {
     if (before.has(lowered)) continue;
-    let tagId = idByName.get(lowered);
-    if (!tagId) {
-      tagId = crypto.randomUUID();
-      const record: MirrorTag = {
-        key: mirrorKey(origin.userId, tagId),
-        userId: origin.userId,
-        tagId,
-        name,
-      };
-      await db.put("tags", record);
-      idByName.set(lowered, tagId);
-    }
-    await commitTagEdge(origin, bookId, tagId, true);
+    const tagId = idByName.get(lowered) ?? crypto.randomUUID();
+    await commitTagEdge(origin, bookId, tagId, true, name);
   }
 }
 
@@ -299,6 +290,15 @@ export function mirrorPatchFor(mutation: QueuedMutation): MirrorPatch | null {
     case "tag":
       return async (transaction) => {
         const tagId = String(payload.tagId ?? "");
+        if (payload.include !== false && typeof payload.name === "string") {
+          const tag: MirrorTag = {
+            key: mirrorKey(userId, tagId),
+            userId,
+            tagId,
+            name: payload.name,
+          };
+          await transaction.objectStore("tags").put(tag);
+        }
         const key = mirrorKey(userId, entityId, tagId);
         const edges = transaction.objectStore("bookTags");
         if (payload.include === false) await edges.delete(key);

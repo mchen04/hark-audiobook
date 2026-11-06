@@ -34,8 +34,10 @@ import {
   commitTagEdge,
   commitCollectionEdge,
   commitImport,
+  commitTagList,
 } from "./outbox";
 import { listQueuedMutations } from "@/lib/offline-sync";
+import * as projectionLocks from "@/lib/offline-sync/locks";
 import { liveBookDigest } from "./live-book-digest";
 import type { PullBatch, PulledBook } from "./sync-protocol";
 
@@ -1121,3 +1123,36 @@ it.each(["metadata", "archive", "tag", "collection", "import"])(
     expect(await listQueuedMutations(owner)).toHaveLength(1);
   },
 );
+
+it("creates a new tag name with its queued edge after an overlapping pull", async () => {
+  await applyPullBatch(USER_A, batch({ books: [book("book-1")] }));
+  let release!: () => void;
+  let entered!: () => void;
+  const gate = new Promise<void>((done) => {
+    release = done;
+  });
+  const ready = new Promise<void>((done) => {
+    entered = done;
+  });
+  const held = projectionLocks.withBookProjectionLock(USER_A, () => {
+    entered();
+    return gate;
+  });
+  await ready;
+  const spy = vi.spyOn(projectionLocks, "withBookProjectionLock");
+  try {
+    const pull = applyPullBatch(
+      USER_A,
+      batch({ cursor: "2026-07-02T00:00:00.000Z", books: [book("book-1")] }),
+    );
+    const save = commitTagList({ userId: USER_A, deviceId: "device" }, "book-1", [], ["New tag"]);
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+    release();
+    await Promise.all([held, pull, save]);
+    expect((await readMirrorLibrary(USER_A)).books[0]?.tags).toEqual(["New tag"]);
+    expect((await listQueuedMutations(USER_A))[0]?.payload.name).toBe("New tag");
+  } finally {
+    release();
+    spy.mockRestore();
+  }
+});
