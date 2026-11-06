@@ -1,6 +1,6 @@
 import { Readable } from "node:stream";
 
-import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, gt, inArray, sql } from "drizzle-orm";
 
 import { db } from "@/server/db/client";
 import {
@@ -226,7 +226,7 @@ async function loadBookBatch(
   database: ExportDatabase,
   userId: string,
   cursor: BookCursor | null,
-): Promise<Page<Awaited<ReturnType<typeof loadBookRows>>[number], BookCursor>> {
+): Promise<Page<typeof books.$inferSelect, BookCursor>> {
   const bookRows = await loadBookRows(database, userId, cursor);
   if (!bookRows.length) return { rows: [], cursor: null };
 
@@ -264,24 +264,27 @@ async function loadBookBatch(
     else chaptersByBook.set(chapter.bookId, [chapter]);
   }
 
-  const rows = bookRows.map((book) => ({
-    ...book,
-    media: mediaByBook.get(book.id) || null,
-    chapters: chaptersByBook.get(book.id) || [],
-  }));
+  const rows = bookRows.map(({ cursorAt, ...book }) => {
+    void cursorAt;
+    return {
+      ...book,
+      media: mediaByBook.get(book.id) || null,
+      chapters: chaptersByBook.get(book.id) || [],
+    };
+  });
   const last = bookRows.at(-1)!;
   return {
     rows,
-    cursor:
-      bookRows.length === BOOK_BATCH_SIZE
-        ? { createdAt: last.createdAt.toISOString(), id: last.id }
-        : null,
+    cursor: bookRows.length === BOOK_BATCH_SIZE ? { createdAt: last.cursorAt, id: last.id } : null,
   };
 }
 
 async function loadBookRows(database: ExportDatabase, userId: string, cursor: BookCursor | null) {
   const bookRows = await database
-    .select()
+    .select({
+      ...getTableColumns(books),
+      cursorAt: sql<string>`to_char(${books.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+    })
     .from(books)
     .where(
       and(

@@ -29,11 +29,13 @@ import {
 } from "./db";
 import { ensurePermanentOfflineBookDeletion } from "./deletion-fence";
 import { notifyLibraryChanged } from "./library-revision";
+import { withBookProjectionLock } from "@/lib/offline-sync/locks";
 
 const PATCH_STORES = [
   "books",
   "chapters",
   "bookTags",
+  "tags",
   "playbackStates",
   "collections",
   "collectionBooks",
@@ -42,7 +44,9 @@ const PATCH_STORES = [
 
 type PatchStore = (typeof PATCH_STORES)[number];
 type MirrorPatchTransaction = IDBPTransaction<OfflineDatabase, PatchStore[], "readwrite">;
-export type MirrorPatch = (transaction: MirrorPatchTransaction) => Promise<void>;
+export type MirrorPatch = (
+  transaction: Pick<MirrorPatchTransaction, "objectStore">,
+) => Promise<void>;
 
 export type CommitResult = {
   queued: QueuedMutation;
@@ -52,6 +56,16 @@ export type CommitResult = {
 export async function commitMutation(
   mutation: QueuedMutation,
   patch: MirrorPatch | null = mirrorPatchFor(mutation),
+  afterQueue?: () => Promise<void>,
+): Promise<CommitResult> {
+  return withBookProjectionLock(mutation.userId, () =>
+    commitMutationUnlocked(mutation, patch, afterQueue),
+  );
+}
+
+async function commitMutationUnlocked(
+  mutation: QueuedMutation,
+  patch: MirrorPatch | null,
   afterQueue?: () => Promise<void>,
 ): Promise<CommitResult> {
   assertAccountWritable(mutation.userId);
@@ -128,15 +142,16 @@ export async function commitTagEdge(
   bookId: string,
   tagId: string,
   include: boolean,
+  name?: string,
 ) {
   const db = await database();
-  const tag = await db.get("tags", mirrorKey(origin.userId, tagId));
+  name ??= (await db.get("tags", mirrorKey(origin.userId, tagId)))?.name;
   return commitDraft({
     key: tagMutationKey(origin.userId, bookId, tagId),
     userId: origin.userId,
     kind: "tag",
     entityId: bookId,
-    payload: { tagId, include, ...(tag ? { name: tag.name } : {}) },
+    payload: { tagId, include, ...(name !== undefined ? { name } : {}) },
     deviceId: origin.deviceId,
     deviceSequence: 0,
   });
@@ -164,19 +179,8 @@ export async function commitTagList(
   }
   for (const [lowered, name] of after) {
     if (before.has(lowered)) continue;
-    let tagId = idByName.get(lowered);
-    if (!tagId) {
-      tagId = crypto.randomUUID();
-      const record: MirrorTag = {
-        key: mirrorKey(origin.userId, tagId),
-        userId: origin.userId,
-        tagId,
-        name,
-      };
-      await db.put("tags", record);
-      idByName.set(lowered, tagId);
-    }
-    await commitTagEdge(origin, bookId, tagId, true);
+    const tagId = idByName.get(lowered) ?? crypto.randomUUID();
+    await commitTagEdge(origin, bookId, tagId, true, name);
   }
 }
 
@@ -270,7 +274,7 @@ function abortQuietly(transaction: MirrorPatchTransaction): void {
   } catch {}
 }
 
-function mirrorPatchFor(mutation: QueuedMutation): MirrorPatch | null {
+export function mirrorPatchFor(mutation: QueuedMutation): MirrorPatch | null {
   const { userId, entityId, payload } = mutation;
   const now = new Date().toISOString();
   switch (mutation.kind) {
@@ -286,6 +290,15 @@ function mirrorPatchFor(mutation: QueuedMutation): MirrorPatch | null {
     case "tag":
       return async (transaction) => {
         const tagId = String(payload.tagId ?? "");
+        if (payload.include !== false && typeof payload.name === "string") {
+          const tag: MirrorTag = {
+            key: mirrorKey(userId, tagId),
+            userId,
+            tagId,
+            name: payload.name,
+          };
+          await transaction.objectStore("tags").put(tag);
+        }
         const key = mirrorKey(userId, entityId, tagId);
         const edges = transaction.objectStore("bookTags");
         if (payload.include === false) await edges.delete(key);
@@ -416,7 +429,7 @@ function laterClock(left: string, right: string): string {
   return Date.parse(left) >= Date.parse(right) ? left : right;
 }
 
-function bookFieldsFrom(payload: Record<string, unknown>): Partial<MirrorBook> {
+export function bookFieldsFrom(payload: Record<string, unknown>): Partial<MirrorBook> {
   const fields: Partial<MirrorBook> = {};
   for (const field of ["title", "author", "narrator", "description", "series"] as const) {
     if (field in payload) fields[field] = payload[field] as never;
@@ -432,7 +445,7 @@ function bookFieldsFrom(payload: Record<string, unknown>): Partial<MirrorBook> {
 }
 
 async function patchBook(
-  transaction: MirrorPatchTransaction,
+  transaction: Parameters<MirrorPatch>[0],
   userId: string,
   bookId: string,
   update: (book: MirrorBook) => MirrorBook,
@@ -450,7 +463,7 @@ function searchTextFor(book: MirrorBook): string {
 }
 
 async function removeBookAggregate(
-  transaction: MirrorPatchTransaction,
+  transaction: Parameters<MirrorPatch>[0],
   userId: string,
   bookId: string,
 ): Promise<void> {

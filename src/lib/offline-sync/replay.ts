@@ -5,6 +5,7 @@ import { withKeyedLock } from "@/lib/keyed-lock";
 import { runBounded } from "@/lib/run-bounded";
 
 import { database, type QueuedMutation, type SyncDb } from "./db";
+import { withBookProjectionLock } from "./locks";
 import { queuedMediaRegistrationIdentity } from "./media-registration-identity";
 import {
   hasPendingDeleteForMediaRegistration,
@@ -253,7 +254,10 @@ async function refreshDuplicateProgress(
 
 async function replayMutation(snapshot: QueuedMutation, fetchFn: typeof fetch): Promise<void> {
   await withMutationLock(snapshot, async () => {
-    const task = await supersedeStaleProgress(snapshot);
+    const db = await database();
+    const current = await db.get("mutations", snapshot.key);
+    if (!current) return;
+    const task = await supersedeStaleProgress(current);
     const identity = queuedMediaRegistrationIdentity(task);
     if (
       task.kind === "import" &&
@@ -312,11 +316,13 @@ async function replayMutation(snapshot: QueuedMutation, fetchFn: typeof fetch): 
 }
 
 async function settleMutation(snapshot: QueuedMutation): Promise<void> {
-  const db = await database();
-  const transaction = db.transaction("mutations", "readwrite");
-  const current = await transaction.store.get(snapshot.key);
-  if (current?.mutationId === snapshot.mutationId) await transaction.store.delete(snapshot.key);
-  await transaction.done;
+  await withBookProjectionLock(snapshot.userId, async () => {
+    const db = await database();
+    const transaction = db.transaction("mutations", "readwrite");
+    const current = await transaction.store.get(snapshot.key);
+    if (current?.mutationId === snapshot.mutationId) await transaction.store.delete(snapshot.key);
+    await transaction.done;
+  });
 }
 
 async function recordAttempt(snapshot: QueuedMutation): Promise<void> {

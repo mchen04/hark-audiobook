@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { inArray } from "drizzle-orm";
+import { inArray, sql } from "drizzle-orm";
 import { afterAll, expect, it, vi } from "vitest";
 
 const database = await vi.hoisted(async () => {
@@ -29,20 +29,23 @@ import { books, playbackActions, user } from "@/server/db/schema";
 
 afterAll(() => database.client.end());
 
-it("exports every action in ID order across pages and excludes another account", async () => {
+it("exports every book and action across pages and excludes another account", async () => {
   const account = { id: randomUUID(), email: `${randomUUID()}@hark.test`, name: "Export fixture" };
   const other = { id: randomUUID(), email: `${randomUUID()}@hark.test`, name: "Other fixture" };
-  const bookIds = [randomUUID(), randomUUID()];
+  const bookIds = Array.from({ length: 101 }, () => randomUUID());
   const otherBookId = randomUUID();
   const actionIds = Array.from({ length: 501 }, () => randomUUID());
   try {
     await database.db.insert(user).values([account, other]);
-    await database.db
-      .insert(books)
-      .values([
-        ...bookIds.map((id) => ({ id, ownerId: account.id, title: "Export book" })),
-        { id: otherBookId, ownerId: other.id, title: "Other book" },
-      ]);
+    await database.db.insert(books).values([
+      ...bookIds.map((id) => ({
+        id,
+        ownerId: account.id,
+        title: "Export book",
+        createdAt: sql`${"2026-01-01T00:00:00.123456Z"}::timestamptz`,
+      })),
+      { id: otherBookId, ownerId: other.id, title: "Other book" },
+    ]);
     await database.db.insert(playbackActions).values(
       [...actionIds, randomUUID()].map((id, index) => ({
         id,

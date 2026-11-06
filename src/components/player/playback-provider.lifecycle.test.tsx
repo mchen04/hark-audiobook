@@ -7,7 +7,8 @@ import { DEFAULT_PREFERENCES } from "@/domain/preferences";
 
 import type { PlayerBook } from "@/domain/player";
 
-const { preferenceRef, persistence } = vi.hoisted(() => ({
+const { preferenceRef, persistence, postSession } = vi.hoisted(() => ({
+  postSession: vi.fn(),
   preferenceRef: {
     current: {
       smartRewind: false,
@@ -36,9 +37,12 @@ vi.mock("@/lib/playback-history", () => ({
   replayPlaybackHistory: vi.fn().mockResolvedValue(undefined),
   PLAYBACK_HISTORY_LIMIT: 50,
 }));
-vi.mock("@/lib/listening-tracker", () => ({
-  createListeningTracker: () => ({ begin: vi.fn(), end: vi.fn(), reset: vi.fn() }),
-  queueListeningSession: vi.fn(),
+vi.mock("@/lib/listening-tracker", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/listening-tracker")>()),
+  queueListeningSession:
+    (userId: string) =>
+    (...args: unknown[]) =>
+      postSession(userId, ...args),
 }));
 
 import { hasAppPause } from "./pause-intent";
@@ -92,6 +96,77 @@ function remote(action: MediaSessionAction, details: Partial<MediaSessionActionD
   expect(handler, `missing ${action} handler`).toBeTypeOf("function");
   act(() => handler!({ action, ...details }));
 }
+
+it("records a listening stretch on an ordinary pause", () => {
+  vi.useFakeTimers();
+  const { result, audio } = mount();
+  act(() => result.current.playback.toggle());
+  audio.currentTime = 55;
+  vi.setSystemTime(Date.now() + 6_000);
+  act(() => result.current.playback.pause());
+
+  expect(postSession).toHaveBeenCalledOnce();
+  expect(postSession).toHaveBeenCalledWith(
+    "user-1",
+    book.id,
+    expect.objectContaining({ endPositionMs: 55_000 }),
+  );
+});
+
+it("excludes paused time after marking a book finished", () => {
+  vi.useFakeTimers();
+  const { result } = mount();
+  act(() => result.current.playback.toggle());
+  vi.setSystemTime(Date.now() + 6_000);
+  act(() => result.current.playback.markFinished());
+  expect(postSession).toHaveBeenCalledOnce();
+  const stretch = postSession.mock.calls[0]![2];
+  expect(Date.parse(stretch.endedAt) - Date.parse(stretch.startedAt)).toBe(6_000);
+
+  vi.setSystemTime(Date.now() + 100_000);
+  act(() => result.current.playback.loadBook(nextBook));
+  expect(postSession).toHaveBeenCalledOnce();
+});
+
+it("keeps a short listening stretch across a refreshed audio source", () => {
+  vi.useFakeTimers();
+  const { result } = mount();
+  act(() => result.current.playback.toggle());
+  vi.setSystemTime(Date.now() + 4_000);
+  act(() => result.current.playback.loadBook({ ...book, mediaUrl: "/offline-media/refreshed" }));
+  vi.setSystemTime(Date.now() + 4_000);
+  act(() => result.current.playback.pause());
+
+  expect(postSession).toHaveBeenCalledOnce();
+  const stretch = postSession.mock.calls[0]![2];
+  expect(Date.parse(stretch.endedAt) - Date.parse(stretch.startedAt)).toBe(8_000);
+});
+
+it.each(["unload", "unmount"])(
+  "closes the listening stretch on %s before a queued pause",
+  (exit) => {
+    vi.useFakeTimers();
+    const { result, audio, unmount } = mount();
+    act(() => result.current.playback.toggle());
+    audio.currentTime = 55;
+    vi.setSystemTime(Date.now() + 6_000);
+    vi.mocked(audio.pause).mockImplementation(() => {
+      paused = true;
+    });
+
+    if (exit === "unload") act(() => result.current.playback.unloadBook());
+    else unmount();
+    act(() => audio.dispatchEvent(new Event("pause")));
+
+    expect(postSession).toHaveBeenCalledOnce();
+    expect(postSession).toHaveBeenCalledWith(
+      "user-1",
+      book.id,
+      expect.objectContaining({ endPositionMs: 55_000 }),
+    );
+    expect(persistence.persistProgress).toHaveBeenCalledWith("book-unload", 55_000);
+  },
+);
 
 beforeEach(() => {
   preferenceRef.current = { ...DEFAULT_PREFERENCES };
