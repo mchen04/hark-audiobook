@@ -52,6 +52,7 @@ import {
 } from "@/lib/offline/db";
 import { listStoredOfflineBooks } from "@/lib/offline/library";
 import { applyPullBatch, getSyncMeta } from "@/lib/offline/mirror";
+import { replayAcknowledgements } from "@/lib/offline-sync/sequences";
 import {
   commitArchiveChange,
   commitBookDeletion,
@@ -213,7 +214,9 @@ class Driver {
       const meta = await getSyncMeta(userId).catch(() => undefined);
       const since = meta?.cursor ? `?since=${encodeURIComponent(meta.cursor)}` : "";
       let response: Response;
+      let acknowledged: number;
       try {
+        acknowledged = await replayAcknowledgements(userId);
         response = await fetch(`/api/sync/pull${since}`, { cache: "no-store" });
       } catch {
         return "unreachable";
@@ -222,10 +225,10 @@ class Driver {
       if (!response.ok) return "unreachable";
       const batch: unknown = await response.json().catch(() => null);
       if (!isPullBatch(batch)) return "unreachable";
-      await applyPullBatch(userId, batch);
+      if (!(await applyPullBatch(userId, batch, undefined, undefined, acknowledged))) continue;
       if (batch.complete) return "applied";
     }
-    return "applied";
+    return "unreachable";
   }
 
   async mirror(): Promise<MirrorSnapshot> {

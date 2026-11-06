@@ -684,3 +684,17 @@ it("persists acknowledgement counts per account and removes them with account da
   await purgeDeviceSequencesForUser(user);
   expect(await reopened.replayAcknowledgements(user)).toBe(0);
 });
+
+it("the browser bridge applies a fresh server correction after replay settles", async () => {
+  await applyPullBatch(user, batch("Original title", t0, null));
+  await commitMetadataEdit({ userId: user, deviceId: "device" }, "h7-book", { title: "My edit" });
+  await replayQueuedMutations(user, async () => Response.json({ ok: true }));
+  await import("../../../tests/sync/harness/driver-entry");
+  window.__harkSync.configure(user, "bridge-device");
+  const pull = window.__harkSync.pull();
+  await waitFor(() => expect(requests).toHaveLength(1), { interval: 1 });
+  requests[0]!.resolve(Response.json(batch("Fresh server correction", t1, t0)));
+  expect(await pull).toBe("applied");
+  expect((await readMirrorLibrary(user)).books[0]?.title).toBe("Fresh server correction");
+  expect((await getSyncMeta(user))?.cursor).toBe(t1);
+});
